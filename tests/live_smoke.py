@@ -24,6 +24,7 @@ def tick():
     if state['ticks'] > 900:
         print('TIMEOUT', flush=True); app.exit(2); return
     if window.connected and not state['submitted']:
+        window.reset_graph()
         window.width.setValue(768); window.height.setValue(768)
         window.steps.setValue(20); window.seed.setText('-1')
         window.positive.setPlainText('a cozy wooden cabin beside a lake, autumn forest, golden sunset, detailed digital painting')

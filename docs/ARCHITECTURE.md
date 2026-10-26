@@ -10,11 +10,14 @@
 - `aipictures/storage.py`：项目数据根、原子 JSON 写入、任务目录。输出与源码分离。
 - `aipictures/workflow_editor.py`：Qt WebEngine 内嵌本地 ComfyUI 前端，独立 profile/cache；通过异步 JavaScript 桥接读写画布副本、导出 UI/API、向 app 发出运行请求。前端通过本机公开的 comfyAPI/app 接口转换图，不向 ComfyUI 安装扩展或修改资源。桥接接口随前端版本可能变化。
 - `aipictures/workflow_library.py`：本地目录索引、导入路径解析、已安装节点/模型/输入图和连线的兼容检查。`tools/migrate_local_workflows.py` 负责非破坏性复制和来源校验，不把迁移数据放入源码目录。
+- `aipictures/prompt_binding.py`：对话请求与 API 图之间的独立绑定层。根据 KSampler 正/负条件连线定位文本输入，识别 IP-Adapter 角色参考输入及 VAEEncode 图生图参考；与 ControlNet 姿态图分开处理。基础空画布图可注入图生图路径。每次绑定都深拷贝模板；多组提示词或参考输入歧义时拒绝自动绑定。
 - `tests/`：结构测试与真实桌面到 ComfyUI 验收脚本。
 
 任务目录 `data/jobs/<时间_UUID>/` 包含 `job.json`、`workflow.json`、`result.json`、`image_000.png`。任务记录版本为 1，kind 当前为 image，状态包括 created、queued、running、completed、failed、cancelled。随机种子在提交前固化，完整工作流和 ComfyUI history 用于复现。程序重启会重新扫描图片记录；不会自动重提中断任务，以免重复生成。崩溃时 queued/running 记录可能陈旧，可用 prompt_id 在 ComfyUI 查询。
 
-自定义 API JSON 直接作为独立任务快照提交，不修改源文件；内置参数不覆盖自定义图。服务端执行节点与模型校验。第一阶段只内置 SDXL checkpoint 管线；FLUX 的拆分 UNet/CLIP/VAE 加载方式需专门适配，不能仅替换 checkpoint 文件名。已有有效 FLUX API 工作流可直接导入，但本机尚无 FLUX 权重，因此未验证。
+对话入口将 UI 参数写入独立 API 任务快照，不修改模板源文件；高级编辑器直接运行仍保留画布原始参数。服务端执行最终节点与模型校验。第一阶段只内置 SDXL checkpoint 管线；FLUX 的拆分 UNet/CLIP/VAE 加载方式需专门适配，不能仅替换 checkpoint 文件名。已有有效 FLUX API 工作流可在高级编辑器直接运行，但对话自动绑定及本地权重尚未验证。
+
+对话任务 `params.mode=chat`，保存 user_prompt、实际 positive/negative、bindings、template、reference 和 uploaded_reference。参考图先复制到 data/references，再在后台线程上传；上传与入队之间持有固定图快照，后续修改输入不改变已提交任务。上传阶段可取消，已完成的本地输入上传不自动删除。对话消息只反映任务状态，没有 LLM 层或隐式多轮上下文。
 
 从编辑器运行时 `params.mode=workflow_editor`，同目录附带 `editor_workflow.json`（UI 工作流，保留布局）。图像页和工作流编辑器共用 `queue_graph` 执行入口；编辑时及入队时均生成独立数据快照，后续编辑不改变已经提交的任务。编辑器内部 ComfyUI 自带运行按钮属于另一个客户端，其任务不由本软件队列管理。
 
@@ -28,4 +31,4 @@
 
 第四阶段：VideoRequest 与视频工作流适配器独立于游戏帧任务；共享 AssetManifest（文件、媒体类型、来源任务、校验值）。Wan 等先验证显存预算、许可证与节点支持，再添加模型配置。
 
-尚未实现：训练、数据集编辑、姿态编辑、动画时间轴、视频生成、内置图生图和局部重绘、断线自动恢复、实时中间图预览。当前显示的是采样进度及最终图片。
+尚未实现：训练、数据集编辑、姿态编辑、动画时间轴、视频生成、局部重绘、LLM 多轮对话理解、断线自动恢复、实时中间图预览。当前显示的是采样进度及最终图片。

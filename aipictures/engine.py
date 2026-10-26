@@ -1,6 +1,8 @@
 import json
 import time
 import uuid
+import mimetypes
+from pathlib import Path, PurePosixPath
 from urllib.request import Request, urlopen, ProxyHandler, build_opener
 from urllib.parse import urlencode, urlparse
 from urllib.error import HTTPError
@@ -37,6 +39,22 @@ class ComfyClient:
                 'loras': choices('LoraLoader', 'lora_name'),
                 'samplers': choices('KSampler', 'sampler_name'),
                 'schedulers': choices('KSampler', 'scheduler'), 'nodes': list(info), 'object_info': info}
+
+    def upload_image(self, path):
+        path = Path(path)
+        boundary = 'AIPictures' + uuid.uuid4().hex
+        filename = uuid.uuid4().hex + path.suffix.lower()
+        parts = []
+        for field, value in [('type', 'input'), ('subfolder', 'AIPictures/references'), ('overwrite', 'false')]:
+            parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{field}"\r\n\r\n{value}\r\n'.encode())
+        mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="image"; filename="{filename}"\r\nContent-Type: {mime}\r\n\r\n'.encode())
+        parts.extend([path.read_bytes(), f'\r\n--{boundary}--\r\n'.encode()])
+        req = Request(self.url + '/upload/image', data=b''.join(parts),
+                      headers={'Content-Type': 'multipart/form-data; boundary=' + boundary})
+        with self.http.open(req, timeout=30) as response:
+            result = json.loads(response.read())
+        return str(PurePosixPath(result.get('subfolder', '')) / result['name'])
 
     def cancel(self, prompt_id):
         # Never interrupt another client's running task.

@@ -16,8 +16,10 @@ def tick():
     if state['ticks'] > 120: app.exit(2); return
     if window.connected and not state['submitted']:
         state['submitted'] = True
+        window.reset_graph()
+        window.positive.setPlainText('a small wooden toy car')
         bad = build_workflow(ImageRequest('missing-test-checkpoint.safetensors', 'test'))
-        window.custom_graph = bad; window.enqueue()
+        window.queue_graph(bad, {'test': 'server validation failure'})
         state['folders'].append(window.current['folder'])
         window.custom_graph = None
         window.width.setValue(256); window.height.setValue(256); window.steps.setValue(2)

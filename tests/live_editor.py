@@ -81,6 +81,8 @@ def tick():
     if time.monotonic() - state['started'] > 180:
         fail('timeout, stage=' + state['stage'] + ', ' + window.editor.status.text()); return
     if state['stage'] == 'connect' and window.connected:
+        window.reset_graph()
+        window.positive.setPlainText('a ceramic teapot, studio photography')
         window.width.setValue(512); window.height.setValue(512); window.steps.setValue(8)
         window.seed.setText('-1')
         window.tabs.setCurrentIndex(1)

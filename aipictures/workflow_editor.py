@@ -1,6 +1,7 @@
 """Embedded local ComfyUI frontend; no files are installed into ComfyUI."""
 import json
 import time
+import os
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,6 +17,8 @@ from .workflow_library import list_workflows, workflow_path, inspect_workflow, d
 
 class WorkflowEditor(QWidget):
     run_requested = Signal(dict)
+    template_requested = Signal(dict)
+    became_ready = Signal()
     draft_requested = Signal()
     message = Signal(str)
 
@@ -33,7 +36,7 @@ class WorkflowEditor(QWidget):
         self.reload_button = QPushButton('连接 / 重新加载编辑器')
         self.reload_button.clicked.connect(self.reload)
         toolbar.addWidget(self.reload_button)
-        self.draft_button = QPushButton('载入图像页工作流')
+        self.draft_button = QPushButton('载入对话配置')
         self.draft_button.clicked.connect(self.draft_requested.emit)
         toolbar.addWidget(self.draft_button)
         self.import_button = QPushButton('打开工作流副本…')
@@ -42,6 +45,9 @@ class WorkflowEditor(QWidget):
         self.save_button = QPushButton('保存工作流副本…')
         self.save_button.clicked.connect(self.save_file)
         toolbar.addWidget(self.save_button)
+        self.use_button = QPushButton('用于对话生成')
+        self.use_button.clicked.connect(self.use_for_chat)
+        toolbar.addWidget(self.use_button)
         toolbar.addStretch()
         self.run_button = QPushButton('运行到软件任务队列')
         self.run_button.setObjectName('primary')
@@ -68,13 +74,14 @@ class WorkflowEditor(QWidget):
         self.status = QLabel('先连接本地 ComfyUI，再打开工作流编辑器。')
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
-        hint = QLabel('在画布内编辑节点、拖动连线和调整参数。使用上方“运行到软件任务队列”可在图像页查看进度和自动保存结果。')
+        hint = QLabel('编辑节点后点“用于对话生成”，聊天输入将自动绑定到此工作流。直接运行可在对话页查看进度和结果。')
         hint.setWordWrap(True)
         layout.addWidget(hint)
         # The app owns this profile for its lifetime, independently of Desktop/browser profiles.
         self.profile = QWebEngineProfile('AIPictures-workflows', QApplication.instance())
-        self.profile.setPersistentStoragePath(str(DATA / 'browser' / 'storage'))
-        self.profile.setCachePath(str(DATA / 'browser' / 'cache'))
+        profile_root = Path(os.environ.get('AIPICTURES_BROWSER_PROFILE', str(DATA / 'browser')))
+        self.profile.setPersistentStoragePath(str(profile_root / 'storage'))
+        self.profile.setCachePath(str(profile_root / 'cache'))
         self.profile.downloadRequested.connect(self.download_requested)
         self.web = QWebEngineView(self)
         self.page = QWebEnginePage(self.profile, self.web)
@@ -92,7 +99,7 @@ class WorkflowEditor(QWidget):
 
     def set_ready(self, ready):
         self.ready = ready
-        for button in (self.draft_button, self.import_button, self.save_button, self.run_button):
+        for button in (self.draft_button, self.import_button, self.save_button, self.run_button, self.use_button):
             button.setEnabled(ready and not self.pending)
         self.library_open_button.setEnabled(ready and not self.pending and self.library.currentData() is not None)
 
@@ -233,6 +240,7 @@ class WorkflowEditor(QWidget):
             self.ready_deadline = None
             self.set_ready(True)
             self.status.setText('工作流编辑器已就绪 · 使用独立编辑器缓存；打开文件不会覆盖源文件。')
+            self.became_ready.emit()
 
     def action(self, script, callback):
         if not self.ready:
@@ -320,6 +328,37 @@ class WorkflowEditor(QWidget):
     def snapshot(self, callback):
         self.action('''const prompt = await app.graphToPrompt();
             return {graph: prompt.output, workflow: prompt.workflow};''', callback)
+
+    def use_for_chat(self):
+        def done(result):
+            if not result['ok']:
+                self.report_error(result)
+                return
+            self.template_requested.emit(result['value'])
+        self.snapshot(done)
+
+    def sync_inputs(self, graph):
+        script = 'const graph = ' + json.dumps(graph, ensure_ascii=True) + ';'
+        script += '''
+            const matches = Object.entries(graph).every(([id, node]) => app.rootGraph.getNodeById(id)?.type === node.class_type)
+                && app.rootGraph._nodes.length === Object.keys(graph).length;
+            if (!matches) {
+                await app.loadApiJson(graph, 'AIPictures-chat');
+            } else {
+                for (const [id, node] of Object.entries(graph)) {
+                    const target = app.rootGraph.getNodeById(id);
+                    for (const [field, value] of Object.entries(node.inputs)) {
+                        if (Array.isArray(value)) continue;
+                        const widget = target.widgets?.find(w => w.name === field);
+                        if (widget) { widget.value = value; widget.callback?.(value); }
+                    }
+                }
+                app.rootGraph.change();
+            }
+            app.canvas.setDirty(true, true);
+            return {};
+        '''
+        self.action(script, lambda result: self.report_error(result) if not result['ok'] else None)
 
     def run_graph(self):
         self.run_button.setEnabled(False)
