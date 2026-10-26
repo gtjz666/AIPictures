@@ -1,0 +1,1 @@
+"""AIPictures desktop studio."""
