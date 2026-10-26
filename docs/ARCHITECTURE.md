@@ -9,6 +9,7 @@
 - `aipictures/workflow.py`：可序列化 ImageRequest 和 SDXL 工作流构建，LoRA 的 model/clip 与 VAE 独立连接。
 - `aipictures/storage.py`：项目数据根、原子 JSON 写入、任务目录。输出与源码分离。
 - `aipictures/workflow_editor.py`：Qt WebEngine 内嵌本地 ComfyUI 前端，独立 profile/cache；通过异步 JavaScript 桥接读写画布副本、导出 UI/API、向 app 发出运行请求。前端通过本机公开的 comfyAPI/app 接口转换图，不向 ComfyUI 安装扩展或修改资源。桥接接口随前端版本可能变化。
+- `aipictures/workflow_library.py`：本地目录索引、导入路径解析、已安装节点/模型/输入图和连线的兼容检查。`tools/migrate_local_workflows.py` 负责非破坏性复制和来源校验，不把迁移数据放入源码目录。
 - `tests/`：结构测试与真实桌面到 ComfyUI 验收脚本。
 
 任务目录 `data/jobs/<时间_UUID>/` 包含 `job.json`、`workflow.json`、`result.json`、`image_000.png`。任务记录版本为 1，kind 当前为 image，状态包括 created、queued、running、completed、failed、cancelled。随机种子在提交前固化，完整工作流和 ComfyUI history 用于复现。程序重启会重新扫描图片记录；不会自动重提中断任务，以免重复生成。崩溃时 queued/running 记录可能陈旧，可用 prompt_id 在 ComfyUI 查询。

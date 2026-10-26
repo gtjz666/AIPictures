@@ -140,6 +140,7 @@ class Window(QMainWindow):
                 self.status.setText('连接失败：请启动 ComfyUI 后重试'); self.log.append(data); return
             if kind != 'result': return
             self.client = client; self.info = data; self.connected = True
+            self.editor.set_node_info(data['object_info'])
             self.model.clear(); self.model.addItems(data['checkpoints'])
             self.lora.clear(); self.lora.addItem('不使用 LoRA', '')
             for name in data['loras']: self.lora.addItem(name, name)

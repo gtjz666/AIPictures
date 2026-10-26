@@ -8,9 +8,10 @@ from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel,
-                              QPushButton, QVBoxLayout, QWidget)
+                              QPushButton, QVBoxLayout, QWidget, QComboBox)
 
 from .storage import DATA, write_json
+from .workflow_library import list_workflows, workflow_path, inspect_workflow, dependency_summary
 
 
 class WorkflowEditor(QWidget):
@@ -23,7 +24,10 @@ class WorkflowEditor(QWidget):
         self.url = None
         self.ready = False
         self.pending = {}
+        self.object_info = None
         self.page_generation = 0
+        self.ready_signature = None
+        self.ready_since = None
         layout = QVBoxLayout(self)
         toolbar = QHBoxLayout()
         self.reload_button = QPushButton('连接 / 重新加载编辑器')
@@ -44,6 +48,23 @@ class WorkflowEditor(QWidget):
         self.run_button.clicked.connect(self.run_graph)
         toolbar.addWidget(self.run_button)
         layout.addLayout(toolbar)
+        library_bar = QHBoxLayout()
+        library_bar.addWidget(QLabel('本地工作流库'))
+        self.library = QComboBox()
+        self.library.setMinimumWidth(350)
+        self.library.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.library.currentIndexChanged.connect(self.library_selection_changed)
+        library_bar.addWidget(self.library, 1)
+        self.library_open_button = QPushButton('打开选中工作流')
+        self.library_open_button.clicked.connect(self.open_library_entry)
+        library_bar.addWidget(self.library_open_button)
+        refresh = QPushButton('刷新工作流库')
+        refresh.clicked.connect(self.refresh_library)
+        library_bar.addWidget(refresh)
+        layout.addLayout(library_bar)
+        self.library_info = QLabel()
+        self.library_info.setWordWrap(True)
+        layout.addWidget(self.library_info)
         self.status = QLabel('先连接本地 ComfyUI，再打开工作流编辑器。')
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
@@ -66,12 +87,77 @@ class WorkflowEditor(QWidget):
         self.timer.timeout.connect(self.poll)
         self.timer.start(200)
         self.ready_deadline = None
+        self.refresh_library()
         self.set_ready(False)
 
     def set_ready(self, ready):
         self.ready = ready
         for button in (self.draft_button, self.import_button, self.save_button, self.run_button):
             button.setEnabled(ready and not self.pending)
+        self.library_open_button.setEnabled(ready and not self.pending and self.library.currentData() is not None)
+
+    def set_node_info(self, info):
+        self.object_info = info
+        self.refresh_library()
+
+    def refresh_library(self):
+        selected = self.library.currentData()
+        selected_id = selected.get('id') if selected else None
+        self.library.blockSignals(True)
+        self.library.clear()
+        try:
+            entries = list_workflows()
+            for entry in entries:
+                if self.object_info:
+                    graph = json.loads(workflow_path(entry).read_text('utf-8-sig'))
+                    entry['compatibility'] = inspect_workflow(graph, self.object_info)
+                report = entry.get('compatibility', {})
+                verified = entry.get('validation', {}).get('generation_verified')
+                status = ('出图已验证' if verified else '依赖齐全') if report.get('dependencies_ready') else '待补依赖'
+                self.library.addItem(entry['title'] + ' · ' + status, entry)
+                if entry.get('id') == selected_id:
+                    self.library.setCurrentIndex(self.library.count() - 1)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            self.message.emit('读取本地工作流库失败：' + str(exc))
+        if not self.library.count():
+            self.library.addItem('暂无已导入工作流', None)
+        self.library.blockSignals(False)
+        self.library_selection_changed()
+        self.set_ready(self.ready)
+
+    def library_selection_changed(self, _index=None):
+        entry = self.library.currentData()
+        self.library_info.setText(dependency_summary(entry.get('compatibility', {})) if entry else '可通过“打开工作流副本…”载入已有 JSON。')
+        self.library_open_button.setEnabled(self.ready and not self.pending and entry is not None)
+
+    def open_library_entry(self):
+        entry = self.library.currentData()
+        if not entry:
+            return
+        try:
+            path = workflow_path(entry)
+            graph = json.loads(path.read_text('utf-8-sig'))
+            self.load_graph(graph, path.stem + '-AIPictures-copy',
+                            callback=lambda result: self.fit_graph() if result['ok'] else None,
+                            show_missing_models=False)
+        except (OSError, ValueError, KeyError) as exc:
+            self.report_error({'error': str(exc)})
+
+    def fit_graph(self):
+        self.action('''
+            const nodes = app.rootGraph._nodes;
+            if (!nodes.length) return {};
+            const x1 = Math.min(...nodes.map(n => n.pos[0]));
+            const y1 = Math.min(...nodes.map(n => n.pos[1]));
+            const x2 = Math.max(...nodes.map(n => n.pos[0] + n.size[0]));
+            const y2 = Math.max(...nodes.map(n => n.pos[1] + n.size[1]));
+            const rect = app.canvas.canvas.getBoundingClientRect();
+            const scale = Math.max(.05, Math.min(1, rect.width / (x2-x1+160), rect.height / (y2-y1+160)));
+            app.canvas.ds.scale = scale;
+            app.canvas.ds.offset = [(rect.width/scale-(x2-x1))/2-x1, (rect.height/scale-(y2-y1))/2-y1];
+            app.canvas.setDirty(true, true);
+            return {};
+        ''', lambda result: self.report_error(result) if not result['ok'] else None)
 
     def connect_url(self, url):
         if self.url != url:
@@ -92,6 +178,8 @@ class WorkflowEditor(QWidget):
             callback({'ok': False, 'error': '编辑器已重新加载，请重试操作'})
         self.set_ready(False)
         self.ready_deadline = None
+        self.ready_signature = None
+        self.ready_since = None
         self.status.setText('正在加载本地 ComfyUI 节点编辑器…')
 
     def load_finished(self, ok):
@@ -107,7 +195,14 @@ class WorkflowEditor(QWidget):
                 self.status.setText('节点编辑器初始化超时，请重新加载。')
             else:
                 generation = self.page_generation
-                self.page.runJavaScript('Boolean(window.app?.canvas && window.LiteGraph?.registered_node_types?.KSampler && !document.getElementById("splash-loader"))',
+                self.page.runJavaScript('''(() => {
+                    const graph = window.app?.rootGraph;
+                    if (!window.app?.canvas || !window.LiteGraph?.registered_node_types?.KSampler ||
+                        document.getElementById('splash-loader') ||
+                        window.comfyAPI?.changeTracker?.ChangeTracker?.isLoadingGraph ||
+                        !graph || (!graph._nodes.length && !graph._version)) return '';
+                    return JSON.stringify([graph.id, graph._version, graph._nodes.length]);
+                })()''',
                     lambda value: self.check_ready(value, generation))
         for token, item in list(self.pending.items()):
             if item['polling']:
@@ -122,7 +217,19 @@ class WorkflowEditor(QWidget):
                 lambda value, token=token: self.receive(token, value))
 
     def check_ready(self, value, generation):
-        if generation == self.page_generation and value and self.ready_deadline:
+        if generation != self.page_generation or not self.ready_deadline:
+            return
+        if not value:
+            self.ready_signature = None
+            self.ready_since = None
+            return
+        if value != self.ready_signature:
+            self.ready_signature = value
+            self.ready_since = time.monotonic()
+            return
+        # Startup restores saved tabs after registering the canvas. Let that graph settle
+        # before accepting an import, so restoration cannot replace the just-imported graph.
+        if self.ready_since is not None and time.monotonic() - self.ready_since >= 1:
             self.ready_deadline = None
             self.set_ready(True)
             self.status.setText('工作流编辑器已就绪 · 使用独立编辑器缓存；打开文件不会覆盖源文件。')
@@ -169,7 +276,7 @@ class WorkflowEditor(QWidget):
         self.status.setText(message)
         self.message.emit(message)
 
-    def load_graph(self, graph, name='AIPictures-draft', callback=None):
+    def load_graph(self, graph, name='AIPictures-draft', callback=None, show_missing_models=True):
         # handleFile uses the installed frontend's own API/UI workflow conversion.
         is_ui = isinstance(graph, dict) and isinstance(graph.get('nodes'), list)
         is_api = isinstance(graph, dict) and bool(graph) and all(
@@ -181,11 +288,14 @@ class WorkflowEditor(QWidget):
             if callback:
                 callback(result)
             return
-        script = ('const graph = ' + json.dumps(graph, ensure_ascii=True) + ';'
-                  'const file = new File([JSON.stringify(graph)], ' + json.dumps(name + '.json') +
-                  ', {type: "application/json"});'
-                  'await app.handleFile(file);'
-                  'return {nodes: app.rootGraph._nodes.length};')
+        script = 'const graph = ' + json.dumps(graph, ensure_ascii=True) + ';'
+        if is_ui and not show_missing_models:
+            script += ('await app.loadGraphData(graph, true, true, ' + json.dumps(name) +
+                       ', {showMissingModelsDialog: false});')
+        else:
+            script += ('const file = new File([JSON.stringify(graph)], ' + json.dumps(name + '.json') +
+                       ', {type: "application/json"});await app.handleFile(file);')
+        script += 'return {nodes: app.rootGraph._nodes.length};'
         def done(result):
             if result['ok']:
                 self.status.setText(f'已载入独立副本：{name} · 可直接编辑节点和连线')

@@ -36,7 +36,7 @@ class ComfyClient:
         return {'checkpoints': choices('CheckpointLoaderSimple', 'ckpt_name'),
                 'loras': choices('LoraLoader', 'lora_name'),
                 'samplers': choices('KSampler', 'sampler_name'),
-                'schedulers': choices('KSampler', 'scheduler'), 'nodes': list(info)}
+                'schedulers': choices('KSampler', 'scheduler'), 'nodes': list(info), 'object_info': info}
 
     def cancel(self, prompt_id):
         # Never interrupt another client's running task.

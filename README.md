@@ -28,6 +28,20 @@ Windows 独立本地 AI 图像创作桌面软件，第一阶段。Python + PySid
 
 此功能依赖 PySide6 WebEngine（已包含在锁定依赖中）及运行中的本地 ComfyUI。桥接已针对本机 ComfyUI 0.20.1 / 前端 1.42.15 验证；升级前端后如桥接接口变化，仍需做兼容验证。
 
+### 旧工作流移植
+
+“工作流编辑”页增加了“本地工作流库”，选择条目后点击“打开选中工作流”。列表标明基础依赖是否齐全；连接或刷新模型时重新对照本机节点、模型和输入图片。缺少依赖的工作流仍可打开编辑，补齐之前不应提交生成。
+
+本机 Local Comfy 活动目录的三套侧视角色工作流已复制到 `data/workflows/imported`，索引为 `data/workflows/library.json`；源文件保持不变并记录 SHA-256，相关标准姿态图保存在各副本的 `assets` 子目录。基础工作流已按原参数完成 768×1024、28 步出图；另两套缺少姿态 ControlNet 和部分服务端输入图。姿态图副本可通过 LoadImage 上传；角色参考图需另行选择。
+
+移植记录位于 `data/migration-report.json`，实际加载与出图证据位于 `data/migration-acceptance.json`。用户工作流、素材和生成结果保留本地，由 `.gitignore` 排除。换电脑后可重新导入：
+
+```powershell
+& .\.venv\Scripts\python.exe -m tools.migrate_local_workflows --source '你的 ComfyUI 工作流目录' --asset-root '可选的姿态图目录'
+```
+
+该工具只复制顶层 UI JSON、复制被引用且能找到的配套图片、登记来源并检查依赖，不下载模型或改写 ComfyUI。源内容相同且本地副本未变时重复导入不会重复创建；源或副本已改动时创建新版本。
+
 原有 AIGAMING 与 ComfyUI 工作流未被覆盖；没有下载模型、没有安装自定义节点。仅新增标准 ComfyUI 生成输出和本软件数据。
 
 ## 测试与验收
