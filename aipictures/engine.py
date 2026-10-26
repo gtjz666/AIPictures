@@ -5,7 +5,7 @@ import mimetypes
 from pathlib import Path, PurePosixPath
 from urllib.request import Request, urlopen, ProxyHandler, build_opener
 from urllib.parse import urlencode, urlparse
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 import websocket
 
 
@@ -93,7 +93,11 @@ class ComfyClient:
                     pass
                 if time.monotonic() - checked >= 1:
                     checked = time.monotonic()
-                    history = self.request('/history/' + prompt_id).get(prompt_id)
+                    try:
+                        history = self.request('/history/' + prompt_id).get(prompt_id)
+                    except (TimeoutError, URLError) as error:
+                        emit('monitor_waiting', {'prompt_id': prompt_id, 'message': str(error)})
+                        continue
                     if history:
                         if history.get('status', {}).get('status_str') == 'error':
                             raise RuntimeError(json.dumps(history['status'], ensure_ascii=False))

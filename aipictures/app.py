@@ -8,16 +8,16 @@ from uuid import uuid4
 from dataclasses import asdict
 from pathlib import Path
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QUrl
-from PySide6.QtGui import QPixmap, QDesktopServices, QImageReader
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QFormLayout, QLabel, QLineEdit, QTextEdit, QComboBox, QSpinBox, QDoubleSpinBox,
-    QPushButton, QProgressBar, QListWidget, QListWidgetItem, QSplitter, QFileDialog, QMessageBox, QScrollArea, QTabWidget, QTextBrowser)
+from PySide6.QtGui import QPixmap, QImageReader
+from PySide6.QtWidgets import QApplication, QMainWindow, QSpinBox, QListWidgetItem, QFileDialog, QMessageBox
 from .engine import ComfyClient, Cancelled
 from .workflow import ImageRequest, build_workflow
 from .storage import DATA, write_json, new_job
 from .workflow_editor import WorkflowEditor
 from .prompt_binding import bind_request, bindings, check_models
 from .workflow_library import list_workflows, workflow_path, digest
+from .character_profile import load_profile
+from .panels import SkeletonDialog
 
 
 class Worker(QThread):
@@ -54,99 +54,14 @@ class Window(QMainWindow):
         self.chat_messages = []
         self.template_restored = False
         self.connected = False
-        root = QWidget(); self.setCentralWidget(root)
-        layout = QVBoxLayout(root)
-        header = QHBoxLayout()
-        header.addWidget(QLabel('AIPictures  /  本地 AI 创作'))
-        self.url = QLineEdit('http://127.0.0.1:8188'); self.url.setMaximumWidth(300)
+        self.character_profile = None
+        self.character_loading = False
+        from .studio_layout import build_studio
+        build_studio(self)
         config = DATA / 'settings.json'
         if config.exists():
             try: self.url.setText(json.loads(config.read_text('utf-8'))['url'])
             except (ValueError, KeyError): pass
-        header.addStretch(); header.addWidget(self.url)
-        self.connect_button = QPushButton('连接 / 刷新模型'); self.connect_button.clicked.connect(self.connect_engine)
-        header.addWidget(self.connect_button); layout.addLayout(header)
-        self.tabs = QTabWidget(); layout.addWidget(self.tabs, 1)
-        image_page = QWidget(); image_layout = QVBoxLayout(image_page); image_layout.setContentsMargins(0, 0, 0, 0)
-        splitter = QSplitter(); image_layout.addWidget(splitter, 1)
-        self.tabs.addTab(image_page, '对话创作')
-        left = QWidget(); lv = QVBoxLayout(left)
-        lv.addWidget(QLabel('创作空间'))
-        edit = QPushButton('高级：工作流编辑'); edit.clicked.connect(lambda: self.tabs.setCurrentIndex(1)); lv.addWidget(edit)
-        lv.addWidget(QLabel('数据集 / 训练 / 骨骼 / 动画 / 视频\n后续阶段，尚未实现'))
-        lv.addWidget(QLabel('本地生成记录（双击预览）'))
-        self.gallery = QListWidget(); self.gallery.itemDoubleClicked.connect(self.open_history)
-        lv.addWidget(self.gallery, 1)
-        open_data = QPushButton('打开素材与结果目录'); open_data.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(DATA))))
-        lv.addWidget(open_data)
-        self.gpu = QLabel('显存：等待连接'); self.gpu.setWordWrap(True); lv.addWidget(self.gpu)
-        splitter.addWidget(left)
-        center = QWidget(); cv = QVBoxLayout(center)
-        mode_bar = QHBoxLayout(); mode_bar.addWidget(QLabel('生成方式'))
-        self.workflow_selector = QComboBox(); self.workflow_selector.addItem('自动选择 · 文字生成 / 参考图生成', None)
-        for entry in list_workflows(): self.workflow_selector.addItem(entry['title'], entry)
-        self.workflow_selector.currentIndexChanged.connect(self.select_chat_workflow)
-        mode_bar.addWidget(self.workflow_selector, 1); cv.addLayout(mode_bar)
-        self.preview = QLabel('描述你想创作的画面，或添加一张参考图'); self.preview.setAlignment(Qt.AlignCenter)
-        self.preview.setMinimumSize(360, 240); self.preview.setStyleSheet('background:#10141e;border:1px solid #31394c;border-radius:12px;color:#8d9bb4')
-        cv.addWidget(self.preview, 1)
-        self.caption = QLabel('生成结果自动保存 PNG、参数和完整工作流'); self.caption.setWordWrap(True); cv.addWidget(self.caption)
-        save_bar = QHBoxLayout()
-        save = QPushButton('将当前图片另存为…'); save.clicked.connect(self.save_as); save_bar.addWidget(save)
-        reuse = QPushButton('用这张图继续创作'); reuse.clicked.connect(self.use_current_as_reference); save_bar.addWidget(reuse)
-        cv.addLayout(save_bar)
-        self.chat = QTextBrowser(); self.chat.setMinimumHeight(85); self.chat.setMaximumHeight(150)
-        cv.addWidget(self.chat)
-        self.reference_label = QLabel('可选：添加参考图，让软件按原图构图进行创作'); self.reference_label.setWordWrap(True)
-        cv.addWidget(self.reference_label)
-        self.positive = QTextEdit(); self.positive.setPlaceholderText('输入你想生成的画面，例如：a small blue robot reading a book, watercolor illustration')
-        self.positive.setMaximumHeight(95); self.positive.setMinimumHeight(65); cv.addWidget(self.positive)
-        compose = QHBoxLayout()
-        attach = QPushButton('＋ 参考图'); attach.clicked.connect(self.choose_reference); compose.addWidget(attach)
-        remove = QPushButton('移除参考图'); remove.clicked.connect(self.clear_reference); compose.addWidget(remove)
-        self.generate_button = QPushButton('发送并生成'); self.generate_button.setObjectName('primary'); self.generate_button.setEnabled(False); self.generate_button.clicked.connect(self.enqueue)
-        compose.addWidget(self.generate_button, 1); cv.addLayout(compose)
-        splitter.addWidget(center)
-        panel = QWidget(); form = QFormLayout(panel)
-        form.addRow(QLabel('生成设置 · 可选调整'))
-        self.model = QComboBox(); form.addRow('基础模型', self.model)
-        self.lora = QComboBox(); self.lora.addItem('不使用 LoRA', ''); form.addRow('LoRA', self.lora)
-        self.strength = QDoubleSpinBox(); self.strength.setRange(-2, 2); self.strength.setValue(.8); self.strength.setSingleStep(.1); form.addRow('LoRA 强度', self.strength)
-        self.negative = QTextEdit('blurry, watermark, text, low quality'); self.negative.setMaximumHeight(85); form.addRow('负向提示词', self.negative)
-        self.width = self.spin(64, 2048, 768, 64); self.height = self.spin(64, 2048, 768, 64)
-        form.addRow('宽度', self.width); form.addRow('高度', self.height)
-        self.steps = self.spin(1, 150, 24); form.addRow('采样步数', self.steps)
-        self.cfg = QDoubleSpinBox(); self.cfg.setRange(0, 30); self.cfg.setValue(6.5); form.addRow('CFG', self.cfg)
-        self.denoise = QDoubleSpinBox(); self.denoise.setRange(.05, 1); self.denoise.setValue(.6); self.denoise.setSingleStep(.05); form.addRow('参考图重绘幅度', self.denoise)
-        self.seed = QLineEdit('-1'); form.addRow('种子（-1 随机）', self.seed)
-        self.sampler = QComboBox(); self.scheduler = QComboBox()
-        form.addRow('采样器', self.sampler); form.addRow('调度器', self.scheduler)
-        self.workflow_label = QLabel('后台自动选择工作流；输入会直接用于生成。'); self.workflow_label.setWordWrap(True); form.addRow(self.workflow_label)
-        imp = QPushButton('导入高级工作流 API…'); imp.clicked.connect(self.import_graph); form.addRow(imp)
-        reset = QPushButton('恢复自动选择工作流'); reset.clicked.connect(self.reset_graph); form.addRow(reset)
-        self.cancel_button = QPushButton('取消当前任务'); self.cancel_button.clicked.connect(self.cancel_current)
-        clear = QPushButton('清空本软件待执行队列'); clear.clicked.connect(self.clear_pending); form.addRow(clear)
-        self.unload_button = QPushButton('空闲时卸载模型'); self.unload_button.clicked.connect(self.unload); form.addRow(self.unload_button)
-        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(panel)
-        right = QWidget(); rv = QVBoxLayout(right); rv.setContentsMargins(0, 0, 0, 0)
-        rv.addWidget(scroll, 1); rv.addWidget(self.cancel_button)
-        splitter.addWidget(right)
-        splitter.setSizes([240, 760, 380])
-        self.editor = WorkflowEditor()
-        self.tabs.addTab(self.editor, '工作流编辑')
-        self.editor.draft_requested.connect(self.load_draft_in_editor)
-        self.editor.run_requested.connect(self.run_editor_graph)
-        self.editor.template_requested.connect(self.activate_editor_template)
-        self.editor.became_ready.connect(self.sync_editor_if_needed)
-        self.tabs.currentChanged.connect(self.tab_changed)
-        self.status = QLabel('未连接'); layout.addWidget(self.status)
-        self.progress = QProgressBar(); layout.addWidget(self.progress)
-        details = QPushButton('展开 / 收起任务队列与日志'); layout.addWidget(details)
-        diagnostic = QWidget(); dv = QVBoxLayout(diagnostic); dv.setContentsMargins(0, 0, 0, 0)
-        self.queue_list = QListWidget(); self.queue_list.setMaximumHeight(65); dv.addWidget(self.queue_list)
-        self.log = QTextEdit(); self.log.setReadOnly(True); self.log.setMaximumHeight(80); dv.addWidget(self.log)
-        diagnostic.setVisible(False); details.clicked.connect(lambda: diagnostic.setVisible(not diagnostic.isVisible())); layout.addWidget(diagnostic)
-        self.editor.message.connect(self.log.append)
         self.timer = QTimer(self); self.timer.timeout.connect(self.refresh_stats); self.timer.start(5000)
         self.stats_busy = False
         self.load_gallery()
@@ -191,7 +106,8 @@ class Window(QMainWindow):
                     saved = DATA / 'chat' / 'active-workflow.json'
                     if saved.exists():
                         preset = json.loads(saved.read_text('utf-8'))
-                        if preset.get('graph'): self.activate_template(preset['graph'], preset['title'], preset.get('entry_id'))
+                        if preset.get('character_id'): self.apply_character(route=preset.get('route', 'baseline'))
+                        elif preset.get('graph'): self.activate_template(preset['graph'], preset['title'], preset.get('entry_id'))
                 except (OSError, ValueError, KeyError) as exc: self.log.append('未恢复上次工作流：' + str(exc))
             self.status.setText(f'已连接 · {len(data["checkpoints"])} 个 checkpoint · {len(data["loras"])} 个 LoRA')
             write_json(DATA / 'settings.json', {'url': client.url}); self.refresh_stats()
@@ -199,7 +115,7 @@ class Window(QMainWindow):
         self.launch(lambda _: client.discover(), done)
 
     def refresh_stats(self):
-        if not self.connected or self.stats_busy: return
+        if not self.connected or self.stats_busy or self.current or self.preparing: return
         self.stats_busy = True
         def done(kind, data):
             self.stats_busy = False
@@ -222,6 +138,10 @@ class Window(QMainWindow):
 
     def reset_graph(self):
         self.custom_graph = None; self.active_title = '自动选择'
+        self.character_profile = None; self.context_label.setText('创作')
+        self.character_summary.setText('当前为通用创作，可随时应用角色基准。')
+        self.pose_choice.setEnabled(False)
+        self.positive.setPlaceholderText('描述画面或动作要求…')
         self.last_chat_graph = None; self.editor_needs_sync = False
         self.workflow_label.setText('后台自动选择：只输入文字走文生图，添加参考图走图生图。')
         self.lora.setEnabled(True); self.strength.setEnabled(True)
@@ -252,6 +172,12 @@ class Window(QMainWindow):
 
     def activate_template(self, graph, title, entry_id=None):
         mapping = bindings(graph)
+        self.character_profile = None
+        self.context_label.setText(title)
+        if not self.character_loading:
+            self.character_summary.setText('当前使用自定义工作流，可重新应用角色基准。')
+            self.pose_choice.setEnabled(False)
+            self.positive.setPlaceholderText('描述画面或动作要求…')
         self.custom_graph = json.loads(json.dumps(graph))
         self.last_chat_graph = None
         self.active_title = title
@@ -260,7 +186,7 @@ class Window(QMainWindow):
         self.steps.setValue(int(sampler['steps'])); self.cfg.setValue(float(sampler['cfg']))
         self.sampler.setCurrentText(sampler['sampler_name']); self.scheduler.setCurrentText(sampler['scheduler'])
         for node in graph.values():
-            if node['class_type'] == 'EmptyLatentImage':
+            if node['class_type'] in ('EmptyLatentImage', 'ImageScale'):
                 self.width.setValue(node['inputs']['width']); self.height.setValue(node['inputs']['height'])
             if node['class_type'] == 'CheckpointLoaderSimple':
                 name = node['inputs']['ckpt_name']
@@ -280,6 +206,57 @@ class Window(QMainWindow):
         self.editor_needs_sync = True
         write_json(DATA / 'chat' / 'active-workflow.json', {'graph': self.custom_graph, 'title': title, 'entry_id': entry_id})
 
+    def open_assets(self):
+        self.load_gallery(); self.assets_dialog.show(); self.assets_dialog.raise_()
+
+    def open_skeleton(self):
+        profile = load_profile()
+        if not profile:
+            self.add_chat('软件', '尚未安装角色基准，请先导入基准图片。'); return
+        self.skeleton_dialog = SkeletonDialog(profile, self)
+        self.skeleton_dialog.show()
+
+    def character_selection_changed(self, _index=None):
+        if self.character_loading: return
+        if self.character_profile: self.apply_character()
+
+    def apply_character(self, _checked=False, route=None):
+        if not self.connected:
+            self.status.setText('请先连接本地引擎。'); return
+        profile = load_profile()
+        if not profile:
+            self.add_chat('软件', '未找到角色基准文件。'); return
+        try:
+            self.character_loading = True
+            mode = route or self.character_route.currentData()
+            self.character_route.setCurrentIndex(0 if mode == 'baseline' else 1)
+            self.pose_choice.setEnabled(mode == 'pose')
+            pose_key = self.pose_choice.currentData()
+            path = profile['baseline_graph'] if mode == 'baseline' else profile['poses'][pose_key]['graph']
+            graph = json.loads(Path(path).read_text('utf-8'))
+            title = profile['title'] + (' / 参考重绘' if mode == 'baseline' else ' / 骨骼约束')
+            self.activate_template(graph, title)
+            self.character_profile = profile
+            self.set_reference(profile['reference'])
+            self.width.setValue(768); self.height.setValue(1024)
+            self.denoise.setValue(.3 if mode == 'baseline' else 1.)
+            self.seed.setText('20261026')
+            self.positive.setPlaceholderText('输入动作或补充要求；留空可按角色基准生成。')
+            self.show_image(profile['reference']); self.caption.setText('角色基准 · 尚未生成')
+            missing = None
+            try: check_models(graph, self.info['object_info'])
+            except ValueError as exc: missing = str(exc)
+            self.character_summary.setText(profile['title'] + '\n' + (missing or '参考图、提示词与角色模型已就绪。') +
+                ('\n骨骼仅作校对，当前重绘不施加骨骼约束。' if mode == 'baseline' else '\n生成将使用所选骨骼条件图。'))
+            write_json(DATA / 'chat' / 'active-workflow.json', {'graph': graph, 'title': title,
+                'character_id': profile['id'], 'route': mode})
+            self.add_chat('软件', '已应用角色基准：' + ('参考重绘。固定角色提示词会自动保留。' if mode == 'baseline'
+                          else '骨骼约束。' + (missing or '依赖检查通过。')))
+        except Exception as exc:
+            self.add_chat('软件', '应用角色基准失败：' + str(exc))
+        finally:
+            self.character_loading = False
+
     def add_chat(self, role, text, image=None, job=None):
         message = {'role': role, 'text': text, 'image': image, 'job': job}
         self.chat_messages.append(message)
@@ -291,7 +268,7 @@ class Window(QMainWindow):
         content = f'<p><b>{role}</b>　{text}</p>'
         if message.get('image') and Path(message['image']).is_file():
             src = html.escape(QUrl.fromLocalFile(message['image']).toString(), quote=True)
-            content += f'<p><img src="{src}" width="96"></p>'
+            content += f'<p><img src="{src}" width="72"></p>'
         self.chat.append(content)
         self.chat.verticalScrollBar().setValue(self.chat.verticalScrollBar().maximum())
 
@@ -332,7 +309,7 @@ class Window(QMainWindow):
 
     def clear_reference(self):
         self.reference_path = None
-        self.reference_label.setText('可选：添加参考图，让软件按原图构图进行创作')
+        self.reference_label.setText('使用角色基准图，可添加其他参考图临时替换。' if self.character_profile else '可添加参考图')
 
     def tab_changed(self, index):
         if index == 1 and self.connected:
@@ -354,6 +331,9 @@ class Window(QMainWindow):
             self.width.value(), self.height.value(), self.steps.value(), self.cfg.value(), seed,
             self.sampler.currentText(), self.scheduler.currentText(), self.lora.currentData() or '', self.strength.value())
         user_prompt = r.positive
+        if self.character_profile:
+            key = 'positive' if self.character_route.currentData() == 'baseline' else 'pose_positive'
+            r.positive = self.character_profile[key] + ('\nAdditional target: ' + user_prompt.strip() if user_prompt.strip() else '')
         if not r.positive.strip():
             if reference_name: r.positive = 'high quality, detailed image'
             else: raise ValueError('请先输入画面描述，或添加一张参考图。')
@@ -362,6 +342,9 @@ class Window(QMainWindow):
         graph, mapping = bind_request(graph, r, reference_name, self.denoise.value())
         params = asdict(r)
         params.update(mode='chat', user_prompt=user_prompt, template=self.active_title, bindings=mapping, denoise=self.denoise.value())
+        if self.character_profile:
+            params.update(character_id=self.character_profile['id'], rig_id='blue_side_right_v3',
+                          pose=self.pose_choice.currentData(), character_route=self.character_route.currentData())
         return graph, params
 
     def load_draft_in_editor(self):
@@ -386,7 +369,8 @@ class Window(QMainWindow):
             graph, params = self.graph_snapshot('__aipictures_reference__' if reference else '')
             check_models(graph, self.info['object_info'])
             params['reference'] = str(reference) if reference else None
-            self.add_chat('你', params['user_prompt'].strip() or '使用这张参考图生成', str(reference) if reference else None)
+            fallback = '按角色基准生成' if self.character_profile else '使用这张参考图生成'
+            self.add_chat('你', params['user_prompt'].strip() or fallback, str(reference) if reference else None)
             if reference:
                 self.preparing = True; self.prepare_cancel.clear()
                 self.status.setText('正在准备并上传参考图…')
@@ -445,9 +429,11 @@ class Window(QMainWindow):
                 self.current['prompt_id'] = data['prompt_id']; self.update_job('queued')
             elif kind == 'progress':
                 self.progress.setRange(0, int(data['max'])); self.progress.setValue(int(data['value']))
-                self.status.setText(f'采样 {data["value"]} / {data["max"]}')
+                self.status.setText(f'生成进度 {data["value"]} / {data["max"]}')
             elif kind == 'executing':
                 self.status.setText('正在执行节点 ' + str(data.get('node') or '结果保存'))
+            elif kind == 'monitor_waiting':
+                self.status.setText('本地引擎繁忙，继续等待当前任务…')
             elif kind in ('result', 'error', 'cancelled'):
                 if kind == 'result':
                     write_json(folder / 'result.json', data); self.show_image(data['images'][0]); self.load_gallery()
@@ -490,13 +476,16 @@ class Window(QMainWindow):
     def load_gallery(self):
         self.gallery.clear()
         for path in sorted((DATA / 'jobs').glob('*/image_*.png'), reverse=True):
-            self.gallery.addItem(str(path.relative_to(DATA)))
+            item = QListWidgetItem(path.parent.name[:15] + ' · ' + path.name)
+            item.setData(Qt.ItemDataRole.UserRole, str(path)); item.setToolTip(str(path)); self.gallery.addItem(item)
 
-    def open_history(self, item): self.show_image(str(DATA / item.text()))
+    def open_history(self, item):
+        self.show_image(item.data(Qt.ItemDataRole.UserRole) or str(DATA / item.text()))
+        self.assets_dialog.close()
 
     def show_image(self, path):
         self.pixmap = QPixmap(path); self.output = path
-        self.caption.setText(path); self.fit_preview()
+        self.caption.setText('本地图片 · ' + Path(path).name); self.fit_preview()
 
     def fit_preview(self):
         if not self.pixmap.isNull(): self.preview.setPixmap(self.pixmap.scaled(self.preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
