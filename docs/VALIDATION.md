@@ -13,6 +13,7 @@
 - 真实按任务取消：在首个采样进度后按 prompt_id 取消，无全局 interrupt。证据在 `data/cancellation-test.json`。
 - 真实队列与失败恢复：先提交一个不存在的 checkpoint，再加入两张 256×256、2 步测试任务，最终状态依次为 failed、completed、completed。证据在 `data/queue-test.json`。
 - Python 编译检查通过。
+- 内嵌节点编辑真实链路：加载 7 节点 SDXL 图，在编辑器修改提示词与步数，保存副本后重新打开，核对参数、连接及节点位置，点击软件运行按钮生成 512×512 图片，收到 4 次采样进度，图片预览及 `editor_workflow.json` 保存成功。证据 `data/editor-acceptance.json`、`data/editor-roundtrip.json`、`data/workflow-editor.png`。
 
 限制：未测试不存在的模型管线；LoRA、FLUX、自定义训练/视频工作流未进行真实生成验证。手动另存文件对话框与长期压力测试尚未自动验证。断线后不自动重提交；任务可能继续在 ComfyUI 执行，需通过保存的 prompt_id 核查。当前资源管理是服务端模型枚举与卸载，不含模型下载和删除。
 

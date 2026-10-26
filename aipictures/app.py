@@ -9,10 +9,11 @@ from PySide6.QtCore import Qt, QThread, Signal, QTimer, QUrl
 from PySide6.QtGui import QPixmap, QDesktopServices
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QFormLayout, QLabel, QLineEdit, QTextEdit, QComboBox, QSpinBox, QDoubleSpinBox,
-    QPushButton, QProgressBar, QListWidget, QListWidgetItem, QSplitter, QFileDialog, QMessageBox, QScrollArea)
+    QPushButton, QProgressBar, QListWidget, QListWidgetItem, QSplitter, QFileDialog, QMessageBox, QScrollArea, QTabWidget)
 from .engine import ComfyClient, Cancelled
 from .workflow import ImageRequest, build_workflow
 from .storage import DATA, write_json, new_job
+from .workflow_editor import WorkflowEditor
 
 
 class Worker(QThread):
@@ -53,10 +54,13 @@ class Window(QMainWindow):
         header.addStretch(); header.addWidget(self.url)
         self.connect_button = QPushButton('连接 / 刷新模型'); self.connect_button.clicked.connect(self.connect_engine)
         header.addWidget(self.connect_button); layout.addLayout(header)
-        splitter = QSplitter(); layout.addWidget(splitter, 1)
+        self.tabs = QTabWidget(); layout.addWidget(self.tabs, 1)
+        image_page = QWidget(); image_layout = QVBoxLayout(image_page); image_layout.setContentsMargins(0, 0, 0, 0)
+        splitter = QSplitter(); image_layout.addWidget(splitter, 1)
+        self.tabs.addTab(image_page, '图像生成')
         left = QWidget(); lv = QVBoxLayout(left)
         lv.addWidget(QLabel('创作空间'))
-        lv.addWidget(QLabel('● 图像生成   第一阶段'))
+        edit = QPushButton('打开工作流编辑器'); edit.clicked.connect(lambda: self.tabs.setCurrentIndex(1)); lv.addWidget(edit)
         lv.addWidget(QLabel('数据集 / 训练 / 骨骼 / 动画 / 视频\n后续阶段，尚未实现'))
         lv.addWidget(QLabel('本地生成记录（双击预览）'))
         self.gallery = QListWidget(); self.gallery.itemDoubleClicked.connect(self.open_history)
@@ -97,10 +101,16 @@ class Window(QMainWindow):
         rv.addWidget(scroll, 1); rv.addWidget(self.generate_button); rv.addWidget(self.cancel_button)
         splitter.addWidget(right)
         splitter.setSizes([240, 760, 380])
+        self.editor = WorkflowEditor()
+        self.tabs.addTab(self.editor, '工作流编辑')
+        self.editor.draft_requested.connect(self.load_draft_in_editor)
+        self.editor.run_requested.connect(self.run_editor_graph)
+        self.tabs.currentChanged.connect(self.tab_changed)
         self.status = QLabel('未连接'); layout.addWidget(self.status)
         self.progress = QProgressBar(); layout.addWidget(self.progress)
         self.queue_list = QListWidget(); self.queue_list.setMaximumHeight(85); layout.addWidget(self.queue_list)
         self.log = QTextEdit(); self.log.setReadOnly(True); self.log.setMaximumHeight(110); layout.addWidget(self.log)
+        self.editor.message.connect(self.log.append)
         self.timer = QTimer(self); self.timer.timeout.connect(self.refresh_stats); self.timer.start(5000)
         self.stats_busy = False
         self.load_gallery()
@@ -138,6 +148,7 @@ class Window(QMainWindow):
             self.generate_button.setEnabled(True)
             self.status.setText(f'已连接 · {len(data["checkpoints"])} 个 checkpoint · {len(data["loras"])} 个 LoRA')
             write_json(DATA / 'settings.json', {'url': client.url}); self.refresh_stats()
+            if self.tabs.currentIndex() == 1: self.editor.connect_url(client.url)
         self.launch(lambda _: client.discover(), done)
 
     def refresh_stats(self):
@@ -166,25 +177,52 @@ class Window(QMainWindow):
     def reset_graph(self):
         self.custom_graph = None; self.workflow_label.setText('内置 SDXL 文生图')
 
+    def tab_changed(self, index):
+        if index == 1 and self.connected:
+            self.editor.connect_url(self.client.url)
+
+    def graph_snapshot(self):
+        if self.custom_graph is not None:
+            return json.loads(json.dumps(self.custom_graph)), {'mode': 'custom_api'}
+        seed = int(self.seed.text())
+        if seed == -1: seed = secrets.randbelow(2**63)
+        if not 0 <= seed < 2**64: raise ValueError('种子范围为 0–2^64-1，或 -1 随机')
+        r = ImageRequest(self.model.currentText(), self.positive.toPlainText(), self.negative.toPlainText(),
+            self.width.value(), self.height.value(), self.steps.value(), self.cfg.value(), seed,
+            self.sampler.currentText(), self.scheduler.currentText(), self.lora.currentData() or '', self.strength.value())
+        return build_workflow(r), asdict(r)
+
+    def load_draft_in_editor(self):
+        try:
+            graph, _ = self.graph_snapshot()
+            self.editor.load_graph(graph)
+        except Exception as exc:
+            self.editor.report_error({'error': str(exc)})
+
+    def run_editor_graph(self, payload):
+        try:
+            self.queue_graph(payload['graph'], {'mode': 'workflow_editor'}, payload['workflow'])
+            self.tabs.setCurrentIndex(0)
+        except Exception as exc:
+            self.editor.report_error({'error': str(exc)})
+
     def enqueue(self):
         try:
-            if self.custom_graph is not None:
-                graph = json.loads(json.dumps(self.custom_graph)); params = {'mode': 'custom_api'}
-            else:
-                seed = int(self.seed.text())
-                if seed == -1: seed = secrets.randbelow(2**63)
-                if not 0 <= seed < 2**64: raise ValueError('种子范围为 0–2^64-1，或 -1 随机')
-                r = ImageRequest(self.model.currentText(), self.positive.toPlainText(), self.negative.toPlainText(),
-                    self.width.value(), self.height.value(), self.steps.value(), self.cfg.value(), seed,
-                    self.sampler.currentText(), self.scheduler.currentText(), self.lora.currentData() or '', self.strength.value())
-                graph = build_workflow(r); params = asdict(r)
-            missing = {n['class_type'] for n in graph.values()} - set(self.info['nodes'])
-            if missing: raise ValueError('缺少节点：' + ', '.join(sorted(missing)))
-            folder = new_job(graph, params)
-            item = QListWidgetItem(folder.name + ' · 等待'); self.queue_list.addItem(item)
-            self.pending.append((graph, params, folder, item))
-            self.start_next()
+            graph, params = self.graph_snapshot()
+            self.queue_graph(graph, params)
         except Exception as exc: QMessageBox.warning(self, '无法创建任务', str(exc))
+
+    def queue_graph(self, graph, params, editor_workflow=None):
+        if not self.connected: raise ValueError('请先连接 ComfyUI')
+        graph = json.loads(json.dumps(graph))
+        if not graph: raise ValueError('工作流没有可运行节点')
+        missing = {n['class_type'] for n in graph.values()} - set(self.info['nodes'])
+        if missing: raise ValueError('缺少节点：' + ', '.join(sorted(missing)))
+        folder = new_job(graph, params)
+        if editor_workflow is not None: write_json(folder / 'editor_workflow.json', editor_workflow)
+        item = QListWidgetItem(folder.name + ' · 等待'); self.queue_list.addItem(item)
+        self.pending.append((graph, params, folder, item))
+        self.start_next()
 
     def start_next(self):
         if self.current or not self.pending: return
@@ -262,7 +300,7 @@ class Window(QMainWindow):
             except OSError as exc: QMessageBox.warning(self, '保存失败', str(exc))
 
     def closeEvent(self, event):
-        if self.current or self.workers:
+        if self.current or self.workers or self.editor.pending:
             self.log.append('请先取消任务并等待后台操作结束，再关闭窗口。'); event.ignore(); return
         self.clear_pending(); event.accept()
 

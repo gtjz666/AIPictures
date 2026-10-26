@@ -8,11 +8,14 @@
 - `aipictures/engine.py`：本地 ComfyUI REST / WebSocket 适配器。模型发现、执行、进度、按任务取消、历史和文件下载。HTTP 超时 20 秒，单任务等待上限 30 分钟。
 - `aipictures/workflow.py`：可序列化 ImageRequest 和 SDXL 工作流构建，LoRA 的 model/clip 与 VAE 独立连接。
 - `aipictures/storage.py`：项目数据根、原子 JSON 写入、任务目录。输出与源码分离。
+- `aipictures/workflow_editor.py`：Qt WebEngine 内嵌本地 ComfyUI 前端，独立 profile/cache；通过异步 JavaScript 桥接读写画布副本、导出 UI/API、向 app 发出运行请求。前端通过本机公开的 comfyAPI/app 接口转换图，不向 ComfyUI 安装扩展或修改资源。桥接接口随前端版本可能变化。
 - `tests/`：结构测试与真实桌面到 ComfyUI 验收脚本。
 
 任务目录 `data/jobs/<时间_UUID>/` 包含 `job.json`、`workflow.json`、`result.json`、`image_000.png`。任务记录版本为 1，kind 当前为 image，状态包括 created、queued、running、completed、failed、cancelled。随机种子在提交前固化，完整工作流和 ComfyUI history 用于复现。程序重启会重新扫描图片记录；不会自动重提中断任务，以免重复生成。崩溃时 queued/running 记录可能陈旧，可用 prompt_id 在 ComfyUI 查询。
 
 自定义 API JSON 直接作为独立任务快照提交，不修改源文件；内置参数不覆盖自定义图。服务端执行节点与模型校验。第一阶段只内置 SDXL checkpoint 管线；FLUX 的拆分 UNet/CLIP/VAE 加载方式需专门适配，不能仅替换 checkpoint 文件名。已有有效 FLUX API 工作流可直接导入，但本机尚无 FLUX 权重，因此未验证。
+
+从编辑器运行时 `params.mode=workflow_editor`，同目录附带 `editor_workflow.json`（UI 工作流，保留布局）。图像页和工作流编辑器共用 `queue_graph` 执行入口；编辑时及入队时均生成独立数据快照，后续编辑不改变已经提交的任务。编辑器内部 ComfyUI 自带运行按钮属于另一个客户端，其任务不由本软件队列管理。
 
 取消仅删除自己的 prompt_id 并使用本机已支持的 targeted interrupt，不全局清空其他客户端队列。释放显存前检查服务端是否空闲。
 
