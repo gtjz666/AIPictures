@@ -40,12 +40,12 @@ class ComfyClient:
                 'samplers': choices('KSampler', 'sampler_name'),
                 'schedulers': choices('KSampler', 'scheduler'), 'nodes': list(info), 'object_info': info}
 
-    def upload_image(self, path):
+    def upload_image(self, path, subfolder='AIPictures/references'):
         path = Path(path)
         boundary = 'AIPictures' + uuid.uuid4().hex
         filename = uuid.uuid4().hex + path.suffix.lower()
         parts = []
-        for field, value in [('type', 'input'), ('subfolder', 'AIPictures/references'), ('overwrite', 'false')]:
+        for field, value in [('type', 'input'), ('subfolder', subfolder), ('overwrite', 'false')]:
             parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{field}"\r\n\r\n{value}\r\n'.encode())
         mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
         parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="image"; filename="{filename}"\r\nContent-Type: {mime}\r\n\r\n'.encode())

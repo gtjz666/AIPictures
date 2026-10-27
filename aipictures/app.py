@@ -93,6 +93,10 @@ class Window(QMainWindow):
             if kind != 'result': return
             self.client = client; self.info = data; self.connected = True
             self.editor.set_node_info(data['object_info'])
+            profile = load_profile()
+            required_pose = profile['pose_requires'] if profile else 'controlnet-openpose-sdxl-1.0-xinsir.safetensors'
+            pose_weights = data['object_info'].get('ControlNetLoader', {}).get('input', {}).get('required', {}).get('control_net_name', [[]])[0]
+            self.character_route.setItemText(1, '骨骼约束 · 已识别' if required_pose in pose_weights else '骨骼约束 · 缺权重')
             self.model.clear(); self.model.addItems(data['checkpoints'])
             self.lora.clear(); self.lora.addItem('不使用 LoRA', '')
             for name in data['loras']: self.lora.addItem(name, name)

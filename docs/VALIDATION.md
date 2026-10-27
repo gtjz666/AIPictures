@@ -20,6 +20,7 @@
 - 参数绑定单元测试覆盖模板不可变、正负提示词分离、图生图注入、IP-Adapter 参考图不误替换姿态图，以及多提示词歧义拒绝，总计 10 项测试通过。
 - 蓝发侧视基准 v3：用本次图片创建独立参考、18 关节人工标注骨架、站立及伸手草案，未改动旧仓库。SDXL + IP-Adapter PLUS + CLIP Vision + 分块 VAE，768×1024、28 采样步、0.30 重绘完成真实生成。检查左侧 Inspector、文件弹窗、骨骼叠加窗口和缺失 ControlNet 时不提交。证据 `data/character-acceptance.json`、`data/character-studio.png`、`data/character-skeleton.png`。
 - 初次非分块解码时历史查询超时，但 ComfyUI 随后完成；已按原 prompt_id 回收图片并保留原错误记录。分块版本实际运行通过；增加“监控超时不重复提交”单元测试。当前共 14 项单元测试通过。
+- 2026-10-27：当前 8188 服务改为 Comfy Desktop 的共享模型/输入目录，已识别所需 SDXL Pose ControlNet。重新上传角色参考和站立/伸手条件图，逐字段核对原 API 与前端导出内容，保存 UI 副本并登记工作流库。站立工作流以 ControlNet + IP-Adapter、768×1024、28 步实际执行成功；伸手尚未单独出图。原 API 源文件哈希不变，先前角色配置已备份。测试图存在白袜/鞋型变化，不等同于身份一致性验收通过。证据 `data/controlnet-import-acceptance.json`。
 
 限制：未测试不存在的模型管线；LoRA、FLUX、自定义训练/视频工作流未进行真实生成验证。手动另存文件对话框与长期压力测试尚未自动验证。断线后不自动重提交；任务可能继续在 ComfyUI 执行，需通过保存的 prompt_id 核查。当前资源管理是服务端模型枚举与卸载，不含模型下载和删除。
 

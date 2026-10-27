@@ -11,6 +11,7 @@ from aipictures.app import Window, create_application
 from aipictures.character_profile import load_profile
 from aipictures.storage import DATA, write_json
 from aipictures.workflow_library import digest
+from aipictures.prompt_binding import check_models
 
 os.environ['AIPICTURES_BROWSER_PROFILE'] = str(DATA / 'test-browser' / uuid4().hex)
 app = create_application([])
@@ -55,17 +56,25 @@ def tick():
     elif state['stage'] == 'skeleton' and time.monotonic() > state['after']:
         window.skeleton_dialog.grab().save(str(DATA / 'character-skeleton.png')); window.skeleton_dialog.close()
         window.character_route.setCurrentIndex(1)
-        assert profile['pose_requires'] in window.character_summary.text()
-        window.generate_button.click()
-        assert window.current is None and not window.preparing
-        assert profile['pose_requires'] in window.chat_messages[-1]['text']
+        weights = window.info['object_info']['ControlNetLoader']['input']['required']['control_net_name'][0]
+        pose_ready = profile['pose_requires'] in weights
+        if pose_ready:
+            graph, _ = window.graph_snapshot('__reference__')
+            check_models(graph, window.info['object_info'])
+            assert graph['5']['inputs']['positive'] == ['22', 0]
+        else:
+            assert profile['pose_requires'] in window.character_summary.text()
+            window.generate_button.click()
+            assert window.current is None and not window.preparing
+            assert profile['pose_requires'] in window.chat_messages[-1]['text']
         write_json(DATA / 'character-acceptance.json', {'passed': True, 'job': str(state['job']),
             'reference_sha256': profile['source_sha256'], 'output': str(state['job'] / 'image_000.png'),
             'progress_events': state['progress'], 'inspector_on_left': True, 'files_in_dialog': True,
-            'pose_workflow_prepared_but_blocked': profile['pose_requires']})
+            'pose_workflow_dependencies_ready': pose_ready,
+            'pose_workflow_prepared_but_blocked': None if pose_ready else profile['pose_requires']})
         window.character_route.setCurrentIndex(0)
         window.timer.stop(); state['stage'] = 'exit'
-        print('Character identity workflow passed; pose dependency correctly blocked.', flush=True)
+        print('Character identity workflow passed; pose dependencies checked against the current backend.', flush=True)
     elif state['stage'] == 'exit' and not window.workers:
         app.quit()
 
