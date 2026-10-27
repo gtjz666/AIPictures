@@ -24,6 +24,7 @@ class SequencePreview(QTabWidget):
     def clear_sequence(self):
         self.setCurrentIndex(0)
         self.setTabEnabled(1,False); self.setTabEnabled(2,False)
+        self.frames.clear(); self.sheet_pixmap=QPixmap(); self.sheet.clear()
 
     def load(self,manifest,folder):
         self.frames.clear(); folder=Path(folder)

@@ -37,7 +37,9 @@ def tick():
         assert 'reaching forward' in graph['2']['inputs']['text']
         assert graph['21']['inputs']['image']=='__aipictures_pose__'
         window.generation_type.setCurrentIndex(1)
+        window.open_settings('creation')
         assert window.walk_settings.isVisible() and not window.character_route.isVisible()
+        window.settings_dialogs['creation'].close()
         window.walk_count.setCurrentIndex(0); window.walk_fps.setValue(8); window.steps.setValue(24)
         window.positive.setPlainText('人物原地向右走路，侧视，全身，保持一致')
         window.seed.setText('20261027'); window.generate_button.click()

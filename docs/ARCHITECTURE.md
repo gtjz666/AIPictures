@@ -12,7 +12,9 @@
 - `aipictures/workflow_library.py`：本地目录索引、导入路径解析、已安装节点/模型/输入图和连线的兼容检查。`tools/migrate_local_workflows.py` 负责非破坏性复制和来源校验，不把迁移数据放入源码目录。
 - `aipictures/prompt_binding.py`：对话请求与 API 图之间的独立绑定层。根据 KSampler 正/负条件连线定位文本输入，识别 IP-Adapter 角色参考输入及 VAEEncode 图生图参考；与 ControlNet 姿态图分开处理。基础空画布图可注入图生图路径。每次绑定都深拷贝模板；多组提示词或参考输入歧义时拒绝自动绑定。
 - `tests/`：结构测试与真实桌面到 ComfyUI 验收脚本。
-- `aipictures/studio_layout.py`：两栏布局；`panels.py` 管理折叠设置、素材/历史对话框和骨骼校对窗口，布局与执行逻辑分离。
+- `aipictures/studio_layout.py`：两栏布局，按钮侧栏与并排提示词；`panels.py` 管理非模态设置小窗口、缓存/已保存文件和骨骼校对窗口，布局与执行逻辑分离。
+- `aipictures/theme.py`：统一浅色 Qt 调色板和样式，预览棋盘格仅用于渲染，不改变透明输出。
+- `aipictures/result_cache.py`：任务缓存目录枚举与删除、导出路径校验和已保存文件索引。清理前验证解析后的绝对目标为 jobs/animations 的直接任务子目录，拒绝根目录、外部路径及目录链接；从界面传入当前/排队目录保护列表，递归清理在工作线程执行。用户主动保存的位置必须在缓存目录之外，索引保存在 data/saved-files.json，缓存清理不修改该索引或外部文件。
 - `aipictures/character_profile.py`：版本化角色提示词、BODY_18 骨架、姿态草案和参考重绘/骨骼控制两条独立图构建器；图片、姿态和完整工作流实例在 data/characters 中保存。
 - `aipictures/action_intent.py`：有限中文动作词表、否定处理与英文条件映射；保存识别/未识别内容，不调用云端语言服务。单张图按动作选择姿态图，行走由生成类型显式选择。
 - `aipictures/walk_cycle.py`：周期骨骼、固定角色分层、腿部 IK、参考预变形、独立逐帧 ComfyUI 工作流及透明 PNG / Sprite Sheet / GIF 导出。与单图共用 GPU 队列，但文件和执行生命周期独立。

@@ -144,7 +144,7 @@ class ReferenceCutout:
         return guide, canvas.getchannel('A'), repair
 
 
-def frame_workflow(reference_name, pose_name, guide_name, seed, positive, checkpoint, steps=20):
+def frame_workflow(reference_name, pose_name, guide_name, seed, positive, checkpoint, steps=20, negative=None):
     graph = character_workflow(reference_name, pose_name)
     graph.pop('4',None)
     graph['30'] = {'class_type':'LoadImage','inputs':{'image':guide_name},'_meta':{'title':'当前帧骨骼预变形参考'}}
@@ -153,7 +153,7 @@ def frame_workflow(reference_name, pose_name, guide_name, seed, positive, checkp
     graph['5']['inputs'].update(latent_image=['31',0],seed=seed,denoise=.35,steps=steps,cfg=4.5)
     graph['1']['inputs']['ckpt_name'] = checkpoint
     graph['2']['inputs']['text'] = positive
-    graph['3']['inputs']['text'] = NEGATIVE + ', white socks, boots, changed shoes, motion blur, speed lines'
+    graph['3']['inputs']['text'] = (NEGATIVE + ', white socks, boots, changed shoes, motion blur, speed lines') if negative is None else negative
     graph['13']['inputs']['weight'] = .9
     graph['22']['inputs']['strength'] = .75
     return graph
@@ -186,7 +186,7 @@ def new_sequence():
     folder.mkdir(parents=True); return folder
 
 
-def generate_walk(client, folder, profile, prompt, checkpoint, seed, count, fps, emit, cancel, steps=20):
+def generate_walk(client, folder, profile, prompt, checkpoint, seed, count, fps, emit, cancel, steps=20, negative=None):
     """Sequential GPU jobs, immutable frame graphs, partial results survive cancellation."""
     folder = Path(folder); intent = parse_intent(prompt)
     if count not in (8,16): raise ValueError('当前支持 8 或 16 帧行走周期')
@@ -196,7 +196,7 @@ def generate_walk(client, folder, profile, prompt, checkpoint, seed, count, fps,
     manifest = {'schema_version':1,'kind':'walk','status':'preparing','fps':fps,'frame_count':count,
         'canvas':list(SIZE),'ground_y':978,'seed':seed,'user_prompt':prompt,'intent':intent.to_dict(),
         'reference_sha256':digest(profile['reference']),'reference':profile['reference'],
-        'method':'reference_cutout_controlnet_ipadapter_limb_refinement','steps':steps,'frames':[],
+        'method':'reference_cutout_controlnet_ipadapter_limb_refinement','steps':steps,'negative':negative,'frames':[],
         'notes':'仅为此侧视基准人工分层；遮挡侧肢体由可见侧估计。AI 修复肢体，头身和鞋保留参考像素。'}
     save = lambda: write_json(folder/'sequence.json',manifest)
     save()
@@ -214,7 +214,7 @@ def generate_walk(client, folder, profile, prompt, checkpoint, seed, count, fps,
             checked(); pose_name = client.upload_image(frame/'pose.png'); guide_name = client.upload_image(frame/'guide.png')
             positive = POSE_PROMPT + ', ' + 'one frame of a seamless walk cycle, ' + intent.english
             # Render facing right; left-facing output is a deterministic final mirror.
-            graph = frame_workflow(ref_name,pose_name,guide_name,seed,positive,checkpoint,steps)
+            graph = frame_workflow(ref_name,pose_name,guide_name,seed,positive,checkpoint,steps,negative)
             write_json(frame/'workflow.json',graph)
             manifest['status']='running'; save()
             emit('frame_started',{'index':i,'count':count,'stage':rig['stage']})

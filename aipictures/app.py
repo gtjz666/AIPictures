@@ -19,6 +19,7 @@ from .workflow_library import list_workflows, workflow_path, digest
 from .character_profile import load_profile
 from .action_intent import parse_intent
 from .panels import SkeletonDialog
+from .result_cache import ResultCache, within_any
 
 
 class Worker(QThread):
@@ -57,6 +58,7 @@ class Window(QMainWindow):
         self.connected = False
         self.character_profile = None
         self.character_loading = False
+        self.cache_store=ResultCache(); self.cache_busy=False
         from .studio_layout import build_studio
         build_studio(self)
         config = DATA / 'settings.json'
@@ -214,6 +216,18 @@ class Window(QMainWindow):
     def open_assets(self):
         self.load_gallery(); self.assets_dialog.show(); self.assets_dialog.raise_()
 
+    def open_settings(self,key):
+        for name,dialog in self.settings_dialogs.items():
+            if name!=key: dialog.hide()
+        self.settings_dialogs[key].show_near(self.settings_buttons[key])
+
+    def update_sidebar_summary(self):
+        walking=self.generation_type.currentData()=='walk'
+        text=('人物行走动画帧' if walking else '单张图片')+'\n'
+        if walking: text+=f'{self.walk_count.currentData()} 帧 · {self.walk_fps.value()} FPS\n'
+        text+=f'{self.width.value()} × {self.height.value()} · 透明输出'
+        self.creation_summary.setText(text)
+
     def open_skeleton(self):
         profile = load_profile()
         if not profile:
@@ -237,6 +251,7 @@ class Window(QMainWindow):
             self.width.setValue(768); self.height.setValue(1024)
         self.context_label.setText('人物行走动画 · 蓝发侧视基准' if walking else self.active_title)
         self.update_intent_hint()
+        self.update_sidebar_summary()
 
     def update_intent_hint(self):
         intent = parse_intent(self.positive.toPlainText())
@@ -543,14 +558,14 @@ class Window(QMainWindow):
         seed = int(self.seed.text())
         if seed == -1: seed = secrets.randbelow(2**53)
         if not 0 <= seed < 2**64: raise ValueError('种子范围不正确')
-        graph = frame_workflow('__ref__','__pose__','__guide__',seed,'walk',self.model.currentText(),self.steps.value())
+        graph = frame_workflow('__ref__','__pose__','__guide__',seed,'walk',self.model.currentText(),self.steps.value(),self.negative.toPlainText())
         missing = {node['class_type'] for node in graph.values()}-set(self.info['nodes'])
         if missing: raise ValueError('缺少节点：'+', '.join(sorted(missing)))
         check_models(graph,self.info['object_info'])
         folder = new_sequence()
         params = {'mode':'walk','profile':profile,'prompt':self.positive.toPlainText(),
                   'checkpoint':self.model.currentText(),'seed':seed,'count':self.walk_count.currentData(),
-                  'fps':self.walk_fps.value(),'steps':self.steps.value()}
+                  'fps':self.walk_fps.value(),'steps':self.steps.value(),'negative':self.negative.toPlainText()}
         write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'queued','params':params})
         item = QListWidgetItem(folder.name+' · 行走动画 · 等待'); self.queue_list.addItem(item)
         self.pending.append((None,params,folder,item))
@@ -587,7 +602,7 @@ class Window(QMainWindow):
                 item.setText(folder.name+' · 行走动画 · '+status); self.status.setText(message)
                 self.current=None; self.connect_button.setEnabled(True); QTimer.singleShot(0,self.start_next)
         self.launch(lambda emit:generate_walk(self.client,folder,params['profile'],params['prompt'],params['checkpoint'],
-            params['seed'],params['count'],params['fps'],emit,cancel,params['steps']),event)
+            params['seed'],params['count'],params['fps'],emit,cancel,params['steps'],params['negative']),event)
 
     def update_job(self, status, error=None):
         if self.current:
@@ -615,15 +630,62 @@ class Window(QMainWindow):
 
     def load_gallery(self):
         self.gallery.clear()
-        for path in sorted((DATA / 'jobs').glob('*/image_*.png'), reverse=True):
-            item = QListWidgetItem(path.parent.name[:15] + ' · ' + path.name)
-            item.setData(Qt.ItemDataRole.UserRole, str(path)); item.setToolTip(str(path)); self.gallery.addItem(item)
+        for folder in self.cache_store.entries('image'):
+            images=sorted(folder.glob('image_*.png'))
+            for path in images or [None]:
+                item = QListWidgetItem(folder.name + ' · '+(path.name if path else '尚无图片')+' · 缓存')
+                item.setData(Qt.ItemDataRole.UserRole, str(path) if path else None)
+                item.setData(Qt.ItemDataRole.UserRole+1,str(folder)); item.setToolTip(str(folder)); self.gallery.addItem(item)
         self.assets_dialog.animations.clear()
-        for path in sorted((DATA/'animations').glob('*/sequence.json'),reverse=True):
-            try: sequence=json.loads(path.read_text('utf-8'))
-            except (OSError,ValueError): continue
-            item=QListWidgetItem(path.parent.name+' · '+str(len(sequence['frames']))+' 帧 · '+sequence['status'])
-            item.setData(Qt.ItemDataRole.UserRole,str(path)); self.assets_dialog.animations.addItem(item)
+        for folder in self.cache_store.entries('walk'):
+            path=folder/'sequence.json'
+            try: sequence=json.loads(path.read_text('utf-8')) if path.exists() else {'frames':[],'status':'queued'}
+            except (OSError,ValueError): sequence={'frames':[],'status':'unreadable'}
+            item=QListWidgetItem(folder.name+' · '+str(len(sequence['frames']))+' 帧 · '+sequence['status'])
+            item.setData(Qt.ItemDataRole.UserRole,str(path)); item.setData(Qt.ItemDataRole.UserRole+1,str(folder))
+            self.assets_dialog.animations.addItem(item)
+        self.assets_dialog.saved_files.clear()
+        try:
+            for entry in reversed(self.cache_store.saved_files()):
+                exists=Path(entry['path']).is_file()
+                item=QListWidgetItem(Path(entry['path']).name+('' if exists else ' · 文件已移动或删除'))
+                item.setData(Qt.ItemDataRole.UserRole,entry['path']); item.setToolTip(entry['path'])
+                self.assets_dialog.saved_files.addItem(item)
+        except (OSError,ValueError,KeyError) as exc: self.log.append('读取已保存文件记录失败：'+str(exc))
+
+    def clear_result_cache(self,kind,all_cached=False):
+        if self.cache_busy: return
+        listing=self.gallery if kind=='image' else self.assets_dialog.animations
+        folders=self.cache_store.entries(kind) if all_cached else [item.data(Qt.ItemDataRole.UserRole+1) for item in listing.selectedItems()]
+        if not folders:
+            self.assets_dialog.cache_status.setText('暂无可清理缓存。' if all_cached else '请先选中要清除的记录。'); return
+        protected=[entry[2] for entry in self.pending]
+        if self.current: protected.append(self.current['folder'])
+        self.cache_busy=True; self.assets_dialog.set_cache_busy(True)
+        self.assets_dialog.cache_status.setText('正在清理本地缓存…')
+        # Pause a cached sequence before the worker removes its frame files.
+        if self.animation_player.manifest and within_any(self.animation_player.manifest,folders):
+            if self.animation_player.timer.isActive(): self.animation_player.toggle()
+        def done(event,data):
+            if event not in ('result','error'): return
+            self.cache_busy=False; self.assets_dialog.set_cache_busy(False)
+            if event=='error': self.assets_dialog.cache_status.setText('清理失败：'+str(data)); return
+            removed=data['deleted']
+            if within_any(self.output,removed) or within_any(self.animation_player.manifest,removed):
+                self.animation_player.reset(); self.sequence_preview.clear_sequence()
+                self.output=None; self.pixmap=QPixmap(); self.preview.clear(); self.preview.setText('缓存已清除，可继续生成或打开已保存文件。')
+                self.caption.setText('未另存的生成结果保存在本地缓存')
+            for message in self.chat_messages:
+                for field in ('image','job'):
+                    if within_any(message.get(field),removed): message[field]=None
+            self.chat.clear()
+            for message in self.chat_messages: self.render_message(message)
+            self.load_gallery()
+            text=f'已清除 {len(removed)} 个任务缓存；跳过 {len(data["skipped"])} 个正在运行或排队的任务。已另存文件保留。'
+            if data['errors']: text+=f' {len(data["errors"])} 项清理失败，详见日志。'; self.log.append('\n'.join(data['errors']))
+            self.assets_dialog.cache_status.setText(text); self.add_chat('软件',text)
+        store=self.cache_store
+        self.launch(lambda _:store.clear(folders,protected),done)
 
     def open_animation_history(self,item):
         try:
@@ -631,7 +693,10 @@ class Window(QMainWindow):
         except (OSError,ValueError,KeyError) as exc: self.add_chat('软件','读取动画失败：'+str(exc))
 
     def open_history(self, item):
-        self.show_image(item.data(Qt.ItemDataRole.UserRole) or str(DATA / item.text()))
+        path=item.data(Qt.ItemDataRole.UserRole)
+        if not path:
+            self.assets_dialog.cache_status.setText('此任务尚无可预览的图片。'); return
+        self.show_image(path)
         self.assets_dialog.close()
 
     def show_image(self, path):
@@ -649,11 +714,15 @@ class Window(QMainWindow):
 
     def save_as(self):
         if not self.output: return
+        if self.cache_busy: self.status.setText('请等待缓存清理结束后再保存。'); return
         path, _ = QFileDialog.getSaveFileName(self, '另存图片', 'image.png', 'PNG (*.png)')
         if path:
             try:
-                if Path(path).resolve() != Path(self.output).resolve(): shutil.copy2(self.output, path)
-            except OSError as exc: QMessageBox.warning(self, '保存失败', str(exc))
+                target=self.cache_store.validate_export(path)
+                if target != Path(self.output).resolve(): shutil.copy2(self.output,target)
+                self.cache_store.record_save(target,'image',self.output); self.load_gallery()
+                self.add_chat('软件','图片已另存，清理缓存时会保留：'+str(target))
+            except (OSError,ValueError,KeyError) as exc: QMessageBox.warning(self, '保存失败', str(exc))
 
     def closeEvent(self, event):
         if self.current or self.workers or self.editor.pending or self.preparing:
@@ -664,8 +733,8 @@ class Window(QMainWindow):
 
 def create_application(args=None):
     app = QApplication(sys.argv if args is None else args)
-    app.setStyle('Fusion')
-    app.setStyleSheet('''QWidget{background:#191e2b;color:#e4eaf7;font-size:13px;} QLineEdit,QTextEdit,QComboBox,QSpinBox,QDoubleSpinBox,QListWidget{background:#111725;border:1px solid #354056;border-radius:5px;padding:6px;} QPushButton{background:#303c56;border:0;border-radius:6px;padding:9px;} QPushButton:hover{background:#415575;} QPushButton:disabled{color:#6b768b;} QPushButton#primary{background:#6554d9;font-weight:bold;} QProgressBar{border:0;background:#111725;text-align:center;max-height:16px;} QProgressBar::chunk{background:#8875ee;}''')
+    from .theme import apply_light_theme
+    apply_light_theme(app)
     return app
 
 

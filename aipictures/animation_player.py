@@ -30,6 +30,9 @@ class AnimationPlayer(QWidget):
     def stop(self):
         self.timer.stop(); self.hide()
 
+    def reset(self):
+        self.stop(); self.frames=[]; self.manifest=None; self.index=0
+
     def toggle(self):
         if self.timer.isActive(): self.timer.stop(); self.play.setText('播放')
         elif self.frames: self.timer.start(round(1000/self.fps)); self.play.setText('暂停')
@@ -45,12 +48,13 @@ class AnimationPlayer(QWidget):
 
     def export(self):
         if not self.manifest: return
+        if self.window.cache_busy: self.window.status.setText('请等待缓存清理结束后再导出。'); return
         path,_=QFileDialog.getSaveFileName(self,'导出 PNG 序列、精灵图和 GIF','walk-animation.zip','ZIP (*.zip)')
         if not path: return
         try:
             manifest=json.loads(self.manifest.read_text('utf-8'))
             files=self.frames+[self.manifest.parent/'sprite_sheet.png',self.manifest.parent/'walk.gif']
-            target=Path(path)
+            target=self.window.cache_store.validate_export(path)
             if target.resolve() in {p.resolve() for p in files}: raise ValueError('导出位置不能覆盖原始帧')
             portable={'schema_version':1,'fps':manifest['fps'],'frame_count':len(self.frames),
                       'canvas':manifest['canvas'],'frames':[p.name for p in self.frames],
@@ -58,5 +62,6 @@ class AnimationPlayer(QWidget):
             with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as archive:
                 for file in files: archive.write(file,file.name)
                 archive.writestr('animation.json',json.dumps(portable,ensure_ascii=False,indent=2))
+            self.window.cache_store.record_save(target,'animation',self.manifest); self.window.load_gallery()
             self.window.add_chat('软件','已导出 PNG 序列、透明精灵图和 GIF：'+str(target))
         except (OSError,ValueError) as exc: QMessageBox.warning(self,'导出失败',str(exc))

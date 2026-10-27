@@ -1,28 +1,35 @@
-"""Compact desktop panels: settings accordion, assets drawer, reference/rig inspection."""
+"""Floating settings, cached results and reference/rig inspection."""
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl, QTimer
 from PySide6.QtGui import QPixmap, QDesktopServices
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QToolButton,
-    QDialog, QLabel, QListWidget, QPushButton, QComboBox, QTabWidget, QPlainTextEdit)
+    QDialog, QLabel, QListWidget, QPushButton, QComboBox, QTabWidget, QPlainTextEdit,
+    QScrollArea, QAbstractItemView)
 
 from .storage import DATA
 
 
-class Foldout(QWidget):
-    def __init__(self, title, content, expanded=False):
-        super().__init__()
-        layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(6)
-        toggle = QToolButton(); toggle.setText(title); toggle.setCheckable(True); toggle.setChecked(expanded)
-        toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        toggle.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
-        toggle.setMinimumHeight(32)
-        layout.addWidget(toggle); layout.addWidget(content)
-        content.setVisible(expanded)
-        def changed(opened):
-            content.setVisible(opened)
-            toggle.setArrowType(Qt.ArrowType.DownArrow if opened else Qt.ArrowType.RightArrow)
-        toggle.toggled.connect(changed)
+class SettingsDialog(QDialog):
+    """Owns the real controls; closing/reopening never resets their values."""
+    def __init__(self,title,content,parent,height=480):
+        super().__init__(parent)
+        self.setWindowTitle(title); self.setMinimumWidth(400); self.resize(470,height)
+        layout=QVBoxLayout(self)
+        heading=QLabel(title); heading.setStyleSheet('font-size:17px;font-weight:600;'); layout.addWidget(heading)
+        scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff); scroll.setWidget(content)
+        layout.addWidget(scroll,1)
+        note=QLabel('修改立即生效，用于下一次生成。'); note.setWordWrap(True); layout.addWidget(note)
+        done=QPushButton('完成'); done.clicked.connect(self.close); layout.addWidget(done)
+
+    def show_near(self,anchor):
+        screen=anchor.screen().availableGeometry()
+        self.resize(min(self.width(),screen.width()-32),min(self.height(),screen.height()-48))
+        point=anchor.mapToGlobal(anchor.rect().topRight())
+        x=min(point.x()+12,screen.right()-self.width()-12)
+        y=max(screen.top()+12,min(point.y(),screen.bottom()-self.height()-12))
+        self.move(max(screen.left()+12,x),y); self.show(); self.raise_(); self.activateWindow()
 
 
 class AssetsDialog(QDialog):
@@ -30,17 +37,41 @@ class AssetsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle('素材与生成记录'); self.resize(820, 600)
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel('双击生成记录查看图片；素材与工作流均保存在本地。'))
-        tabs = QTabWidget(); layout.addWidget(tabs, 1)
-        self.gallery = QListWidget(); tabs.addTab(self.gallery, '生成记录')
-        self.animations = QListWidget(); tabs.addTab(self.animations, '动画序列')
+        hint=QLabel('生成结果先放入本地缓存。需要长期保留时点“另存为”或“导出动画”，自行选择保存地址。')
+        hint.setWordWrap(True); layout.addWidget(hint)
+        tabs = QTabWidget(); self.tabs=tabs; layout.addWidget(tabs, 1)
+        self.cache_buttons=[]
+        for kind,title,attribute in [('image','图片缓存','gallery'),('walk','动画缓存','animations')]:
+            page=QWidget(); pv=QVBoxLayout(page)
+            listing=QListWidget(); listing.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+            setattr(self,attribute,listing); pv.addWidget(listing,1)
+            note=QLabel('双击预览；清理按整次生成任务处理，包含该任务的图片、参数与工作流副本。')
+            note.setWordWrap(True); pv.addWidget(note)
+            actions=QHBoxLayout()
+            selected=QPushButton('清除选中'); selected.clicked.connect(lambda _=False,kind=kind:parent.clear_result_cache(kind,False))
+            all_cached=QPushButton('清空此类缓存'); all_cached.clicked.connect(lambda _=False,kind=kind:parent.clear_result_cache(kind,True))
+            actions.addWidget(selected); actions.addWidget(all_cached); pv.addLayout(actions)
+            self.cache_buttons.extend([selected,all_cached]); tabs.addTab(page,title)
+        saved=QWidget(); saved_layout=QVBoxLayout(saved)
+        self.saved_files=QListWidget(); saved_layout.addWidget(self.saved_files,1)
+        self.saved_files.itemDoubleClicked.connect(lambda item:QDesktopServices.openUrl(QUrl.fromLocalFile(item.data(Qt.ItemDataRole.UserRole))))
+        location=QPushButton('打开保存位置'); location.clicked.connect(self.open_saved_location); saved_layout.addWidget(location)
+        tabs.addTab(saved,'已保存文件')
         files = QWidget(); fv = QVBoxLayout(files)
         for title, path in [('参考图与素材', DATA / 'references'), ('角色基准与骨骼', DATA / 'characters'),
                             ('本地工作流', DATA / 'workflows'), ('全部项目数据', DATA)]:
             button = QPushButton(title)
             button.clicked.connect(lambda _=False, path=path: self.open_folder(path)); fv.addWidget(button)
         fv.addStretch(); tabs.addTab(files, '素材文件夹')
+        self.cache_status=QLabel('清理缓存会跳过正在运行和排队的任务，已另存的文件保留。'); self.cache_status.setWordWrap(True); layout.addWidget(self.cache_status)
         close = QPushButton('返回创作'); close.clicked.connect(self.close); layout.addWidget(close)
+
+    def set_cache_busy(self,busy):
+        for button in self.cache_buttons: button.setEnabled(not busy)
+
+    def open_saved_location(self):
+        item=self.saved_files.currentItem()
+        if item: QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(item.data(Qt.ItemDataRole.UserRole)).parent)))
 
     @staticmethod
     def open_folder(path):

@@ -1,10 +1,10 @@
-"""Two-column studio: one settings sidebar and a preview/chat workspace."""
+"""Button sidebar with floating settings; preview and paired prompts stay visible."""
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QTabWidget, QSplitter, QScrollArea, QFormLayout, QComboBox,
     QDoubleSpinBox, QTextEdit, QTextBrowser, QProgressBar, QDialog, QListWidget, QSizePolicy)
 
-from .panels import Foldout, AssetsDialog
+from .panels import SettingsDialog, AssetsDialog
 from .workflow_library import list_workflows
 from .workflow_editor import WorkflowEditor
 
@@ -25,12 +25,16 @@ def build_studio(w):
     split = QSplitter(); page_layout.addWidget(split); w.tabs.addTab(page, '创作')
     sidebar = QWidget(); sidebar.setObjectName('sidebar'); side = QVBoxLayout(sidebar)
     side.setContentsMargins(12, 10, 12, 10)
-    title = QLabel('AIPictures'); title.setStyleSheet('font-size:21px;font-weight:600;'); side.addWidget(title)
-    side.addWidget(QLabel('本地角色创作'))
-    files = QPushButton('文件与历史记录…'); files.clicked.connect(w.open_assets); side.addWidget(files)
-    bone = QPushButton('骨骼预设与参考图…'); bone.clicked.connect(w.open_skeleton); side.addWidget(bone)
-    edit = QPushButton('高级工作流…'); edit.clicked.connect(lambda: w.tabs.setCurrentIndex(1)); side.addWidget(edit)
-    settings = QWidget(); sv = QVBoxLayout(settings); sv.setContentsMargins(0, 4, 0, 0)
+    title = QLabel('AIPictures'); title.setStyleSheet('font-size:19px;font-weight:600;'); side.addWidget(title)
+    w.creation_summary=QLabel('单张图片\n透明背景 · PNG'); w.creation_summary.setWordWrap(True); side.addWidget(w.creation_summary)
+    w.creation_summary.setObjectName('muted')
+    w.creation_summary.setMinimumHeight(64); w.creation_summary.setAlignment(Qt.AlignmentFlag.AlignTop)
+    side.addSpacing(12)
+    w.settings_dialogs={}; w.settings_buttons={}
+    def settings_button(key,title,content,height=480):
+        w.settings_dialogs[key]=SettingsDialog(title,content,w,height)
+        button=QPushButton(title+'…'); w.settings_buttons[key]=button
+        button.clicked.connect(lambda _=False:w.open_settings(key)); side.addWidget(button)
     character, cf = form()
     w.character_summary = QLabel('加载本地角色基准后，输入动作要求即可创作。'); w.character_summary.setWordWrap(True)
     cf.addRow(w.character_summary)
@@ -41,7 +45,7 @@ def build_studio(w):
     w.pose_choice.hide()
     w.generation_type = QComboBox(); w.generation_type.addItem('单张图片', 'image'); w.generation_type.addItem('人物行走动画帧', 'walk')
     cf.addRow('生成类型', w.generation_type)
-    w.intent_hint = QLabel('输入中文动作，自动选择对应骨骼参考。'); w.intent_hint.setWordWrap(True); cf.addRow(w.intent_hint)
+    w.intent_hint = QLabel('输入中文动作，自动选择对应骨骼参考。'); w.intent_hint.setWordWrap(True)
     w.walk_settings, wf = form()
     w.walk_count = QComboBox(); w.walk_count.addItem('8 帧 · 标准周期',8); w.walk_count.addItem('16 帧 · 更平滑',16)
     wf.addRow('帧数', w.walk_count)
@@ -51,7 +55,7 @@ def build_studio(w):
     w.generation_type.currentIndexChanged.connect(w.generation_type_changed)
     w.character_route.currentIndexChanged.connect(w.character_selection_changed)
     w.pose_choice.currentIndexChanged.connect(w.character_selection_changed)
-    sv.addWidget(Foldout('角色基准', character, True))
+    settings_button('creation','角色与生成',character,550)
     basic, bf = form()
     bf.addRow('输出', QLabel('透明背景 · PNG'))
     w.workflow_selector = QComboBox(); w.workflow_selector.addItem('自动选择', None)
@@ -65,9 +69,8 @@ def build_studio(w):
     bf.addRow('画布', size)
     w.denoise = QDoubleSpinBox(); w.denoise.setRange(.05, 1); w.denoise.setValue(.6); w.denoise.setSingleStep(.05)
     bf.addRow('重绘幅度', w.denoise)
-    sv.addWidget(Foldout('画面与参考', basic, True))
+    settings_button('image','模型与画面',basic,430)
     advanced, af = form()
-    w.negative = QTextEdit('blurry, watermark, text, low quality'); w.negative.setMaximumHeight(100); af.addRow('反向词', w.negative)
     w.steps = w.spin(1, 150, 24); af.addRow('步数', w.steps)
     w.cfg = QDoubleSpinBox(); w.cfg.setRange(0,30); w.cfg.setValue(6.5); af.addRow('CFG', w.cfg)
     w.seed = QLineEdit('-1'); af.addRow('种子', w.seed)
@@ -77,24 +80,27 @@ def build_studio(w):
     w.workflow_label = QLabel('输入会自动绑定到后台工作流。'); w.workflow_label.setWordWrap(True); af.addRow(w.workflow_label)
     imp = QPushButton('导入工作流 API…'); imp.clicked.connect(w.import_graph); af.addRow(imp)
     reset = QPushButton('恢复自动工作流'); reset.clicked.connect(w.reset_graph); af.addRow(reset)
-    sv.addWidget(Foldout('高级参数', advanced))
+    settings_button('sampling','采样与 LoRA',advanced,600)
     connection, nf = form()
     w.url = QLineEdit('http://127.0.0.1:8188'); nf.addRow('地址', w.url)
     w.connect_button = QPushButton('连接 / 刷新模型'); w.connect_button.clicked.connect(w.connect_engine); nf.addRow(w.connect_button)
     w.gpu = QLabel('GPU：等待连接'); w.gpu.setWordWrap(True); nf.addRow(w.gpu)
     w.unload_button = QPushButton('空闲时释放显存'); w.unload_button.clicked.connect(w.unload); nf.addRow(w.unload_button)
     clear = QPushButton('清空待执行任务'); clear.clicked.connect(w.clear_pending); nf.addRow(clear)
-    sv.addWidget(Foldout('连接与维护', connection)); sv.addStretch()
-    scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(settings); scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-    settings.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred)
-    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-    side.addWidget(scroll, 1)
-    sidebar.setMinimumWidth(280); sidebar.setMaximumWidth(355); split.addWidget(sidebar); w.inspector = sidebar
+    settings_button('connection','连接与显存',connection,400)
+    side.addSpacing(12)
+    files = QPushButton('生成记录与缓存…'); files.clicked.connect(w.open_assets); side.addWidget(files)
+    bone = QPushButton('骨骼与参考图…'); bone.clicked.connect(w.open_skeleton); side.addWidget(bone)
+    edit = QPushButton('高级工作流…'); edit.clicked.connect(lambda: w.tabs.setCurrentIndex(1)); side.addWidget(edit)
+    guide=QLabel('选择生成类型\n→ 填写正向 / 反向提示词\n→ 生成、预览，再另存需要的结果'); guide.setWordWrap(True)
+    guide.setObjectName('muted')
+    side.addStretch(); side.addWidget(guide)
+    sidebar.setMinimumWidth(210); sidebar.setMaximumWidth(270); split.addWidget(sidebar); w.inspector = sidebar
     workspace = QWidget(); cv = QVBoxLayout(workspace); cv.setContentsMargins(22, 8, 16, 6)
     w.context_label = QLabel('创作'); w.context_label.setStyleSheet('font-size:18px;font-weight:600;'); cv.addWidget(w.context_label)
     from .transparent_preview import TransparentPreview
     w.preview = TransparentPreview('应用角色基准，或输入你想生成的画面'); w.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    w.preview.setMinimumSize(400, 300); w.preview.setStyleSheet('background:#10141e;border:1px solid #2a3346;border-radius:12px;color:#8d9bb4;')
+    w.preview.setMinimumSize(400, 300)
     from .sequence_preview import SequencePreview
     w.sequence_preview = SequencePreview(w.preview, w); cv.addWidget(w.sequence_preview,1)
     image_bar = QHBoxLayout()
@@ -105,7 +111,14 @@ def build_studio(w):
     w.animation_player = AnimationPlayer(w); cv.addWidget(w.animation_player); w.animation_player.hide()
     w.chat = QTextBrowser(); w.chat.setMinimumHeight(90); w.chat.setMaximumHeight(170); cv.addWidget(w.chat)
     w.reference_label = QLabel('可添加参考图'); w.reference_label.setWordWrap(True); cv.addWidget(w.reference_label)
-    w.positive = QTextEdit(); w.positive.setPlaceholderText('描述画面或动作要求…'); w.positive.setMinimumHeight(70); w.positive.setMaximumHeight(100); cv.addWidget(w.positive)
+    w.reference_label.setObjectName('muted'); w.intent_hint.setObjectName('muted')
+    prompts=QWidget(); prompt_row=QHBoxLayout(prompts); prompt_row.setContentsMargins(0,0,0,0)
+    w.positive = QTextEdit(); w.positive.setPlaceholderText('想生成什么？例如：人物原地向右走路，侧视，全身'); w.positive.setMinimumHeight(80); w.positive.setMaximumHeight(105)
+    w.negative = QTextEdit('blurry, watermark, text, low quality'); w.negative.setPlaceholderText('不希望出现的内容，如 watermark, extra limbs'); w.negative.setMinimumHeight(80); w.negative.setMaximumHeight(105)
+    for label,control,stretch in [('正向提示词 · 想要的画面',w.positive,3),('反向提示词 · 不想出现的内容',w.negative,2)]:
+        column=QWidget(); column_layout=QVBoxLayout(column); column_layout.setContentsMargins(0,0,0,0)
+        column_layout.addWidget(QLabel(label)); column_layout.addWidget(control); prompt_row.addWidget(column,stretch)
+    cv.addWidget(prompts); cv.addWidget(w.intent_hint)
     w.positive.textChanged.connect(w.update_intent_hint)
     compose = QHBoxLayout()
     attach = QPushButton('＋ 参考图'); attach.clicked.connect(w.choose_reference); compose.addWidget(attach)
@@ -114,7 +127,7 @@ def build_studio(w):
     w.cancel_button = QPushButton('取消任务'); w.cancel_button.clicked.connect(w.cancel_current); compose.addWidget(w.cancel_button)
     w.generate_button = QPushButton('发送并生成'); w.generate_button.setObjectName('primary'); w.generate_button.setMinimumWidth(150); w.generate_button.setEnabled(False); w.generate_button.clicked.connect(w.enqueue)
     compose.addWidget(w.generate_button); cv.addLayout(compose)
-    split.addWidget(workspace); split.setStretchFactor(1,1); split.setSizes([310,1100]); w.chat_panel = workspace
+    split.addWidget(workspace); split.setStretchFactor(1,1); split.setSizes([240,1170]); w.chat_panel = workspace
     editor_page = QWidget(); ev = QVBoxLayout(editor_page); ev.setContentsMargins(0,0,0,0)
     back = QPushButton('← 返回创作'); back.clicked.connect(lambda: w.tabs.setCurrentIndex(0)); ev.addWidget(back, alignment=Qt.AlignmentFlag.AlignLeft)
     w.editor = WorkflowEditor(); ev.addWidget(w.editor,1); w.tabs.addTab(editor_page,'高级工作流')
@@ -131,3 +144,5 @@ def build_studio(w):
     tasks = QPushButton('任务与日志'); tasks.clicked.connect(w.diagnostics.show); footer.addWidget(tasks); outer.addLayout(footer)
     for combo in (w.model,w.sampler,w.scheduler,w.workflow_selector,w.lora,w.character_route,w.pose_choice,w.generation_type,w.walk_count):
         combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon); combo.setMinimumContentsLength(8)
+    for signal in (w.width.valueChanged,w.height.valueChanged,w.walk_count.currentIndexChanged,w.walk_fps.valueChanged):
+        signal.connect(lambda _:w.update_sidebar_summary())

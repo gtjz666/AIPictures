@@ -41,6 +41,10 @@ class WalkTests(unittest.TestCase):
         self.assertEqual(graph['5']['inputs']['latent_image'],['31',0])
         self.assertEqual(graph['5']['inputs']['positive'],['22',0])
         self.assertEqual(graph['5']['inputs']['seed'],17)
+        changed=frame_workflow('identity','pose','guide',17,'walking','model',negative='watermark, extra fingers')
+        self.assertEqual(changed['3']['inputs']['text'],'watermark, extra fingers')
+        empty=frame_workflow('identity','pose','guide',17,'walking','model',negative='')
+        self.assertEqual(empty['3']['inputs']['text'],'')
 
     def test_blue_foreground_is_not_removed_with_background(self):
         image=Image.new('RGB',(64,64),(188,220,250))
