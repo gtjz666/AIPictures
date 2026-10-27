@@ -6,13 +6,20 @@
 2. 左侧是设置入口，点击后出现小窗口。修改立即用于下一次生成，点“完成”关闭；重新打开会保留刚才的值。同一时间只显示一个设置窗口。
 3. 正向提示词和反向提示词并排放在右侧。正向写想要的画面或动作，反向写不想出现的内容。反向词目前建议使用英文；应用角色基准后已有一组默认词，可保留并按需增删。
 
+## 查看图片与输出面板
+
+- 消息记录、任务队列和运行日志合并在底部“输出面板”，默认隐藏。点击右下角“输出面板”或按 **Ctrl+J** 展开 / 收起；面板右上角的关闭按钮也可收起。新消息不会自动展开面板，当前进度仍在底部显示。
+- 点击上方静态图片可打开独立预览窗口，读取原始图片。滚轮或“＋ / －”缩放，拖动查看细节；“100%”查看原尺寸，“适应窗口”显示完整画布，Esc 关闭。透明背景继续显示为棋盘格。
+- 精灵图也是静态图片，点击可以放大。动画播放区保持播放、暂停和逐帧查看操作，点击动画画面不会弹出放大窗口。
+- 验收时可先展开 / 收起输出面板，再点击单图，检查完整显示、缩放和拖动；切到动画播放或暂停后点击画面，应不弹出图片窗口。
+
 ## 生成人物行走动画
 
 1. 点“角色与生成…”→“应用这张角色基准”，使用当前安装的角色。本机默认已更新为紫发侧视角色；也可以直接点右侧“＋ 参考图”导入其他人物。
 2. 生成类型选“人物行走动画帧”，先用 **8 帧、8 FPS**，然后点“完成”。16 帧会增加生成耗时；FPS 是播放速度。
 3. 正向输入：`人物原地向右走路，侧视，全身，保持一致`。
 4. 反向可保留默认，或者填写：`different character, changed outfit, extra arms, extra legs, extra fingers, watermark, text, blurry`。这里的内容会送入每一帧的实际负向条件，留空则按空负向条件生成。
-5. 点“生成行走动画”。底部显示帧进度，“任务与日志”可以查看执行情况；“取消任务”停止当前任务，已完成的帧留在缓存。
+5. 点“生成行走动画”。底部显示帧进度，“输出面板”可以查看执行情况；“取消任务”停止当前任务，已完成的帧留在缓存。
 6. 完成后，右侧“画面 / 动画播放”看循环；“全部动画帧”比较各帧并点击单独查看；“精灵图”查看排列。滑动进度条可以逐帧定位。
 7. 满意后点“导出动画…”，选择保存地址。ZIP 包括透明 PNG 帧、精灵图、透明 GIF 和播放参数。
 
@@ -70,10 +77,13 @@ FrameRonin 的[公开人物动作前端](https://github.com/systemchester/FrameR
 & .\.venv\Scripts\python.exe -m unittest discover -s tests -p 'test_*.py'
 & .\.venv\Scripts\python.exe -m tests.live_settings_cache
 & .\.venv\Scripts\python.exe -m tests.live_animation_preview
+& .\.venv\Scripts\python.exe -m tests.live_preview_controls
 & .\.venv\Scripts\python.exe -m tests.live_walk
 & .\.venv\Scripts\python.exe -m tests.live_reference_import '另一张全身侧视图.png'
 ```
 
 `live_settings_cache` 在独立的测试缓存中验证浅色模式、提示词布局、弹窗复用、单图及行走负向条件绑定、手动另存、选中/全部清理、排队任务跳过和已另存文件保留，不删除用户真实生成记录。结果为 `data/settings-cache-acceptance.json`。动画预览测试复用之前实际生成的八帧，不重复消耗 GPU。
+
+`live_preview_controls` 复用 `data/walk-acceptance.json` 中已生成的序列，验证输出面板默认隐藏、按钮 / Ctrl+J 切换、静态原图放大、滚轮缩放、100%、适应窗口、Esc 关闭，以及动画播放 / 暂停 / 逐帧点击不放大。无需连接 ComfyUI，也不修改用户历史；结果为 `data/preview-controls-acceptance.json`。
 
 `live_walk` 使用当前默认角色实际生成八帧，核对八个真实任务、每帧颜色上限、透明输出、预览与导出；`live_reference_import` 通过真实界面导入另一张图，验证其校验值进入识别、姿态和参考绑定，并实际生成一张透明图片。导入验收记录为 `data/reference-import-acceptance.json`；以上两项需要 GPU 时间。

@@ -1,8 +1,9 @@
 """Button sidebar with floating settings; preview and paired prompts stay visible."""
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QTabWidget, QSplitter, QScrollArea, QFormLayout, QComboBox,
-    QDoubleSpinBox, QTextEdit, QTextBrowser, QProgressBar, QDialog, QListWidget, QSizePolicy)
+    QDoubleSpinBox, QTextEdit, QTextBrowser, QProgressBar, QDockWidget, QListWidget, QSizePolicy)
 
 from .panels import SettingsDialog, AssetsDialog
 from .workflow_library import list_workflows
@@ -101,6 +102,8 @@ def build_studio(w):
     from .transparent_preview import TransparentPreview
     w.preview = TransparentPreview('应用角色基准，或输入你想生成的画面'); w.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
     w.preview.setMinimumSize(400, 300)
+    w.preview.activated.connect(w.open_current_image)
+    w.preview.resized.connect(w.fit_preview)
     from .sequence_preview import SequencePreview
     w.sequence_preview = SequencePreview(w.preview, w); cv.addWidget(w.sequence_preview,1)
     image_bar = QHBoxLayout()
@@ -109,7 +112,6 @@ def build_studio(w):
     reuse = QPushButton('继续创作'); reuse.clicked.connect(w.use_current_as_reference); image_bar.addWidget(reuse); cv.addLayout(image_bar)
     from .animation_player import AnimationPlayer
     w.animation_player = AnimationPlayer(w); cv.addWidget(w.animation_player); w.animation_player.hide()
-    w.chat = QTextBrowser(); w.chat.setMinimumHeight(90); w.chat.setMaximumHeight(170); cv.addWidget(w.chat)
     w.reference_label = QLabel('可添加参考图'); w.reference_label.setWordWrap(True); cv.addWidget(w.reference_label)
     w.reference_label.setObjectName('muted'); w.intent_hint.setObjectName('muted')
     prompts=QWidget(); prompt_row=QHBoxLayout(prompts); prompt_row.setContentsMargins(0,0,0,0)
@@ -136,12 +138,30 @@ def build_studio(w):
     w.tabs.currentChanged.connect(w.tab_changed)
     w.assets_dialog = AssetsDialog(w); w.gallery = w.assets_dialog.gallery; w.gallery.itemDoubleClicked.connect(w.open_history)
     w.assets_dialog.animations.itemDoubleClicked.connect(w.open_animation_history)
-    w.diagnostics = QDialog(w); w.diagnostics.setWindowTitle('任务与运行日志'); w.diagnostics.resize(800,550)
-    dl = QVBoxLayout(w.diagnostics); w.queue_list = QListWidget(); dl.addWidget(w.queue_list,1)
-    w.log = QTextEdit(); w.log.setReadOnly(True); dl.addWidget(w.log,2); w.editor.message.connect(w.log.append)
-    footer = QHBoxLayout(); w.status = QLabel('正在连接本地引擎…'); footer.addWidget(w.status,1)
+    w.diagnostics = QDockWidget('消息、任务与日志',w); w.diagnostics.setObjectName('outputDock')
+    w.diagnostics.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
+    w.diagnostics.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)
+    w.output_tabs = QTabWidget()
+    w.chat = QTextBrowser(); w.output_tabs.addTab(w.chat,'消息记录')
+    w.queue_list = QListWidget(); w.output_tabs.addTab(w.queue_list,'任务队列')
+    w.log = QTextEdit(); w.log.setReadOnly(True); w.output_tabs.addTab(w.log,'运行日志')
+    w.editor.message.connect(w.log.append)
+    w.diagnostics.setWidget(w.output_tabs); w.diagnostics.setMinimumHeight(170)
+    w.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,w.diagnostics)
+    w.resizeDocks([w.diagnostics],[220],Qt.Orientation.Vertical); w.diagnostics.hide()
+    footer = QHBoxLayout(); w.status = QLabel('正在连接本地引擎…')
+    w.status.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred); footer.addWidget(w.status,1)
     w.progress = QProgressBar(); w.progress.setMaximumWidth(210); footer.addWidget(w.progress)
-    tasks = QPushButton('任务与日志'); tasks.clicked.connect(w.diagnostics.show); footer.addWidget(tasks); outer.addLayout(footer)
+    w.output_toggle = QPushButton('输出面板'); w.output_toggle.setCheckable(True)
+    w.output_toggle.setToolTip('展开 / 隐藏消息、任务与日志：Ctrl+J')
+    w.output_toggle.toggled.connect(w.diagnostics.setVisible)
+    def output_visibility(visible):
+        w.output_toggle.setChecked(visible)
+        if visible:
+            QTimer.singleShot(0,lambda:w.chat.verticalScrollBar().setValue(w.chat.verticalScrollBar().maximum()))
+    w.diagnostics.visibilityChanged.connect(output_visibility)
+    w.output_shortcut = QShortcut(QKeySequence('Ctrl+J'),w); w.output_shortcut.activated.connect(w.output_toggle.toggle)
+    footer.addWidget(w.output_toggle); outer.addLayout(footer)
     for combo in (w.model,w.sampler,w.scheduler,w.workflow_selector,w.lora,w.character_route,w.pose_choice,w.generation_type,w.walk_count):
         combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon); combo.setMinimumContentsLength(8)
     for signal in (w.width.valueChanged,w.height.valueChanged,w.walk_count.currentIndexChanged,w.walk_fps.valueChanged):

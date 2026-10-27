@@ -1,10 +1,32 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPainter, QColor
 from PySide6.QtWidgets import QLabel
 
 
 class TransparentPreview(QLabel):
     """Checkerboard belongs to the viewer; exported pixels stay transparent."""
+    activated = Signal()
+    resized = Signal()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.clickable = False
+
+    def set_clickable(self, enabled):
+        self.clickable = enabled
+        self.setCursor(Qt.CursorShape.PointingHandCursor if enabled else Qt.CursorShape.ArrowCursor)
+        self.setToolTip('点击放大图片' if enabled else '')
+
+    def mouseReleaseEvent(self, event):
+        if self.clickable and event.button() == Qt.MouseButton.LeftButton and not self.pixmap().isNull():
+            self.activated.emit()
+        else:
+            super().mouseReleaseEvent(event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.resized.emit()
+
     def paintEvent(self,event):
         painter=QPainter(self); tile=16
         for y in range(0,self.height(),tile):

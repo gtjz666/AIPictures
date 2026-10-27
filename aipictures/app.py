@@ -46,6 +46,7 @@ class Window(QMainWindow):
         self.current = None
         self.pixmap = QPixmap()
         self.output = None
+        self.image_viewer = None
         self.custom_graph = None
         self.active_title = '自动选择'
         self.reference_path = None
@@ -311,6 +312,11 @@ class Window(QMainWindow):
         message = {'role': role, 'text': text, 'image': image, 'job': job}
         self.chat_messages.append(message)
         self.render_message(message)
+        if role == '软件':
+            self.output_toggle.setToolTip(text + '\n\n展开 / 隐藏输出面板：Ctrl+J')
+            if not self.current and not self.preparing:
+                self.status.setText(text.splitlines()[0][:110] if text else '')
+                self.status.setToolTip(text)
         write_json(DATA / 'chat' / 'history.json', {'schema_version': 1, 'messages': self.chat_messages[-200:]})
 
     def render_message(self, message):
@@ -647,7 +653,7 @@ class Window(QMainWindow):
                 if data['event'] == 'progress':
                     step=data['data']; self.status.setText(f'第 {data["index"]+1}/{data["count"]} 帧 · 采样 {step["value"]}/{step["max"]}')
             elif kind == 'frame_ready':
-                self.progress.setValue(round((data['index']+1)/data['count']*100)); self.show_image(data['image'])
+                self.progress.setValue(round((data['index']+1)/data['count']*100)); self.show_image(data['image'], allow_zoom=False)
             elif kind in ('result','error','cancelled'):
                 status={'result':'completed','error':'failed','cancelled':'cancelled'}[kind]
                 write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':status,'params':params,
@@ -731,9 +737,11 @@ class Window(QMainWindow):
             self.cache_busy=False; self.assets_dialog.set_cache_busy(False)
             if event=='error': self.assets_dialog.cache_status.setText('清理失败：'+str(data)); return
             removed=data['deleted']
+            if self.image_viewer and within_any(self.image_viewer.source_path,removed): self.image_viewer.close()
             if within_any(self.output,removed) or within_any(self.animation_player.manifest,removed):
                 self.animation_player.reset(); self.sequence_preview.clear_sequence()
                 self.output=None; self.pixmap=QPixmap(); self.preview.clear(); self.preview.setText('缓存已清除，可继续生成或打开已保存文件。')
+                self.preview.set_clickable(False)
                 self.caption.setText('未另存的生成结果保存在本地缓存')
             for message in self.chat_messages:
                 for field in ('image','job'):
@@ -759,11 +767,25 @@ class Window(QMainWindow):
         self.show_image(path)
         self.assets_dialog.close()
 
-    def show_image(self, path):
+    def show_image(self, path, allow_zoom=True):
         self.animation_player.stop()
         self.sequence_preview.clear_sequence()
         self.pixmap = QPixmap(path); self.output = path
+        self.preview.set_clickable(allow_zoom and not self.pixmap.isNull() and Path(path).suffix.lower() != '.gif')
         self.caption.setText('本地图片 · ' + Path(path).name); self.fit_preview()
+
+    def open_current_image(self):
+        if self.preview.clickable and self.output: self.open_image_viewer(self.output)
+
+    def open_image_viewer(self, path):
+        if not path: return
+        try:
+            if self.image_viewer is None:
+                from .image_viewer import ImageViewer
+                self.image_viewer = ImageViewer(self)
+            self.image_viewer.open_image(path)
+        except (OSError, ValueError) as exc:
+            self.add_chat('软件', '打开图片失败：' + str(exc))
 
     def fit_preview(self):
         if not self.pixmap.isNull(): self.preview.setPixmap(self.pixmap.scaled(self.preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))

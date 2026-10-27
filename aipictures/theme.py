@@ -9,6 +9,8 @@ QWidget#sidebar QLabel { background:transparent; }
 QWidget#sidebar QPushButton { background:transparent; border:0; border-radius:8px; padding:12px 10px; text-align:left; }
 QWidget#sidebar QPushButton:hover { background:#eaeaec; }
 QDialog { background:#ffffff; }
+QDockWidget { border-top:1px solid #e5e7eb; }
+QDockWidget::title { padding:7px; background:#f7f7f8; }
 QLabel#muted { color:#72757c; background:transparent; }
 QScrollArea { border:0; background:transparent; }
 QLineEdit,QTextEdit,QPlainTextEdit,QComboBox,QSpinBox,QDoubleSpinBox,QListWidget {

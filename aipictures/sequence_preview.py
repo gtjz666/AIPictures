@@ -8,7 +8,7 @@ from .transparent_preview import TransparentPreview
 
 class SequencePreview(QTabWidget):
     def __init__(self, preview, window):
-        super().__init__(); self.window=window; self.sheet_pixmap=QPixmap()
+        super().__init__(); self.window=window; self.sheet_pixmap=QPixmap(); self.sheet_path=None
         self.addTab(preview,'画面 / 动画播放')
         self.frames=QListWidget(); self.frames.setViewMode(QListWidget.ViewMode.IconMode)
         self.frames.setResizeMode(QListWidget.ResizeMode.Adjust); self.frames.setMovement(QListWidget.Movement.Static)
@@ -17,6 +17,8 @@ class SequencePreview(QTabWidget):
         self.addTab(self.frames,'全部动画帧')
         self.sheet=TransparentPreview(); self.sheet.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.sheet.setMinimumSize(200,200); self.addTab(self.sheet,'精灵图')
+        self.sheet.activated.connect(lambda:self.window.open_image_viewer(self.sheet_path))
+        self.sheet.resized.connect(self.fit_sheet)
         self.frames.itemClicked.connect(self.select_frame)
         self.currentChanged.connect(lambda _: self.fit_sheet())
         self.clear_sequence()
@@ -25,13 +27,15 @@ class SequencePreview(QTabWidget):
         self.setCurrentIndex(0)
         self.setTabEnabled(1,False); self.setTabEnabled(2,False)
         self.frames.clear(); self.sheet_pixmap=QPixmap(); self.sheet.clear()
+        self.sheet_path=None; self.sheet.set_clickable(False)
 
     def load(self,manifest,folder):
         self.frames.clear(); folder=Path(folder)
         for entry in manifest['frames']:
             item=QListWidgetItem(QIcon(str(folder/entry['image'])),f'{entry["index"]+1:02d} · {entry["stage"]}')
             item.setData(Qt.ItemDataRole.UserRole,entry['index']); self.frames.addItem(item)
-        self.sheet_pixmap=QPixmap(str(folder/'sprite_sheet.png'))
+        self.sheet_path=folder/'sprite_sheet.png'; self.sheet_pixmap=QPixmap(str(self.sheet_path))
+        self.sheet.set_clickable(not self.sheet_pixmap.isNull())
         self.setTabEnabled(1,True); self.setTabEnabled(2,True); self.fit_sheet()
 
     def select_frame(self,item):
