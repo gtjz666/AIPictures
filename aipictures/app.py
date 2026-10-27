@@ -17,6 +17,7 @@ from .workflow_editor import WorkflowEditor
 from .prompt_binding import bind_request, bindings, check_models
 from .workflow_library import list_workflows, workflow_path, digest
 from .character_profile import load_profile
+from .action_intent import parse_intent
 from .panels import SkeletonDialog
 
 
@@ -224,6 +225,31 @@ class Window(QMainWindow):
         if self.character_loading: return
         if self.character_profile: self.apply_character()
 
+    def generation_type_changed(self, _index=None):
+        walking = self.generation_type.currentData() == 'walk'
+        self.walk_settings.setVisible(walking)
+        self.generate_button.setText('生成行走动画' if walking else '发送并生成')
+        for control in (self.width,self.height,self.denoise,self.cfg,self.lora,self.strength):
+            control.setEnabled(not walking)
+        if not walking and self.custom_graph is not None:
+            self.lora.setEnabled(False); self.strength.setEnabled(False)
+        if walking:
+            self.width.setValue(768); self.height.setValue(1024)
+        self.context_label.setText('人物行走动画 · 蓝发侧视基准' if walking else self.active_title)
+        self.update_intent_hint()
+
+    def update_intent_hint(self):
+        intent = parse_intent(self.positive.toPlainText())
+        labels = {'walk':'行走','reach':'向前伸手','stand':'站立','run':'奔跑','jump':'跳跃'}
+        title = labels.get(intent.action,'未指定动作')
+        walking = self.generation_type.currentData() == 'walk'
+        text = ('行走周期 · ' if walking else '动作识别 · ') + title
+        text += ' · 朝' + ('左' if intent.direction == 'left' else '右')
+        if intent.action in ('run','jump'): text += '\n此动作暂未提供骨骼周期。'
+        elif intent.action == 'walk' and not walking: text += '\n当前只生成单张；连续动作请选人物行走动画帧。'
+        if intent.unmatched: text += '\n暂未识别：' + intent.unmatched
+        self.intent_hint.setText(text)
+
     def apply_character(self, _checked=False, route=None):
         if not self.connected:
             self.status.setText('请先连接本地引擎。'); return
@@ -250,8 +276,8 @@ class Window(QMainWindow):
             missing = None
             try: check_models(graph, self.info['object_info'])
             except ValueError as exc: missing = str(exc)
-            self.character_summary.setText(profile['title'] + '\n' + (missing or '参考图、提示词与角色模型已就绪。') +
-                ('\n骨骼仅作校对，当前重绘不施加骨骼约束。' if mode == 'baseline' else '\n生成将使用所选骨骼条件图。'))
+            self.character_summary.setText(profile['title'] + '\n' + (missing or '参考图与模型已就绪。') +
+                '\n根据动作关键词选择骨骼参考，默认输出透明背景。')
             write_json(DATA / 'chat' / 'active-workflow.json', {'graph': graph, 'title': title,
                 'character_id': profile['id'], 'route': mode})
             self.add_chat('软件', '已应用角色基准：' + ('参考重绘。固定角色提示词会自动保留。' if mode == 'baseline'
@@ -260,6 +286,7 @@ class Window(QMainWindow):
             self.add_chat('软件', '应用角色基准失败：' + str(exc))
         finally:
             self.character_loading = False
+            self.generation_type_changed()
 
     def add_chat(self, role, text, image=None, job=None):
         message = {'role': role, 'text': text, 'image': image, 'job': job}
@@ -335,20 +362,45 @@ class Window(QMainWindow):
             self.width.value(), self.height.value(), self.steps.value(), self.cfg.value(), seed,
             self.sampler.currentText(), self.scheduler.currentText(), self.lora.currentData() or '', self.strength.value())
         user_prompt = r.positive
+        intent = parse_intent(user_prompt)
+        source_graph = self.custom_graph
+        pose_key = self.pose_choice.currentData()
+        route = self.character_route.currentData()
         if self.character_profile:
-            key = 'positive' if self.character_route.currentData() == 'baseline' else 'pose_positive'
-            r.positive = self.character_profile[key] + ('\nAdditional target: ' + user_prompt.strip() if user_prompt.strip() else '')
+            if intent.action in ('stand','reach','walk'):
+                pose_key = 'reach' if intent.action == 'reach' else 'stand'
+                route = 'pose'
+                if intent.action == 'walk':
+                    from .walk_cycle import walk_rig
+                    from .character_profile import paint_pose
+                    pose_path = DATA/'characters'/'blue_side_v3'/'poses'/'walk_contact.png'
+                    paint_pose(walk_rig(0)).save(str(pose_path))
+                else: pose_path = Path(self.character_profile['poses'][pose_key]['image'])
+                source_graph = json.loads(Path(self.character_profile['poses'][pose_key]['graph']).read_text('utf-8'))
+                # Uploaded during preparation along with the identity reference.
+                source_graph['21']['inputs']['image'] = '__aipictures_pose__'
+            key = 'positive' if route == 'baseline' else 'pose_positive'
+            r.positive = self.character_profile[key] + ('\nAdditional target: ' + intent.english if intent.english else '')
+        elif intent.english:
+            r.positive = intent.english
+        elif intent.unmatched:
+            raise ValueError('这些中文暂未识别：'+intent.unmatched+'。当前支持站立、伸手、走路及侧视等动作词；其他画面描述请补充英文。')
         if not r.positive.strip():
             if reference_name: r.positive = 'high quality, detailed image'
             else: raise ValueError('请先输入画面描述，或添加一张参考图。')
         if any(v % 8 for v in (r.width, r.height)): raise ValueError('宽高需为 8 的倍数')
-        graph = self.custom_graph if self.custom_graph is not None else build_workflow(r)
+        graph = source_graph if source_graph is not None else build_workflow(r)
         graph, mapping = bind_request(graph, r, reference_name, self.denoise.value())
         params = asdict(r)
         params.update(mode='chat', user_prompt=user_prompt, template=self.active_title, bindings=mapping, denoise=self.denoise.value())
+        params['intent'] = intent.to_dict()
+        if self.character_profile and intent.action in ('stand','reach','walk'):
+            params['pose_upload'] = str(pose_path)
+        if self.character_profile and intent.direction == 'left':
+            params['mirror_output'] = True
         if self.character_profile:
             params.update(character_id=self.character_profile['id'], rig_id='blue_side_right_v3',
-                          pose=self.pose_choice.currentData(), character_route=self.character_route.currentData())
+                          pose=pose_key, character_route=route)
         return graph, params
 
     def load_draft_in_editor(self):
@@ -369,12 +421,19 @@ class Window(QMainWindow):
         try:
             if not self.connected: raise ValueError('请先连接 ComfyUI')
             if self.preparing: return
+            if self.generation_type.currentData() == 'walk':
+                self.enqueue_walk(); return
             reference = self.reference_path
+            if self.character_profile and reference is None: reference = Path(self.character_profile['reference'])
             graph, params = self.graph_snapshot('__aipictures_reference__' if reference else '')
+            from .background import model_file
+            if not model_file().is_file(): raise ValueError('透明输出需要本地去背景模型，请先运行 setup.bat 安装。')
             check_models(graph, self.info['object_info'])
             params['reference'] = str(reference) if reference else None
             fallback = '按角色基准生成' if self.character_profile else '使用这张参考图生成'
             self.add_chat('你', params['user_prompt'].strip() or fallback, str(reference) if reference else None)
+            if params['intent']['unmatched']:
+                self.add_chat('软件','未识别的中文暂未写入模型提示词：'+params['intent']['unmatched'])
             if reference:
                 self.preparing = True; self.prepare_cancel.clear()
                 self.status.setText('正在准备并上传参考图…')
@@ -388,10 +447,16 @@ class Window(QMainWindow):
                     if kind == 'error':
                         self.status.setText('参考图上传失败'); self.add_chat('软件', '参考图上传失败：' + str(data)); return
                     if kind != 'result': return
-                    for key in params['bindings']['reference']: graph[key]['inputs']['image'] = data
-                    params['uploaded_reference'] = data
+                    for key in params['bindings']['reference']: graph[key]['inputs']['image'] = data['reference']
+                    if data.get('pose'): graph['21']['inputs']['image'] = data['pose']
+                    params['uploaded_reference'] = data['reference']
                     self.submit_chat_graph(graph, params)
-                self.launch(lambda _: client.upload_image(reference), uploaded)
+                def prepare(_):
+                    result = {'reference':client.upload_image(reference)}
+                    if self.prepare_cancel.is_set(): raise Cancelled('准备已取消')
+                    if params.get('pose_upload'): result['pose'] = client.upload_image(params['pose_upload'])
+                    return result
+                self.launch(prepare, uploaded)
             else:
                 self.submit_chat_graph(graph, params)
         except Exception as exc:
@@ -423,6 +488,8 @@ class Window(QMainWindow):
     def start_next(self):
         if self.current or not self.pending: return
         graph, params, folder, item = self.pending.pop(0)
+        if params.get('mode') == 'walk':
+            self.start_walk(params,folder,item); return
         item.setText(folder.name + ' · 执行中')
         cancel = threading.Event()
         self.current = {'folder': folder, 'cancel': cancel, 'params': params}
@@ -438,8 +505,15 @@ class Window(QMainWindow):
                 self.status.setText('正在执行节点 ' + str(data.get('node') or '结果保存'))
             elif kind == 'monitor_waiting':
                 self.status.setText('本地引擎繁忙，继续等待当前任务…')
+            elif kind == 'postprocess':
+                self.status.setText('正在本地分离主体并生成透明背景…')
             elif kind in ('result', 'error', 'cancelled'):
                 if kind == 'result':
+                    if params.get('mirror_output'):
+                        from PIL import Image, ImageOps
+                        for path in data['images']:
+                            with Image.open(path) as image: mirrored = ImageOps.mirror(image)
+                            mirrored.save(path)
                     write_json(folder / 'result.json', data); self.show_image(data['images'][0]); self.load_gallery()
                 if params.get('mode') == 'chat':
                     if kind == 'result': self.add_chat('软件', '生成完成，图片和本次实际工作流已保存。', data['images'][0], str(folder))
@@ -451,7 +525,69 @@ class Window(QMainWindow):
                 self.status.setText({'result':'生成完成，已保存','error':'任务失败，详见日志','cancelled':'任务已取消'}[kind])
                 self.progress.setRange(0, 100); self.progress.setValue(100 if kind == 'result' else 0)
                 self.current = None; self.connect_button.setEnabled(True); QTimer.singleShot(0, self.start_next)
-        self.launch(lambda emit: self.client.generate(graph, folder, emit, cancel), event)
+        def generate(emit):
+            from .background import process_result
+            result=self.client.generate(graph,folder,emit,cancel)
+            return process_result(result,folder,emit,cancel)
+        self.launch(generate, event)
+
+    def enqueue_walk(self):
+        from .walk_cycle import new_sequence, frame_workflow
+        profile = load_profile()
+        if not profile: raise ValueError('请先安装蓝发侧视角色基准')
+        if self.reference_path and digest(self.reference_path) != digest(profile['reference']):
+            raise ValueError('当前行走分层只校准了蓝发基准图。请应用该角色基准，再生成动画。')
+        intent = parse_intent(self.positive.toPlainText())
+        if intent.action in ('stand','reach','run','jump') or ('walk' in intent.negated and intent.action != 'walk'):
+            raise ValueError('人物行走动画帧需要行走指令；站立和伸手请选单张图片。')
+        seed = int(self.seed.text())
+        if seed == -1: seed = secrets.randbelow(2**53)
+        if not 0 <= seed < 2**64: raise ValueError('种子范围不正确')
+        graph = frame_workflow('__ref__','__pose__','__guide__',seed,'walk',self.model.currentText(),self.steps.value())
+        missing = {node['class_type'] for node in graph.values()}-set(self.info['nodes'])
+        if missing: raise ValueError('缺少节点：'+', '.join(sorted(missing)))
+        check_models(graph,self.info['object_info'])
+        folder = new_sequence()
+        params = {'mode':'walk','profile':profile,'prompt':self.positive.toPlainText(),
+                  'checkpoint':self.model.currentText(),'seed':seed,'count':self.walk_count.currentData(),
+                  'fps':self.walk_fps.value(),'steps':self.steps.value()}
+        write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'queued','params':params})
+        item = QListWidgetItem(folder.name+' · 行走动画 · 等待'); self.queue_list.addItem(item)
+        self.pending.append((None,params,folder,item))
+        self.add_chat('你',params['prompt'] or '按角色基准生成行走动画')
+        self.add_chat('软件',f'行走动画已入队：{params["count"]} 帧，共用角色参考和种子。头身保留参考图，骨骼预变形后逐帧 AI 修复肢体。'+
+                      ('\n未识别中文：'+intent.unmatched if intent.unmatched else ''),job=str(folder))
+        self.start_next()
+
+    def start_walk(self, params, folder, item):
+        from .walk_cycle import generate_walk
+        cancel = threading.Event(); self.current={'folder':folder,'cancel':cancel,'params':params}
+        self.connect_button.setEnabled(False); self.progress.setRange(0,100); self.progress.setValue(0)
+        item.setText(folder.name+' · 行走动画执行中'); self.status.setText('准备行走骨骼与角色分层…')
+        write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'running','params':params})
+        def event(kind,data):
+            if kind == 'frame_started':
+                self.status.setText(f'行走第 {data["index"]+1}/{data["count"]} 帧 · {data["stage"]}')
+            elif kind == 'frame_event':
+                if data['event'] == 'progress':
+                    step=data['data']; self.status.setText(f'第 {data["index"]+1}/{data["count"]} 帧 · 采样 {step["value"]}/{step["max"]}')
+            elif kind == 'frame_ready':
+                self.progress.setValue(round((data['index']+1)/data['count']*100)); self.show_image(data['image'])
+            elif kind in ('result','error','cancelled'):
+                status={'result':'completed','error':'failed','cancelled':'cancelled'}[kind]
+                write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':status,'params':params,
+                                            'result':data if kind=='result' else None,'error':None if kind=='result' else str(data)})
+                if kind == 'result':
+                    self.animation_player.load(data['manifest']); self.load_gallery()
+                    last=folder/f'frame_{params["count"]-1:03d}'/'workflow.json'
+                    self.last_chat_graph=json.loads(last.read_text('utf-8')); self.editor_needs_sync=True; self.sync_editor_if_needed()
+                    message='行走序列已完成，可循环播放、逐帧查看或导出 PNG / Sprite Sheet / GIF。'
+                else: message=('行走任务已取消。' if kind=='cancelled' else '行走生成失败：'+str(data))+' 已完成的帧保留在本地。'
+                self.add_chat('软件',message,job=str(folder)); self.log.append(folder.name+' · '+status)
+                item.setText(folder.name+' · 行走动画 · '+status); self.status.setText(message)
+                self.current=None; self.connect_button.setEnabled(True); QTimer.singleShot(0,self.start_next)
+        self.launch(lambda emit:generate_walk(self.client,folder,params['profile'],params['prompt'],params['checkpoint'],
+            params['seed'],params['count'],params['fps'],emit,cancel,params['steps']),event)
 
     def update_job(self, status, error=None):
         if self.current:
@@ -464,7 +600,7 @@ class Window(QMainWindow):
 
     def clear_pending(self):
         for _, params, folder, item in self.pending:
-            write_json(folder / 'job.json', {'schema_version': 1, 'kind': 'image', 'status': 'cancelled', 'params': params})
+            write_json(folder / 'job.json', {'schema_version': 1, 'kind': 'walk' if params.get('mode')=='walk' else 'image', 'status': 'cancelled', 'params': params})
             item.setText(folder.name + ' · 已清除')
             if params.get('mode') == 'chat': self.add_chat('软件', '已从队列移除此任务。', job=str(folder))
         self.pending.clear()
@@ -482,12 +618,25 @@ class Window(QMainWindow):
         for path in sorted((DATA / 'jobs').glob('*/image_*.png'), reverse=True):
             item = QListWidgetItem(path.parent.name[:15] + ' · ' + path.name)
             item.setData(Qt.ItemDataRole.UserRole, str(path)); item.setToolTip(str(path)); self.gallery.addItem(item)
+        self.assets_dialog.animations.clear()
+        for path in sorted((DATA/'animations').glob('*/sequence.json'),reverse=True):
+            try: sequence=json.loads(path.read_text('utf-8'))
+            except (OSError,ValueError): continue
+            item=QListWidgetItem(path.parent.name+' · '+str(len(sequence['frames']))+' 帧 · '+sequence['status'])
+            item.setData(Qt.ItemDataRole.UserRole,str(path)); self.assets_dialog.animations.addItem(item)
+
+    def open_animation_history(self,item):
+        try:
+            self.animation_player.load(item.data(Qt.ItemDataRole.UserRole)); self.assets_dialog.close()
+        except (OSError,ValueError,KeyError) as exc: self.add_chat('软件','读取动画失败：'+str(exc))
 
     def open_history(self, item):
         self.show_image(item.data(Qt.ItemDataRole.UserRole) or str(DATA / item.text()))
         self.assets_dialog.close()
 
     def show_image(self, path):
+        self.animation_player.stop()
+        self.sequence_preview.clear_sequence()
         self.pixmap = QPixmap(path); self.output = path
         self.caption.setText('本地图片 · ' + Path(path).name); self.fit_preview()
 

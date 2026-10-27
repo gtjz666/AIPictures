@@ -14,6 +14,12 @@
 - `tests/`：结构测试与真实桌面到 ComfyUI 验收脚本。
 - `aipictures/studio_layout.py`：两栏布局；`panels.py` 管理折叠设置、素材/历史对话框和骨骼校对窗口，布局与执行逻辑分离。
 - `aipictures/character_profile.py`：版本化角色提示词、BODY_18 骨架、姿态草案和参考重绘/骨骼控制两条独立图构建器；图片、姿态和完整工作流实例在 data/characters 中保存。
+- `aipictures/action_intent.py`：有限中文动作词表、否定处理与英文条件映射；保存识别/未识别内容，不调用云端语言服务。单张图按动作选择姿态图，行走由生成类型显式选择。
+- `aipictures/walk_cycle.py`：周期骨骼、固定角色分层、腿部 IK、参考预变形、独立逐帧 ComfyUI 工作流及透明 PNG / Sprite Sheet / GIF 导出。与单图共用 GPU 队列，但文件和执行生命周期独立。
+- `aipictures/animation_player.py` / `sequence_preview.py`：本地帧播放、定位、完整帧浏览、精灵图预览与 ZIP 导出；QTimer 不等待推理线程。棋盘格由 `transparent_preview.py` 绘制，不修改输出。
+- `aipictures/background.py`：CPU ONNX IS-Net 主体分割；后台线程保留原图后生成透明 RGBA，独立于 ComfyUI 的 Torch 环境。模型由 `tools/prepare_background.py` 预安装，日常处理不下载模型。
+
+行走任务目录为 `data/animations/<时间_UUID>/`，`job.json` 的 kind=walk，sequence.json 包含版本、FPS、画幅、地面线、固定种子、参考图校验、意图、逐帧 phase/stage/工作流/任务 ID、导出信息与状态。每帧输入、遮罩、API 图和原始 AI 输出写入同名子目录，透明最终帧写入任务根。只有全部帧和导出成功才标记 completed。取消/失败保留部分数据，不重提已完成的 ComfyUI 任务。左右方向通过最终统一镜像实现，骨骼记录仍是面朝右的生成条件，manifest 显式记录 mirrored。
 
 任务目录 `data/jobs/<时间_UUID>/` 包含 `job.json`、`workflow.json`、`result.json`、`image_000.png`。任务记录版本为 1，kind 当前为 image，状态包括 created、queued、running、completed、failed、cancelled。随机种子在提交前固化，完整工作流和 ComfyUI history 用于复现。程序重启会重新扫描图片记录；不会自动重提中断任务，以免重复生成。崩溃时 queued/running 记录可能陈旧，可用 prompt_id 在 ComfyUI 查询。
 

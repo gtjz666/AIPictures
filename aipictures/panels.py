@@ -33,6 +33,7 @@ class AssetsDialog(QDialog):
         layout.addWidget(QLabel('双击生成记录查看图片；素材与工作流均保存在本地。'))
         tabs = QTabWidget(); layout.addWidget(tabs, 1)
         self.gallery = QListWidget(); tabs.addTab(self.gallery, '生成记录')
+        self.animations = QListWidget(); tabs.addTab(self.animations, '动画序列')
         files = QWidget(); fv = QVBoxLayout(files)
         for title, path in [('参考图与素材', DATA / 'references'), ('角色基准与骨骼', DATA / 'characters'),
                             ('本地工作流', DATA / 'workflows'), ('全部项目数据', DATA)]:

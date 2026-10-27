@@ -2,7 +2,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QTabWidget, QSplitter, QScrollArea, QFormLayout, QComboBox,
-    QDoubleSpinBox, QTextEdit, QTextBrowser, QProgressBar, QDialog, QListWidget)
+    QDoubleSpinBox, QTextEdit, QTextBrowser, QProgressBar, QDialog, QListWidget, QSizePolicy)
 
 from .panels import Foldout, AssetsDialog
 from .workflow_library import list_workflows
@@ -12,6 +12,8 @@ from .workflow_editor import WorkflowEditor
 def form():
     widget = QWidget(); layout = QFormLayout(widget)
     layout.setContentsMargins(3, 3, 3, 3); layout.setVerticalSpacing(10)
+    layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
     return widget, layout
 
 
@@ -34,13 +36,24 @@ def build_studio(w):
     cf.addRow(w.character_summary)
     apply = QPushButton('应用这张角色基准'); apply.clicked.connect(w.apply_character); cf.addRow(apply)
     w.character_route = QComboBox(); w.character_route.addItem('参考角色重绘', 'baseline'); w.character_route.addItem('骨骼约束（需 ControlNet）', 'pose')
-    cf.addRow('生成方式', w.character_route)
+    w.character_route.hide()  # Internal binding retained for existing saved workflows.
     w.pose_choice = QComboBox(); w.pose_choice.addItem('侧视站立 · 基准', 'stand'); w.pose_choice.addItem('向前伸手 · 草案', 'reach')
-    cf.addRow('骨骼预设', w.pose_choice)
+    w.pose_choice.hide()
+    w.generation_type = QComboBox(); w.generation_type.addItem('单张图片', 'image'); w.generation_type.addItem('人物行走动画帧', 'walk')
+    cf.addRow('生成类型', w.generation_type)
+    w.intent_hint = QLabel('输入中文动作，自动选择对应骨骼参考。'); w.intent_hint.setWordWrap(True); cf.addRow(w.intent_hint)
+    w.walk_settings, wf = form()
+    w.walk_count = QComboBox(); w.walk_count.addItem('8 帧 · 标准周期',8); w.walk_count.addItem('16 帧 · 更平滑',16)
+    wf.addRow('帧数', w.walk_count)
+    w.walk_fps = w.spin(1,30,8); wf.addRow('播放帧率', w.walk_fps)
+    note = QLabel('使用当前蓝发侧视基准，固定画幅、地面线和参考权重，逐帧修复肢体。\n输出透明 PNG / 精灵图 / GIF。其他角色请先用单张图片。'); note.setWordWrap(True); wf.addRow(note)
+    cf.addRow(w.walk_settings); w.walk_settings.hide()
+    w.generation_type.currentIndexChanged.connect(w.generation_type_changed)
     w.character_route.currentIndexChanged.connect(w.character_selection_changed)
     w.pose_choice.currentIndexChanged.connect(w.character_selection_changed)
     sv.addWidget(Foldout('角色基准', character, True))
     basic, bf = form()
+    bf.addRow('输出', QLabel('透明背景 · PNG'))
     w.workflow_selector = QComboBox(); w.workflow_selector.addItem('自动选择', None)
     for entry in list_workflows(): w.workflow_selector.addItem(entry['title'], entry)
     w.workflow_selector.currentIndexChanged.connect(w.select_chat_workflow)
@@ -73,20 +86,27 @@ def build_studio(w):
     clear = QPushButton('清空待执行任务'); clear.clicked.connect(w.clear_pending); nf.addRow(clear)
     sv.addWidget(Foldout('连接与维护', connection)); sv.addStretch()
     scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(settings); scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+    settings.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     side.addWidget(scroll, 1)
     sidebar.setMinimumWidth(280); sidebar.setMaximumWidth(355); split.addWidget(sidebar); w.inspector = sidebar
     workspace = QWidget(); cv = QVBoxLayout(workspace); cv.setContentsMargins(22, 8, 16, 6)
     w.context_label = QLabel('创作'); w.context_label.setStyleSheet('font-size:18px;font-weight:600;'); cv.addWidget(w.context_label)
-    w.preview = QLabel('应用角色基准，或输入你想生成的画面'); w.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    from .transparent_preview import TransparentPreview
+    w.preview = TransparentPreview('应用角色基准，或输入你想生成的画面'); w.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
     w.preview.setMinimumSize(400, 300); w.preview.setStyleSheet('background:#10141e;border:1px solid #2a3346;border-radius:12px;color:#8d9bb4;')
-    cv.addWidget(w.preview, 1)
+    from .sequence_preview import SequencePreview
+    w.sequence_preview = SequencePreview(w.preview, w); cv.addWidget(w.sequence_preview,1)
     image_bar = QHBoxLayout()
     w.caption = QLabel('图片与工作流自动保存到本地'); w.caption.setWordWrap(True); image_bar.addWidget(w.caption, 1)
     save = QPushButton('另存为…'); save.clicked.connect(w.save_as); image_bar.addWidget(save)
     reuse = QPushButton('继续创作'); reuse.clicked.connect(w.use_current_as_reference); image_bar.addWidget(reuse); cv.addLayout(image_bar)
+    from .animation_player import AnimationPlayer
+    w.animation_player = AnimationPlayer(w); cv.addWidget(w.animation_player); w.animation_player.hide()
     w.chat = QTextBrowser(); w.chat.setMinimumHeight(90); w.chat.setMaximumHeight(170); cv.addWidget(w.chat)
     w.reference_label = QLabel('可添加参考图'); w.reference_label.setWordWrap(True); cv.addWidget(w.reference_label)
     w.positive = QTextEdit(); w.positive.setPlaceholderText('描述画面或动作要求…'); w.positive.setMinimumHeight(70); w.positive.setMaximumHeight(100); cv.addWidget(w.positive)
+    w.positive.textChanged.connect(w.update_intent_hint)
     compose = QHBoxLayout()
     attach = QPushButton('＋ 参考图'); attach.clicked.connect(w.choose_reference); compose.addWidget(attach)
     remove = QPushButton('移除'); remove.clicked.connect(w.clear_reference); compose.addWidget(remove)
@@ -102,11 +122,12 @@ def build_studio(w):
     w.editor.template_requested.connect(w.activate_editor_template); w.editor.became_ready.connect(w.sync_editor_if_needed)
     w.tabs.currentChanged.connect(w.tab_changed)
     w.assets_dialog = AssetsDialog(w); w.gallery = w.assets_dialog.gallery; w.gallery.itemDoubleClicked.connect(w.open_history)
+    w.assets_dialog.animations.itemDoubleClicked.connect(w.open_animation_history)
     w.diagnostics = QDialog(w); w.diagnostics.setWindowTitle('任务与运行日志'); w.diagnostics.resize(800,550)
     dl = QVBoxLayout(w.diagnostics); w.queue_list = QListWidget(); dl.addWidget(w.queue_list,1)
     w.log = QTextEdit(); w.log.setReadOnly(True); dl.addWidget(w.log,2); w.editor.message.connect(w.log.append)
     footer = QHBoxLayout(); w.status = QLabel('正在连接本地引擎…'); footer.addWidget(w.status,1)
     w.progress = QProgressBar(); w.progress.setMaximumWidth(210); footer.addWidget(w.progress)
     tasks = QPushButton('任务与日志'); tasks.clicked.connect(w.diagnostics.show); footer.addWidget(tasks); outer.addLayout(footer)
-    for combo in (w.model,w.sampler,w.scheduler,w.workflow_selector,w.lora,w.character_route,w.pose_choice):
+    for combo in (w.model,w.sampler,w.scheduler,w.workflow_selector,w.lora,w.character_route,w.pose_choice,w.generation_type,w.walk_count):
         combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon); combo.setMinimumContentsLength(8)
