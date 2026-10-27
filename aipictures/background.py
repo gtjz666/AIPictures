@@ -3,7 +3,7 @@ import os
 import shutil
 import threading
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageOps
 from .engine import Cancelled
 from .storage import DATA
 
@@ -30,15 +30,25 @@ def session(allow_download=False):
     return _session
 
 
-def remove_background(path,cancel):
+def foreground_rgba(image,cancel):
+    """Straight RGBA: preserve source RGB instead of multiplying colors by alpha twice."""
     if cancel.is_set(): raise Cancelled('任务已取消')
+    image=ImageOps.exif_transpose(image).convert('RGBA')
+    alpha=image.getchannel('A')
+    histogram=alpha.histogram()
+    if sum(histogram[:16])>image.width*image.height*.01 and sum(histogram[64:])>100:
+        return image.copy()  # An imported transparent sprite already has a deliberate matte.
     from rembg import remove
-    with Image.open(path) as image:
-        output = remove(image.convert('RGB'),session=session()).convert('RGBA')
-    alpha=output.getchannel('A').point(lambda a:0 if a<16 else 255 if a>245 else a)
+    alpha=remove(image.convert('RGB'),session=session(),only_mask=True).convert('L')
+    alpha=alpha.point(lambda a:0 if a<12 else 255 if a>232 else a)
+    output=image.copy()
     output.putalpha(alpha)
     if cancel.is_set(): raise Cancelled('任务已取消，原图已保留')
     return output
+
+
+def remove_background(path,cancel):
+    with Image.open(path) as image: return foreground_rgba(image,cancel)
 
 
 def process_result(result,folder,emit,cancel):

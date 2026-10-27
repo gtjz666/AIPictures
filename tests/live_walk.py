@@ -35,7 +35,7 @@ def tick():
         graph,params=window.graph_snapshot('__reference__')
         assert params['pose']=='reach' and params['character_route']=='pose'
         assert 'reaching forward' in graph['2']['inputs']['text']
-        assert graph['21']['inputs']['image']=='__aipictures_pose__'
+        assert graph['21']['inputs']['image'] in ('__aipictures_pose__','__adaptive_pose__')
         window.generation_type.setCurrentIndex(1)
         window.open_settings('creation')
         assert window.walk_settings.isVisible() and not window.character_route.isVisible()
@@ -61,6 +61,10 @@ def tick():
                 assert image.size==(768,1024) and image.mode=='RGBA'
             graph=json.loads((folder/entry['workflow']).read_text('utf-8'))
             assert graph['5']['inputs']['seed']==20261027
+            if sequence['schema_version']>=2:
+                assert entry['quality']['max_rgb_change']<=16
+                assert entry['quality']['opaque_pixels']>20000
+                assert 'blue bob' not in graph['2']['inputs']['text']
         with Image.open(folder/'walk.gif') as gif: assert gif.n_frames==8
         state['index']=window.animation_player.index; state['after']=time.monotonic()+.4; state['stage']='playback'
     elif state['stage']=='playback' and time.monotonic()>state['after']:

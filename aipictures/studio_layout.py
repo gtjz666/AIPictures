@@ -50,7 +50,7 @@ def build_studio(w):
     w.walk_count = QComboBox(); w.walk_count.addItem('8 帧 · 标准周期',8); w.walk_count.addItem('16 帧 · 更平滑',16)
     wf.addRow('帧数', w.walk_count)
     w.walk_fps = w.spin(1,30,8); wf.addRow('播放帧率', w.walk_fps)
-    note = QLabel('使用当前蓝发侧视基准，固定画幅、地面线和参考权重，逐帧修复肢体。\n输出透明 PNG / 精灵图 / GIF。其他角色请先用单张图片。'); note.setWordWrap(True); wf.addRow(note)
+    note = QLabel('使用本次参考图识别人物与骨骼，自动适配全身侧视角色。\n共享原图颜色和透明遮罩，输出 PNG / 精灵图 / GIF。遮挡侧肢体为估计。'); note.setWordWrap(True); wf.addRow(note)
     cf.addRow(w.walk_settings); w.walk_settings.hide()
     w.generation_type.currentIndexChanged.connect(w.generation_type_changed)
     w.character_route.currentIndexChanged.connect(w.character_selection_changed)

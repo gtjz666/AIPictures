@@ -98,7 +98,9 @@ class SkeletonDialog(QDialog):
             pv.addWidget(QLabel(title)); box = QPlainTextEdit(text); box.setReadOnly(True); pv.addWidget(box, 1)
         tabs.addTab(prompt_page, '提示词')
         tabs.setCurrentIndex(2)
-        notes = QLabel('18 关节侧视骨骼 · 面朝右 · 固定地面线。\n人工按图标定；裙下髋部和遮挡侧关节为估计值。伸手姿态是草案，尚未证明可用于动画。')
+        description=('DWPose 身体与手部识别 · 按参考图比例适配 · 固定地面线。\n可见侧来自识别，遮挡侧为估计；本窗口用于校对，尚不能拖动关节。'
+                     if profile.get('adaptive') else '18 关节侧视骨骼 · 面朝右 · 固定地面线。\n人工按图标定；裙下髋部和遮挡侧关节为估计值。')
+        notes = QLabel(description)
         notes.setWordWrap(True); layout.addWidget(notes)
         open_folder = QPushButton('打开骨骼文件与提示词'); open_folder.clicked.connect(lambda: AssetsDialog.open_folder(Path(profile['reference']).parent))
         layout.addWidget(open_folder)

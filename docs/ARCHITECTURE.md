@@ -17,9 +17,11 @@
 - `aipictures/result_cache.py`：任务缓存目录枚举与删除、导出路径校验和已保存文件索引。清理前验证解析后的绝对目标为 jobs/animations 的直接任务子目录，拒绝根目录、外部路径及目录链接；从界面传入当前/排队目录保护列表，递归清理在工作线程执行。用户主动保存的位置必须在缓存目录之外，索引保存在 data/saved-files.json，缓存清理不修改该索引或外部文件。
 - `aipictures/character_profile.py`：版本化角色提示词、BODY_18 骨架、姿态草案和参考重绘/骨骼控制两条独立图构建器；图片、姿态和完整工作流实例在 data/characters 中保存。
 - `aipictures/action_intent.py`：有限中文动作词表、否定处理与英文条件映射；保存识别/未识别内容，不调用云端语言服务。单张图按动作选择姿态图，行走由生成类型显式选择。
-- `aipictures/walk_cycle.py`：周期骨骼、固定角色分层、腿部 IK、参考预变形、独立逐帧 ComfyUI 工作流及透明 PNG / Sprite Sheet / GIF 导出。与单图共用 GPU 队列，但文件和执行生命周期独立。
+- `aipictures/reference_analysis.py`：保留输入 Alpha、主体归一化、DWPose 身体/手部坐标提取、侧视骨骼标定和按图片 SHA-256 的识别缓存。姿态检测使用已有 ComfyUI 节点的 openpose_json 返回，不向 UI 环境安装 Torch。遮挡侧由可见侧估计，元数据明确记录。
+- `aipictures/skin_warp.py`：根据参考颜色及关节分层、手部轮廓约束、连续三角网格和预乘 Alpha 插值后还原 straight RGB；衣物补色取自同图，局部修复限制颜色变化，输出每帧质量记录。
+- `aipictures/walk_cycle.py`：按测量骨长的周期骨骼、腿部 IK、逐帧 ComfyUI 工作流及透明 PNG / Sprite Sheet / GIF 导出。GIF 共享前景调色板且保留独立透明索引；与单图共用 GPU 队列，文件和执行生命周期独立。
 - `aipictures/animation_player.py` / `sequence_preview.py`：本地帧播放、定位、完整帧浏览、精灵图预览与 ZIP 导出；QTimer 不等待推理线程。棋盘格由 `transparent_preview.py` 绘制，不修改输出。
-- `aipictures/background.py`：CPU ONNX IS-Net 主体分割；后台线程保留原图后生成透明 RGBA，独立于 ComfyUI 的 Torch 环境。模型由 `tools/prepare_background.py` 预安装，日常处理不下载模型。
+- `aipictures/background.py`：CPU ONNX IS-Net 主体分割；只求遮罩并直接应用到原始 RGB，避免 cutout 预乘后再次合成导致褪色，透明输入保留既有 Alpha。后台线程保留原图后生成 RGBA，独立于 ComfyUI 的 Torch 环境；模型由 `tools/prepare_background.py` 预安装。
 
 行走任务目录为 `data/animations/<时间_UUID>/`，`job.json` 的 kind=walk，sequence.json 包含版本、FPS、画幅、地面线、固定种子、参考图校验、意图、逐帧 phase/stage/工作流/任务 ID、导出信息与状态。每帧输入、遮罩、API 图和原始 AI 输出写入同名子目录，透明最终帧写入任务根。只有全部帧和导出成功才标记 completed。取消/失败保留部分数据，不重提已完成的 ComfyUI 任务。左右方向通过最终统一镜像实现，骨骼记录仍是面朝右的生成条件，manifest 显式记录 mirrored。
 

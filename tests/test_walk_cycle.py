@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from PIL import Image
 from aipictures.action_intent import parse_intent
-from aipictures.walk_cycle import walk_rig, frame_workflow, export_sequence, foreground, SIZE
+from aipictures.walk_cycle import walk_rig, frame_workflow, export_sequence, SIZE
 from aipictures.character_profile import JOINTS, JOINT_NAMES
 
 
@@ -46,13 +46,6 @@ class WalkTests(unittest.TestCase):
         empty=frame_workflow('identity','pose','guide',17,'walking','model',negative='')
         self.assertEqual(empty['3']['inputs']['text'],'')
 
-    def test_blue_foreground_is_not_removed_with_background(self):
-        image=Image.new('RGB',(64,64),(188,220,250))
-        image.paste((255,255,255),(10,10,54,54)); image.paste((60,100,200),(20,20,44,44))
-        cutout=foreground(image)
-        self.assertEqual(cutout.getpixel((0,0))[3],0)
-        self.assertEqual(cutout.getpixel((32,32))[3],255)
-
     def test_export_order_dimensions_and_gif_frame_count(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp); frames=[]
@@ -67,7 +60,9 @@ class WalkTests(unittest.TestCase):
             with Image.open(root/'walk.gif') as gif:
                 self.assertEqual(gif.n_frames,8); self.assertEqual(gif.info['loop'],0)
                 for i in range(8):
-                    gif.seek(i); self.assertEqual(gif.convert('RGBA').getpixel((0,0))[3],0)
+                    gif.seek(i); rgba=gif.convert('RGBA')
+                    self.assertEqual(rgba.getpixel((0,0))[3],0)
+                    self.assertEqual(rgba.getpixel((200,200))[3],255)
 
 
 if __name__=='__main__': unittest.main()

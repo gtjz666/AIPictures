@@ -15,6 +15,7 @@ from .workflow_library import digest
 
 PROFILE_ROOT = DATA / 'characters' / 'blue_side_v3'
 PROFILE_FILE = PROFILE_ROOT / 'profile.json'
+ACTIVE_PROFILE_FILE=DATA/'characters'/'active-profile.json'
 POSITIVE = (
     'one single full-body 2D anime character, exact same character as the supplied reference image, '
     'strict 90 degree right-facing side profile, short dark navy-blue bob hair with layered ends, '
@@ -160,4 +161,41 @@ def install_profile(reference, client):
 
 
 def load_profile():
-    return json.loads(PROFILE_FILE.read_text('utf-8')) if PROFILE_FILE.exists() else None
+    path=PROFILE_FILE
+    if ACTIVE_PROFILE_FILE.exists(): path=Path(json.loads(ACTIVE_PROFILE_FILE.read_text('utf-8'))['profile'])
+    return json.loads(path.read_text('utf-8')) if path.exists() else None
+
+
+def install_adaptive_profile(reference,client,title='侧视人物参考'):
+    """Add a versioned reference without overwriting the original blue character."""
+    from .reference_analysis import prepare_reference,REFERENCE_POSITIVE,REFERENCE_NEGATIVE,action_rig
+    reference=Path(reference); checksum=digest(reference)
+    folder=DATA/'characters'/('side_'+checksum[:12]); folder.mkdir(parents=True,exist_ok=True)
+    target=folder/'reference.png'
+    if target.exists() and digest(target)!=checksum:
+        raise ValueError('该参考版本的文件已被修改，拒绝覆盖；请使用新的角色版本。')
+    if not target.exists(): shutil.copy2(reference,target)
+    analysis=prepare_reference(target,client)
+    base=json.loads(Path(analysis['rig']).read_text('utf-8'))
+    server_ref=client.upload_image(analysis['opaque'])
+    poses={}
+    for key,label in [('stand','侧视站立 · 自动适配'),('reach','向前伸手 · 自动适配')]:
+        rig=action_rig(base,key); write_json(folder/(key+'.json'),rig)
+        image=folder/(key+'.png'); paint_pose(rig).save(str(image))
+        overlay=folder/(key+'_overlay.png'); paint_pose(rig,analysis['rgba']).save(str(overlay))
+        graph=character_workflow(server_ref,client.upload_image(image))
+        graph['2']['inputs']['text']=REFERENCE_POSITIVE+', body pose matching the OpenPose map'
+        graph['3']['inputs']['text']=REFERENCE_NEGATIVE
+        path=folder/(key+'_api.json'); write_json(path,graph)
+        poses[key]={'title':label,'graph':str(path),'image':str(image),'overlay':str(overlay),'rig':str(folder/(key+'.json'))}
+    baseline=character_workflow(server_ref)
+    baseline['2']['inputs']['text']=REFERENCE_POSITIVE
+    baseline['3']['inputs']['text']=REFERENCE_NEGATIVE
+    write_json(folder/'baseline_api.json',baseline)
+    profile={'schema_version':2,'id':folder.name,'title':title,'reference':str(target),'source_sha256':checksum,
+        'width':768,'height':1024,'positive':REFERENCE_POSITIVE,'pose_positive':REFERENCE_POSITIVE+', body pose matching the OpenPose map',
+        'negative':REFERENCE_NEGATIVE,'baseline_graph':str(folder/'baseline_api.json'),'poses':poses,'adaptive':True,
+        'analysis':analysis,'default_denoise':.3,'pose_requires':'controlnet-openpose-sdxl-1.0-xinsir.safetensors'}
+    path=folder/'profile.json'; write_json(path,profile); write_json(ACTIVE_PROFILE_FILE,{'profile':str(path)})
+    write_json(DATA/'chat'/'active-workflow.json',{'graph':baseline,'title':title,'character_id':profile['id'],'route':'baseline'})
+    return profile

@@ -49,6 +49,7 @@ class Window(QMainWindow):
         self.custom_graph = None
         self.active_title = '自动选择'
         self.reference_path = None
+        self.reference_character=False
         self.preparing = False
         self.prepare_cancel = threading.Event()
         self.last_chat_graph = None
@@ -145,6 +146,7 @@ class Window(QMainWindow):
 
     def reset_graph(self):
         self.custom_graph = None; self.active_title = '自动选择'
+        self.reference_character=False
         self.character_profile = None; self.context_label.setText('创作')
         self.character_summary.setText('当前为通用创作，可随时应用角色基准。')
         self.pose_choice.setEnabled(False)
@@ -180,6 +182,7 @@ class Window(QMainWindow):
     def activate_template(self, graph, title, entry_id=None):
         mapping = bindings(graph)
         self.character_profile = None
+        self.reference_character=False
         self.context_label.setText(title)
         if not self.character_loading:
             self.character_summary.setText('当前使用自定义工作流，可重新应用角色基准。')
@@ -249,7 +252,8 @@ class Window(QMainWindow):
             self.lora.setEnabled(False); self.strength.setEnabled(False)
         if walking:
             self.width.setValue(768); self.height.setValue(1024)
-        self.context_label.setText('人物行走动画 · 蓝发侧视基准' if walking else self.active_title)
+        title=self.character_profile['title'] if self.character_profile else '导入参考图'
+        self.context_label.setText('人物行走动画 · '+title if walking else self.active_title)
         self.update_intent_hint()
         self.update_sidebar_summary()
 
@@ -341,12 +345,23 @@ class Window(QMainWindow):
         target = DATA / 'references' / (uuid4().hex + source.suffix.lower())
         target.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(source, target)
         self.reference_path = target
+        if not self.character_loading and self.character_profile and digest(target)!=self.character_profile['source_sha256']:
+            from .character_profile import character_workflow
+            from .reference_analysis import REFERENCE_POSITIVE,REFERENCE_NEGATIVE
+            graph=character_workflow('__reference__')
+            graph['2']['inputs']['text']=REFERENCE_POSITIVE; graph['3']['inputs']['text']=REFERENCE_NEGATIVE
+            self.activate_template(graph,'导入人物参考 · 自动适配')
+            self.reference_character=True
+            self.character_summary.setText('使用新导入的人物图。行走生成会识别主体与关节，并适配该角色的比例和颜色。')
+        elif self.character_loading:
+            self.reference_character=bool(self.character_profile and self.character_profile.get('adaptive'))
         size = reader.size()
         if size.width() > 0 and size.height() > 0:
             scale = min(1, 1024 / max(size.width(), size.height()))
             self.width.setValue(max(64, round(size.width() * scale / 8) * 8))
             self.height.setValue(max(64, round(size.height() * scale / 8) * 8))
         self.reference_label.setText('已添加参考图：' + source.name + ' · 后续发送会使用此图，可随时移除。')
+        if not self.character_loading: self.generation_type_changed()
 
     def use_current_as_reference(self):
         if self.output:
@@ -355,6 +370,7 @@ class Window(QMainWindow):
 
     def clear_reference(self):
         self.reference_path = None
+        self.reference_character=False
         self.reference_label.setText('使用角色基准图，可添加其他参考图临时替换。' if self.character_profile else '可添加参考图')
 
     def tab_changed(self, index):
@@ -381,7 +397,19 @@ class Window(QMainWindow):
         source_graph = self.custom_graph
         pose_key = self.pose_choice.currentData()
         route = self.character_route.currentData()
-        if self.character_profile:
+        adaptive_action=None
+        adaptive_reference=bool(reference_name and (self.reference_character or (self.character_profile and self.character_profile.get('adaptive'))))
+        if adaptive_reference:
+            from .reference_analysis import REFERENCE_POSITIVE
+            r.positive=REFERENCE_POSITIVE+(', '+intent.english if intent.english else '')
+            if intent.action in ('stand','reach','walk'):
+                from .walk_cycle import frame_workflow
+                adaptive_action=intent.action
+                pose_key='reach' if intent.action=='reach' else 'stand'; route='pose'
+                r.width=768; r.height=1024
+                self.width.setValue(768); self.height.setValue(1024)
+                source_graph=frame_workflow(reference_name,'__adaptive_pose__','__adaptive_guide__',seed,r.positive,r.checkpoint,r.steps,r.negative)
+        elif self.character_profile:
             if intent.action in ('stand','reach','walk'):
                 pose_key = 'reach' if intent.action == 'reach' else 'stand'
                 route = 'pose'
@@ -409,8 +437,11 @@ class Window(QMainWindow):
         params = asdict(r)
         params.update(mode='chat', user_prompt=user_prompt, template=self.active_title, bindings=mapping, denoise=self.denoise.value())
         params['intent'] = intent.to_dict()
-        if self.character_profile and intent.action in ('stand','reach','walk'):
+        if adaptive_action: params['adaptive_action']=adaptive_action
+        if self.character_profile and not adaptive_reference and intent.action in ('stand','reach','walk'):
             params['pose_upload'] = str(pose_path)
+        if self.character_profile and self.character_profile.get('adaptive'):
+            params['prepared_reference']=self.character_profile['analysis']['opaque']
         if self.character_profile and intent.direction == 'left':
             params['mirror_output'] = True
         if self.character_profile:
@@ -455,19 +486,46 @@ class Window(QMainWindow):
                 self.generate_button.setEnabled(False); self.connect_button.setEnabled(False); self.workflow_selector.setEnabled(False)
                 client = self.client
                 def uploaded(kind, data):
+                    if kind=='reference_stage': self.status.setText(data['message']); return
+                    if kind not in ('result','error','cancelled'): return
                     self.preparing = False
                     self.generate_button.setEnabled(self.connected); self.connect_button.setEnabled(self.current is None); self.workflow_selector.setEnabled(True)
                     if self.prepare_cancel.is_set():
                         self.status.setText('生成准备已取消'); self.add_chat('软件', '本次生成准备已取消。'); return
                     if kind == 'error':
-                        self.status.setText('参考图上传失败'); self.add_chat('软件', '参考图上传失败：' + str(data)); return
+                        self.status.setText('参考图准备失败'); self.add_chat('软件', '参考图识别或上传失败：' + str(data)); return
                     if kind != 'result': return
                     for key in params['bindings']['reference']: graph[key]['inputs']['image'] = data['reference']
                     if data.get('pose'): graph['21']['inputs']['image'] = data['pose']
+                    if data.get('guide'): graph['30']['inputs']['image'] = data['guide']
+                    if data.get('analysis'): params['reference_analysis']=data['analysis']
                     params['uploaded_reference'] = data['reference']
                     self.submit_chat_graph(graph, params)
-                def prepare(_):
-                    result = {'reference':client.upload_image(reference)}
+                def prepare(emit):
+                    from .reference_analysis import prepare_reference,action_rig,opaque_reference
+                    from PIL import Image,ImageOps
+                    result={}
+                    if params.get('adaptive_action'):
+                        from .character_profile import paint_pose
+                        from .skin_warp import AdaptiveCutout
+                        analysis=prepare_reference(reference,client,emit,self.prepare_cancel)
+                        base=json.loads(Path(analysis['rig']).read_text('utf-8'))
+                        rig=action_rig(base,params['adaptive_action'])
+                        staging=DATA/'references'/(uuid4().hex+'_pose'); staging.mkdir()
+                        paint_pose(rig).save(str(staging/'pose.png'))
+                        if params['adaptive_action']=='stand':
+                            shutil.copy2(analysis['opaque'],staging/'guide.png')
+                        else:
+                            guide,_,_=AdaptiveCutout(analysis).render(rig); guide.save(staging/'guide.png')
+                        result.update(reference=client.upload_image(analysis['opaque']),pose=client.upload_image(staging/'pose.png'),
+                                      guide=client.upload_image(staging/'guide.png'),analysis=analysis)
+                    else:
+                        selected=params.get('prepared_reference') or reference
+                        with Image.open(selected) as image:
+                            image=ImageOps.exif_transpose(image).convert('RGBA')
+                            opaque=opaque_reference(image)
+                        prepared=DATA/'references'/(uuid4().hex+'_rgb.png'); opaque.save(prepared)
+                        result['reference']=client.upload_image(prepared)
                     if self.prepare_cancel.is_set(): raise Cancelled('准备已取消')
                     if params.get('pose_upload'): result['pose'] = client.upload_image(params['pose_upload'])
                     return result
@@ -549,9 +607,10 @@ class Window(QMainWindow):
     def enqueue_walk(self):
         from .walk_cycle import new_sequence, frame_workflow
         profile = load_profile()
-        if not profile: raise ValueError('请先安装蓝发侧视角色基准')
-        if self.reference_path and digest(self.reference_path) != digest(profile['reference']):
-            raise ValueError('当前行走分层只校准了蓝发基准图。请应用该角色基准，再生成动画。')
+        reference=self.reference_path or (profile['reference'] if profile else None)
+        if not reference: raise ValueError('请先添加一张完整的侧视人物参考图。')
+        if not profile: profile={'reference':str(reference)}
+        if 'DWPreprocessor' not in self.info['nodes']: raise ValueError('参考图骨骼适配需要本地 DWPose 预处理节点。')
         intent = parse_intent(self.positive.toPlainText())
         if intent.action in ('stand','reach','run','jump') or ('walk' in intent.negated and intent.action != 'walk'):
             raise ValueError('人物行走动画帧需要行走指令；站立和伸手请选单张图片。')
@@ -563,14 +622,14 @@ class Window(QMainWindow):
         if missing: raise ValueError('缺少节点：'+', '.join(sorted(missing)))
         check_models(graph,self.info['object_info'])
         folder = new_sequence()
-        params = {'mode':'walk','profile':profile,'prompt':self.positive.toPlainText(),
+        params = {'mode':'walk','profile':profile,'reference':str(reference),'prompt':self.positive.toPlainText(),
                   'checkpoint':self.model.currentText(),'seed':seed,'count':self.walk_count.currentData(),
                   'fps':self.walk_fps.value(),'steps':self.steps.value(),'negative':self.negative.toPlainText()}
         write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'queued','params':params})
         item = QListWidgetItem(folder.name+' · 行走动画 · 等待'); self.queue_list.addItem(item)
         self.pending.append((None,params,folder,item))
         self.add_chat('你',params['prompt'] or '按角色基准生成行走动画')
-        self.add_chat('软件',f'行走动画已入队：{params["count"]} 帧，共用角色参考和种子。头身保留参考图，骨骼预变形后逐帧 AI 修复肢体。'+
+        self.add_chat('软件',f'行走动画已入队：{params["count"]} 帧。将识别本次参考图并适配骨骼，共享原图颜色，只修复关节局部细节。'+
                       ('\n未识别中文：'+intent.unmatched if intent.unmatched else ''),job=str(folder))
         self.start_next()
 
@@ -581,7 +640,8 @@ class Window(QMainWindow):
         item.setText(folder.name+' · 行走动画执行中'); self.status.setText('准备行走骨骼与角色分层…')
         write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'running','params':params})
         def event(kind,data):
-            if kind == 'frame_started':
+            if kind == 'reference_stage': self.status.setText(data['message'])
+            elif kind == 'frame_started':
                 self.status.setText(f'行走第 {data["index"]+1}/{data["count"]} 帧 · {data["stage"]}')
             elif kind == 'frame_event':
                 if data['event'] == 'progress':
@@ -602,7 +662,7 @@ class Window(QMainWindow):
                 item.setText(folder.name+' · 行走动画 · '+status); self.status.setText(message)
                 self.current=None; self.connect_button.setEnabled(True); QTimer.singleShot(0,self.start_next)
         self.launch(lambda emit:generate_walk(self.client,folder,params['profile'],params['prompt'],params['checkpoint'],
-            params['seed'],params['count'],params['fps'],emit,cancel,params['steps'],params['negative']),event)
+            params['seed'],params['count'],params['fps'],emit,cancel,params['steps'],params['negative'],params['reference']),event)
 
     def update_job(self, status, error=None):
         if self.current:

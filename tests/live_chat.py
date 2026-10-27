@@ -3,6 +3,9 @@ import json
 import sys
 import time
 import os
+from io import BytesIO
+import numpy as np
+from PIL import Image
 from uuid import uuid4
 from urllib.parse import urlencode
 from PySide6.QtCore import QTimer
@@ -79,7 +82,12 @@ def tick():
         assert name.startswith('AIPictures/references/')
         raw = window.client.request('/view?' + urlencode({'filename': name.split('/')[-1],
              'subfolder': 'AIPictures/references', 'type': 'input'}), raw=True)
-        assert raw == open(state['first_image'], 'rb').read()
+        with Image.open(BytesIO(raw)) as uploaded,Image.open(state['first_image']) as source:
+            source=np.asarray(source.convert('RGBA')); uploaded=np.asarray(uploaded.convert('RGB'))
+            assert uploaded.shape[:2]==source.shape[:2]
+            opaque=source[:,:,3]==255; transparent=source[:,:,3]==0
+            assert np.array_equal(uploaded[opaque],source[:,:,:3][opaque])
+            assert np.all(uploaded[transparent]==np.array([242,243,245]))
         assert window.pixmap.width() == 768 and window.pixmap.height() == 768
         window.grab().save(str(DATA / 'chat-desktop.png'))
         window.tabs.setCurrentIndex(1); state['stage'] = 'editor'
