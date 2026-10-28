@@ -60,7 +60,8 @@ def tick():
         # Queue a real application request without dispatching a GPU job, inspect the snapshot.
         queued=test_root/'animations'/'queued'
         window.generation_type.setCurrentIndex(1)
-        window.animation_engine.setCurrentIndex(1)
+        window.animation_engine.addItem('测试历史骨骼后端','rig')
+        window.animation_engine.setCurrentIndex(window.animation_engine.findData('rig'))
         window.positive.setPlainText('人物原地向右走路')
         with patch('aipictures.walk_cycle.new_sequence',return_value=queued),patch.object(window,'start_next'),patch('aipictures.app.check_models'):
             window.enqueue_walk()

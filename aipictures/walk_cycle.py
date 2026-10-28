@@ -47,6 +47,11 @@ def walk_rig(phase, pace='normal', base_rig=None):
         ankle = [hip[0] + stride * math.cos(q), ground_ankle - length*.09 * max(0, -math.sin(q)), source[ankle_i][2]]
         upper = math.dist(source[hip_i][:2], source[knee_i][:2])
         lower = math.dist(source[knee_i][:2], source[ankle_i][:2])
+        if base_rig:
+            # Keep planted feet on the floor while limiting stride to this character's reach.
+            vertical=ankle[1]-hip[1]; reach=upper+lower-.001
+            horizontal=math.sqrt(max(0,reach*reach-vertical*vertical))
+            ankle[0]=hip[0]+max(-horizontal,min(horizontal,ankle[0]-hip[0]))
         rig['joints'][JOINT_NAMES[knee_i]] = knee_ik(hip, ankle, upper, lower)
         rig['joints'][JOINT_NAMES[ankle_i]] = ankle
     for shoulder_i, elbow_i, wrist_i, offset in [(2,3,4,0), (5,6,7,math.pi)]:
@@ -78,7 +83,8 @@ def frame_workflow(reference_name, pose_name, guide_name, seed, positive, checkp
     return graph
 
 
-def export_sequence(folder, frames, fps):
+def export_sequence(folder, frames, fps, name='walk'):
+    if name not in ('walk','idle','run','jump','reach'): raise ValueError('未知动作导出名称。')
     folder = Path(folder); images = []
     try:
         images = [Image.open(path).convert('RGBA') for path in frames]
@@ -106,9 +112,9 @@ def export_sequence(folder, frames, fps):
             indices[np.asarray(small.getchannel('A'))<128]=255
             preview=Image.fromarray(indices); preview.putpalette(table)
             preview.info['transparency']=255; previews.append(preview)
-        previews[0].save(folder/'walk.gif',save_all=True,append_images=previews[1:],duration=round(1000/fps),
+        previews[0].save(folder/(name+'.gif'),save_all=True,append_images=previews[1:],duration=round(1000/fps),
                          loop=0,disposal=2,transparency=255,optimize=False)
-        return {'sprite_sheet':'sprite_sheet.png','gif':'walk.gif','columns':columns,'rows':rows,
+        return {'sprite_sheet':'sprite_sheet.png','gif':name+'.gif','columns':columns,'rows':rows,
                 'cell_size':list(SIZE),'gif_size':[384,512],'background':'transparent','gif_transparency':'binary',
                 'gif_palette':'shared_foreground_palette'}
     finally:

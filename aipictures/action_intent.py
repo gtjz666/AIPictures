@@ -20,6 +20,7 @@ class ActionIntent:
 
 
 VOCAB = {
+    'idle': ('待机','呼吸'),
     'walk': ('行走', '走路', '步行', '迈步', '走动', '散步'),
     'reach': ('向前伸手', '伸出手', '伸手', '伸直手臂'),
     'stand': ('站立', '站着', '站好', '静止', '不动'),
@@ -27,6 +28,7 @@ VOCAB = {
     'jump': ('跳跃', '跳起来', '起跳'),
 }
 ACTION_EN = {
+    'idle':'standing idle with subtle breathing',
     'walk': 'walking in place, alternating left and right steps, natural opposite arm swing',
     'reach': 'one arm reaching forward at chest height',
     'stand': 'standing still upright, arms relaxed at sides',
@@ -46,6 +48,11 @@ TRANSLATIONS.update(APPEARANCE)
 def parse_intent(text):
     result = ActionIntent()
     remaining = text.strip()
+    from .animation_actions import ACTIONS
+    for action,(_,clause) in ACTIONS.items():
+        if clause in remaining:
+            result.action=action; result.recognized.append(clause)
+            remaining=remaining.replace(clause,' ')
     # "慢走动画" contains the accidental substring "走动" across the noun boundary.
     for noun in ('动画序列帧','动画帧','动画','序列帧','精灵图'):
         remaining = remaining.replace(noun,' ')
@@ -111,6 +118,8 @@ def walk_intent(text):
 
 def appearance_description(text):
     """Remove conflicting pose commands when the UI has already selected an animation."""
+    from .animation_actions import ACTIONS
+    for _,clause in ACTIONS.values(): text=text.replace(clause,' ')
     for noun in ('动画序列帧','动画帧','动画','序列帧','精灵图'): text=text.replace(noun,' ')
     for words in VOCAB.values():
         for word in sorted(words,key=len,reverse=True):

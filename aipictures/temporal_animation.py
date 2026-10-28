@@ -25,7 +25,7 @@ VIDEO_SIZE = (576, 768)
 
 def initial_character_workflow(prompt, negative, checkpoint, seed, steps=20,lora='',lora_strength=.8,quality_mode='off'):
     from .prompt_text import negative_text
-    description=parse_intent(prompt); intent=walk_intent(prompt)
+    description=parse_intent(appearance_description(prompt)); intent=walk_intent(prompt)
     if not description.english.strip(): raise ValueError('请描述角色外观，例如：黄色卡通小恐龙，白色肚皮，大眼睛，全身，侧视。')
     species=re.search(r'\b(dinosaur|bird|penguin|duck|chick|cat|dog|rabbit)s?\b',description.english,re.I)
     animal=bool(species)

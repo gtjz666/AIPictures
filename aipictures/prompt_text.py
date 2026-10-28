@@ -2,6 +2,8 @@
 import re
 
 NEGATIVE = {
+    '多余脚掌':'extra feet','重复鞋尖':'duplicate toes and shoe tips','分叉鞋底':'forked soles',
+    '双层鞋底':'duplicated soles','鞋子重影':'ghosted shoes',
     '人物身份变化':'different character', '脸部变化':'changed face', '发型变化':'changed hairstyle',
     '发色变化':'changed hair color', '服装变化':'changed outfit', '颜色缺失':'missing colors',
     '局部褪色':'faded colors', '黑色衣物消失':'missing black clothing', '身体比例变化':'inconsistent proportions',

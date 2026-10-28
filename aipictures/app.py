@@ -22,6 +22,8 @@ from .prompt_text import negative_text
 from .lora_catalog import entry_for,display_name,style_prompt,validate_selection
 from .panels import SkeletonDialog
 from .result_cache import ResultCache, within_any
+from .animation_actions import ACTIONS
+from .task_display import task_name
 
 
 class Worker(QThread):
@@ -94,6 +96,7 @@ class Window(QMainWindow):
         selected=self.lora.currentData(); category=self.lora_category.currentText()
         self.lora.blockSignals(True); self.lora.clear(); self.lora.addItem('不使用 LoRA','')
         for name in getattr(self,'info',{}).get('loras',[]):
+            if name.replace('\\','/').startswith('AIPictures/animation/'): continue
             entry=entry_for(name)
             if category!='全部类型' and (entry['category'] if entry else '未分类')!=category: continue
             self.lora.addItem(display_name(name),name)
@@ -111,7 +114,7 @@ class Window(QMainWindow):
         if not hasattr(self,'lora_details'): return
         walking=self.generation_type.currentData()=='walk'
         preserving=self.preserving_reference()
-        enabled=(not walking or (self.animation_engine.currentData()=='wan' and self.animation_source.currentData()=='text')) and not preserving
+        enabled=(not walking or (self.animation_engine.currentData() in ('wan','animate') and self.animation_source.currentData()=='text')) and not preserving
         self.lora.setEnabled(enabled); self.lora_category.setEnabled(enabled)
         self.strength.setEnabled(enabled and bool(self.lora.currentData()))
         if not enabled:
@@ -137,7 +140,7 @@ class Window(QMainWindow):
         self.gpu.setText('引擎未连接 · 可启动本地引擎后重试')
         self.status.setText(message)
         self.status.setToolTip(message)
-        for _,_,folder,item in self.pending: item.setText(folder.name+' · 等待重新连接')
+        for _,params,folder,item in self.pending: item.setText(task_name(params)+' · 等待重新连接')
 
     def start_engine(self):
         if self.current or self.preparing or self.connecting or self.engine_starting:
@@ -316,9 +319,9 @@ class Window(QMainWindow):
 
     def update_sidebar_summary(self):
         walking=self.generation_type.currentData()=='walk'
-        text=('走路动画序列帧' if walking else '单张图片')+'\n'
+        text=(ACTIONS[self.animation_action.currentData()][0]+'动画序列帧' if walking else '单张图片')+'\n'
         if walking:
-            text+=('AI 连续 · 14B' if self.animation_engine.currentData()=='wan' else '旧版人体骨骼')+'\n'
+            text+=({'wan':'AI 自由动画','animate':'完整骨骼 · '+('自动适配' if self.motion_mode.currentData()=='auto' else '手动调整'),'rig':'旧版人体骨骼'}[self.animation_engine.currentData()])+'\n'
             text+=f'{self.walk_count.currentData()} 帧 · {self.walk_fps.value()} FPS\n'
         text+=f'{self.width.value()} × {self.height.value()} · 透明输出'
         self.creation_summary.setText(text)
@@ -330,6 +333,40 @@ class Window(QMainWindow):
         self.skeleton_dialog = SkeletonDialog(profile, self)
         self.skeleton_dialog.show()
 
+    def open_motion_editor(self):
+        if not self.reference_path:
+            self.status.setText('先添加参考图，才能按角色比例调整骨骼。文字模式可先自动生成。'); return
+        if self.current or self.preparing:
+            self.status.setText('请等待当前任务结束后调整骨骼。'); return
+        if not self.connected:
+            self.status.setText('请先启动 / 连接本地引擎。'); return
+        if self.generation_type.currentData()!='walk': self.generation_type.setCurrentIndex(1)
+        reference=self.reference_path; action=self.animation_action.currentData()
+        count=self.walk_count.currentData(); fps=self.walk_fps.value(); checksum=digest(reference)
+        self.preparing=True; self.prepare_cancel.clear(); self.generate_button.setEnabled(False)
+        self.status.setText('自动适配动作骨骼…')
+        from .motion_reference import prepare_motion_reference
+        def done(kind,data):
+            if kind=='reference_stage': self.status.setText(data['message']); return
+            if kind not in ('result','error','cancelled'): return
+            self.preparing=False; self.generate_button.setEnabled(self.connected)
+            if kind!='result': self.status.setText('骨骼适配失败：'+str(data)); self.log.append(str(data)); return
+            if self.reference_path!=reference: self.status.setText('参考图已更换，请重新打开骨骼。'); return
+            from .motion_clip import make_clip,clip_path,validate_clip
+            from .motion_editor import MotionDialog
+            base=json.loads(Path(data['rig']).read_text('utf-8'))
+            clip=make_clip(base,checksum,action,count,fps)
+            saved=clip_path(checksum,action)
+            if saved.is_file():
+                try:
+                    previous=validate_clip(json.loads(saved.read_text('utf-8')))
+                    if previous['frame_count']==count: clip=previous; clip['fps']=fps
+                except (ValueError,KeyError): pass
+            self.motion_dialog=MotionDialog(data,clip,self)
+            self.motion_dialog.accepted.connect(lambda:self.motion_mode.setCurrentIndex(self.motion_mode.findData('manual')))
+            self.motion_dialog.show()
+        self.launch(lambda emit:prepare_motion_reference(reference,self.client,emit,self.prepare_cancel),done)
+
     def character_selection_changed(self, _index=None):
         if self.character_loading: return
         if self.character_profile: self.apply_character()
@@ -337,15 +374,17 @@ class Window(QMainWindow):
     def generation_type_changed(self, _index=None):
         walking = self.generation_type.currentData() == 'walk'
         self.walk_settings.setVisible(walking)
-        self.generate_button.setText('生成行走动画' if walking else '发送并生成')
+        action_title=ACTIONS[self.animation_action.currentData()][0]
+        self.generate_button.setText('生成'+action_title+'动画' if walking else '发送并生成')
         for control in (self.width,self.height,self.denoise,self.cfg,self.lora,self.strength):
             control.setEnabled(not walking)
         if not walking and self.custom_graph is not None:
             self.lora.setEnabled(False); self.strength.setEnabled(False)
         if walking:
             self.width.setValue(768); self.height.setValue(1024)
-        self.animation_steps.setEnabled(walking and self.animation_engine.currentData()=='wan')
-        temporal=walking and self.animation_engine.currentData()=='wan'
+        self.animation_steps.setEnabled(walking and self.animation_engine.currentData() in ('wan','animate'))
+        temporal=walking and self.animation_engine.currentData() in ('wan','animate')
+        self.motion_mode.setEnabled(walking and self.animation_engine.currentData()=='animate')
         self.model.setEnabled(not temporal or self.animation_source.currentData()=='text')
         self.steps.setEnabled(not temporal)
         self.sampler.setEnabled(not walking); self.scheduler.setEnabled(not walking)
@@ -361,14 +400,14 @@ class Window(QMainWindow):
         elif self.character_profile:
             self.reference_label.setText('使用角色基准：'+self.character_profile['title'])
         else: self.reference_label.setText('可添加参考图')
-        self.context_label.setText('走路动画 · '+title if walking else self.active_title)
+        self.context_label.setText(action_title+'动画' if walking else self.active_title)
         self.update_prompt_defaults()
         self.update_intent_hint()
         self.update_sidebar_summary()
 
     def preserving_reference(self):
         walking=self.generation_type.currentData()=='walk'
-        return bool(self.reference_path) and (not walking or (self.animation_engine.currentData()=='wan' and self.animation_source.currentData()=='reference')) and self.reference_policy.currentData()=='preserve'
+        return bool(self.reference_path) and (not walking or (self.animation_engine.currentData() in ('wan','animate') and self.animation_source.currentData()=='reference')) and self.reference_policy.currentData()=='preserve'
 
     def reference_policy_changed(self,_index=None):
         from .reference_fidelity import effective_denoise
@@ -380,8 +419,11 @@ class Window(QMainWindow):
         if preserving: self.denoise.setValue(effective_denoise(self.denoise.value(),True))
         self.denoise.setEnabled(not walking)
         self.quality_mode.setEnabled(not preserving)
+        if walking and self.animation_engine.currentData()=='animate':
+            self.quality_mode.setEnabled(False)
+            self.quality_mode.setToolTip('完整动作当前保留源图纹理，不套用生成式高清修复。单张图片可另行高清处理。')
         self.reference_note.setText(('外观以参考图为准；不叠加 LoRA 或高清重画。'+
-            ('只生成走路动作，细节仍可能变化。' if walking else '重绘最高 0.25；大幅改姿势请切换允许重绘。')) if preserving else
+            ('仅生成所选动作，细节仍可能变化。' if walking else '重绘最高 0.25；大幅改姿势请切换允许重绘。')) if preserving else
             ('旧版骨骼使用网格变形；参考保真策略用于单图与 AI 连续动画。' if legacy else
              ('允许按描述改变外观，可手动使用风格 LoRA 和高清修复。' if self.reference_path and (not walking or self.animation_source.currentData()=='reference') else
               '添加参考图后生效；当前按文字描述生成。')))
@@ -392,7 +434,7 @@ class Window(QMainWindow):
         from .prompt_defaults import default_prompts
         walking=self.generation_type.currentData()=='walk'
         reference=bool(self.reference_path) and (not walking or self.animation_source.currentData()=='reference')
-        defaults=default_prompts(walking,reference)
+        defaults=default_prompts(walking,reference,self.animation_action.currentData())
         for field,old,new in zip((self.positive,self.negative),self.current_prompt_defaults,defaults):
             text=field.toPlainText()
             if (force or text==old) and text!=new: field.setPlainText(new)
@@ -405,17 +447,20 @@ class Window(QMainWindow):
     def update_intent_hint(self):
         walking = self.generation_type.currentData() == 'walk'
         intent = walk_intent(self.positive.toPlainText()) if walking else parse_intent(self.positive.toPlainText())
-        labels = {'walk':'行走','reach':'向前伸手','stand':'站立','run':'奔跑','jump':'跳跃'}
+        if walking and self.animation_engine.currentData()=='animate': intent.action=self.animation_action.currentData()
+        labels = {'walk':'行走','reach':'向前伸手','stand':'站立','run':'奔跑','jump':'跳跃','idle':'待机'}
         title = labels.get(intent.action,'未指定动作')
         text = ('已选择动画 · ' if walking else '动作识别 · ') + title
-        if walking and self.animation_engine.currentData()=='wan' and (not intent.direction_explicit or self.preserving_reference()):
+        if walking and self.animation_engine.currentData() in ('wan','animate') and (not intent.direction_explicit or self.preserving_reference()):
             text += ' · 朝向沿用参考图'
         elif not walking and not intent.direction_explicit and not self.character_profile:
             text += ' · 朝向未指定'
         else: text += ' · 朝' + ('左' if intent.direction == 'left' else '右')
-        if intent.action in ('run','jump'): text += '\n此动作暂未提供骨骼周期。'
+        if walking and self.animation_engine.currentData()=='animate':
+            text+=' · 完整骨骼周期 · '+('自动适配，无需手调' if self.motion_mode.currentData()=='auto' else '使用手动调整')
+        elif intent.action in ('run','jump'): text += '\n连续动作请在动画类型中选择。'
         elif intent.action == 'walk' and not walking: text += '\n当前只生成单张；连续动作请选人物行走动画帧。'
-        if walking and self.animation_engine.currentData()=='wan':
+        if walking and self.animation_engine.currentData() in ('wan','animate'):
             text += ' · 外观以参考图为准，文字仅补充步速' if self.preserving_reference() else ' · 中文描述直接送入动画工作流'
         elif intent.unmatched: text += '\n暂未识别：' + intent.unmatched
         self.intent_hint.setText(text)
@@ -777,7 +822,7 @@ class Window(QMainWindow):
         if missing: raise ValueError('缺少节点：' + ', '.join(sorted(missing)))
         folder = new_job(graph, params)
         if editor_workflow is not None: write_json(folder / 'editor_workflow.json', editor_workflow)
-        item = QListWidgetItem(folder.name + ' · 等待'); self.queue_list.addItem(item)
+        item = QListWidgetItem(task_name(params) + ' · 等待'); item.setToolTip(str(folder)); self.queue_list.addItem(item)
         self.pending.append((graph, params, folder, item))
         self.start_next()
         return folder
@@ -787,7 +832,7 @@ class Window(QMainWindow):
         graph, params, folder, item = self.pending.pop(0)
         if params.get('mode') == 'walk':
             self.start_walk(params,folder,item); return
-        item.setText(folder.name + ' · 执行中')
+        item.setText(task_name(params) + ' · 执行中')
         cancel = threading.Event()
         self.current = {'folder': folder, 'cancel': cancel, 'params': params}
         self.connect_button.setEnabled(False); self.progress.setRange(0, 0)
@@ -796,13 +841,14 @@ class Window(QMainWindow):
             if kind == 'queued':
                 self.current['prompt_id'] = data['prompt_id']; self.update_job('queued')
             elif kind == 'progress':
-                self.progress.setRange(0, int(data['max'])); self.progress.setValue(int(data['value']))
+                self.progress.setRange(0,100); self.progress.setValue(round(75*data['value']/max(1,data['max'])))
                 self.status.setText(f'生成进度 {data["value"]} / {data["max"]}')
             elif kind == 'executing':
                 self.status.setText('正在执行节点 ' + str(data.get('node') or '结果保存'))
             elif kind == 'monitor_waiting':
                 self.status.setText('本地引擎繁忙，继续等待当前任务…')
             elif kind == 'postprocess':
+                self.progress.setRange(0,100); self.progress.setValue(max(self.progress.value(),85))
                 self.status.setText('正在本地分离主体并生成透明背景…')
             elif kind in ('result', 'error', 'cancelled'):
                 if kind == 'result':
@@ -818,7 +864,7 @@ class Window(QMainWindow):
                     else: self.add_chat('软件', '生成失败：' + str(data), job=str(folder))
                 self.update_job({'result': 'completed', 'error': 'failed', 'cancelled': 'cancelled'}[kind], None if kind == 'result' else data)
                 self.log.append(f'{folder.name} · {kind}' + (f'：{data}' if kind != 'result' else ' · 已自动保存'))
-                item.setText(folder.name + ' · ' + {'result':'完成','error':'失败','cancelled':'取消'}[kind])
+                item.setText(task_name(params) + ' · ' + {'result':'完成','error':'失败','cancelled':'取消'}[kind])
                 self.status.setText({'result':'生成完成，已保存','error':'任务失败，详见日志','cancelled':'任务已取消'}[kind])
                 if kind=='error' and is_engine_unavailable(data): self.disconnect_engine(str(data))
                 self.progress.setRange(0, 100); self.progress.setValue(100 if kind == 'result' else 0)
@@ -836,6 +882,8 @@ class Window(QMainWindow):
         from .walk_cycle import new_sequence, frame_workflow
         profile = self.character_profile
         engine=self.animation_engine.currentData()
+        action=self.animation_action.currentData()
+        motion=None
         reference=self.reference_path if self.animation_source.currentData()=='reference' else None
         if not reference and self.animation_source.currentData()=='reference': raise ValueError('请添加参考图，或将角色来源切换为“仅文字描述”。')
         if not reference and not self.positive.toPlainText().strip(): raise ValueError('文字模式请先描述角色外观。')
@@ -843,7 +891,21 @@ class Window(QMainWindow):
         seed = int(self.seed.text())
         if seed == -1: seed = secrets.randbelow(2**53)
         if not 0 <= seed < 2**64: raise ValueError('种子范围不正确')
-        if engine=='wan':
+        if engine=='animate':
+            from .pose_animation import check_models as check_pose_models
+            from .background import model_file
+            check_pose_models(self.info['object_info'])
+            if 'DWPreprocessor' not in self.info['nodes']: raise ValueError('完整骨骼适配需要本地 DWPose 节点。')
+            if not model_file().is_file(): raise ValueError('透明动画需要本地去背景模型。')
+            if self.motion_mode.currentData()=='manual':
+                from .motion_clip import clip_path,validate_clip
+                if not reference: raise ValueError('手动骨骼需要参考图。文字模式请使用自动适配。')
+                path=clip_path(digest(reference),action)
+                if not path.is_file(): raise ValueError('请先打开“动作骨骼”，保存当前角色的完整动作。')
+                motion=validate_clip(json.loads(path.read_text('utf-8')))
+                if motion['frame_count']!=self.walk_count.currentData(): raise ValueError('帧数已改变，请重新保存动作骨骼。')
+            if reference is None: validate_selection(self.lora.currentData() or '',self.model.currentText())
+        elif engine=='wan':
             from .temporal_animation import check_video_models
             from .background import model_file
             from .image_quality import check_quality_models
@@ -862,29 +924,35 @@ class Window(QMainWindow):
         params = {'mode':'walk','engine':engine,'source':self.animation_source.currentData(),'profile':profile if engine=='rig' else None,
                   'reference':str(reference) if reference else None,'prompt':self.positive.toPlainText(),
                   'checkpoint':self.model.currentText(),'seed':seed,'count':self.walk_count.currentData(),
-                  'fps':self.walk_fps.value(),'steps':self.animation_steps.value() if engine=='wan' else self.steps.value(),
+                  'fps':self.walk_fps.value(),'steps':self.animation_steps.value() if engine in ('wan','animate') else self.steps.value(),
                   'negative':self.negative.toPlainText(),
-                  'lora':(self.lora.currentData() or '') if engine=='wan' and reference is None else '',
+                  'lora':(self.lora.currentData() or '') if engine in ('wan','animate') and reference is None else '',
                   'lora_strength':self.strength.value(),'quality_mode':'off' if self.preserving_reference() else self.quality_mode.currentData(),
-                  'preserve_reference':self.preserving_reference()}
+                  'preserve_reference':self.preserving_reference(),'action':action,'motion':motion}
         write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'queued','params':params})
-        item = QListWidgetItem(folder.name+' · 行走动画 · 等待'); self.queue_list.addItem(item)
+        item = QListWidgetItem(task_name(params)+' · 等待'); item.setToolTip(str(folder)); self.queue_list.addItem(item)
         self.pending.append((None,params,folder,item))
-        self.add_chat('你',params['prompt'] or '按参考图生成走路动画')
-        detail=('Wan2.2 整段连续推理，不依赖人体关节识别。' if engine=='wan' else '旧版人体分层与关节局部修复。')
-        self.add_chat('软件',f'已选择走路动画：{params["count"]} 帧。'+detail,job=str(folder))
+        self.add_chat('你',params['prompt'] or '按参考图生成'+ACTIONS[action][0]+'动画')
+        detail=({'wan':'Wan2.2 自由生成。','animate':'按完整骨骼序列生成；手动编辑为可选。','rig':'旧版人体分层与关节局部修复。'}[engine])
+        self.add_chat('软件',f'已选择{ACTIONS[action][0]}动画：{params["count"]} 帧。'+detail,job=str(folder))
         self.start_next()
 
     def start_walk(self, params, folder, item):
         from .walk_cycle import generate_walk
         cancel = threading.Event(); self.current={'folder':folder,'cancel':cancel,'params':params}
         self.connect_button.setEnabled(False); self.progress.setRange(0,100); self.progress.setValue(0)
-        item.setText(folder.name+' · 行走动画执行中')
-        temporal=params.get('engine')=='wan'
+        item.setText(task_name(params)+' · 执行中')
+        temporal=params.get('engine') in ('wan','animate')
         self.status.setText('准备参考主体与连续动画…' if temporal else '准备行走骨骼与角色分层…')
         write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'running','params':params})
         def event(kind,data):
             if kind == 'reference_stage': self.status.setText(data['message'])
+            elif kind=='pose_video_event':
+                if data['event']=='queued': self.current['prompt_id']=data['data']['prompt_id']
+                elif data['event']=='progress':
+                    step=data['data']; self.progress.setValue(round(10+70*step['value']/max(1,step['max'])))
+                    self.status.setText(task_name(params))
+                elif data['event']=='executing': self.status.setText(task_name(params)+' · 模型处理')
             elif kind=='quality_event':
                 if data['event']=='queued': self.current['prompt_id']=data['data']['prompt_id']
                 self.status.setText('正在进行手动选择的高清修复…')
@@ -911,7 +979,7 @@ class Window(QMainWindow):
                         '1':'加载模型','2':'处理描述','3':'处理描述','4':'准备画布','5':'绘制角色','6':'解码图片','7':'保存图片'}
                     self.status.setText(stage+' · '+labels.get(node,'保存结果'))
             elif kind=='matte_progress':
-                self.progress.setValue(round(80+15*data['value']/max(1,data['max'])))
+                self.progress.setValue(max(self.progress.value(),round(80+15*data['value']/max(1,data['max']))))
             elif kind == 'frame_started':
                 self.status.setText(f'行走第 {data["index"]+1}/{data["count"]} 帧 · {data["stage"]}')
             elif kind == 'frame_event':
@@ -919,7 +987,8 @@ class Window(QMainWindow):
                     step=data['data']; self.status.setText(f'第 {data["index"]+1}/{data["count"]} 帧 · 采样 {step["value"]}/{step["max"]}')
             elif kind == 'frame_ready':
                 fraction=(data['index']+1)/data['count']
-                self.progress.setValue(round(95+4*fraction) if temporal else round(fraction*100))
+                value=round(80+18*fraction) if params.get('engine')=='animate' else round(95+4*fraction) if temporal else round(fraction*100)
+                self.progress.setValue(max(self.progress.value(),value))
                 self.show_image(data['image'], allow_zoom=False)
             elif kind in ('result','error','cancelled'):
                 status={'result':'completed','error':'failed','cancelled':'cancelled'}[kind]
@@ -929,14 +998,20 @@ class Window(QMainWindow):
                     self.animation_player.load(data['manifest']); self.load_gallery()
                     last=Path(data.get('workflow') or folder/f'frame_{params["count"]-1:03d}'/'workflow.json')
                     self.last_chat_graph=json.loads(last.read_text('utf-8')); self.editor_needs_sync=True; self.sync_editor_if_needed()
-                    message='行走序列已完成，可循环播放、逐帧查看或导出 PNG / Sprite Sheet / GIF。'
-                else: message=('行走任务已取消。' if kind=='cancelled' else '行走生成失败：'+str(data))+' 已接收的结果与任务记录保留在缓存。'
+                    message=ACTIONS[params.get('action','walk')][0]+'序列已完成，可播放、逐帧查看或导出 PNG / Sprite Sheet / GIF。'
+                else: message=('动作任务已取消。' if kind=='cancelled' else '动作生成失败：'+str(data))+' 已接收的结果与任务记录保留在缓存。'
                 self.add_chat('软件',message,job=str(folder)); self.log.append(folder.name+' · '+status)
                 if kind=='result': self.progress.setValue(100)
-                item.setText(folder.name+' · 行走动画 · '+status); self.status.setText(message)
+                item.setText(task_name(params)+' · '+{'completed':'完成','failed':'失败','cancelled':'已取消'}[status]); self.status.setText(message)
                 if kind=='error' and is_engine_unavailable(data): self.disconnect_engine(str(data))
                 self.current=None; self.connect_button.setEnabled(True); QTimer.singleShot(0,self.start_next)
-        if params.get('engine')=='wan':
+        if params.get('engine')=='animate':
+            from .pose_animation import generate
+            self.launch(lambda emit:generate(self.client,folder,params['prompt'],params['negative'],params['seed'],
+                params['count'],params['fps'],emit,cancel,params['reference'],params['checkpoint'],params['steps'],
+                params.get('action','walk'),params.get('motion'),params.get('lora',''),params.get('lora_strength',.8),
+                preserve_reference=params.get('preserve_reference',True)),event)
+        elif params.get('engine')=='wan':
             from .temporal_animation import generate_temporal
             self.launch(lambda emit:generate_temporal(self.client,folder,params['prompt'],params['negative'],
                 params['seed'],params['count'],params['fps'],emit,cancel,params['reference'],params['checkpoint'],params['steps'],
@@ -957,7 +1032,7 @@ class Window(QMainWindow):
     def clear_pending(self):
         for _, params, folder, item in self.pending:
             write_json(folder / 'job.json', {'schema_version': 1, 'kind': 'walk' if params.get('mode')=='walk' else 'image', 'status': 'cancelled', 'params': params})
-            item.setText(folder.name + ' · 已清除')
+            item.setText(task_name(params) + ' · 已清除')
             if params.get('mode') == 'chat': self.add_chat('软件', '已从队列移除此任务。', job=str(folder))
         self.pending.clear()
 
@@ -1049,7 +1124,9 @@ class Window(QMainWindow):
         self.pixmap = QPixmap(path); self.output = path if role=='result' else None
         self.preview_path=path; self.preview_role=role
         self.preview.set_clickable(allow_zoom and not self.pixmap.isNull() and Path(path).suffix.lower() != '.gif')
-        self.caption.setText(('参考图 · ' if role=='reference' else '本地图片 · ') + Path(path).name); self.fit_preview()
+        self.caption.setText('参考图 · '+(self.reference_display_name or Path(path).name) if role=='reference' else
+            '生成图片 · 点击查看原图' if allow_zoom else '动作帧预览')
+        self.fit_preview()
 
     def open_current_image(self):
         if self.preview.clickable and self.preview_path: self.open_image_viewer(self.preview_path)

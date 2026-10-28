@@ -5,6 +5,7 @@ from PySide6.QtGui import QColor,QFont,QPalette
 LIGHT_STYLE = '''
 QWidget { background:#ffffff; color:#242528; font-family:"Microsoft YaHei UI"; font-size:13px; }
 QWidget#sidebar { background:#f7f7f8; border:1px solid #ececee; border-radius:12px; }
+QWidget#taskDisplay { background:#ffffff; border:1px solid #e3e4e8; border-radius:10px; }
 QWidget#sidebar QLabel { background:transparent; }
 QWidget#sidebar QPushButton { background:transparent; border:0; border-radius:8px; padding:12px 10px; text-align:left; }
 QWidget#sidebar QPushButton:hover { background:#eaeaec; }

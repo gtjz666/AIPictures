@@ -2,7 +2,21 @@
 
 项目独立于 AIGAMING、Godot 和 ComfyUI 源码。界面只依赖轻量客户端环境，不在其中安装 Torch、训练框架或 ComfyUI 自定义节点。
 
-## 第一阶段模块
+## 当前完整骨骼动画模块
+
+标准界面只提供完整姿态序列条件；历史自由 I2V / 网格后端保留作旧缓存及诊断。动画类型和风格 LoRA 都由用户明确选择，动作宏自动写入实际条件，不调用 LLM 分类。
+
+- `animation_actions.py`：五种动作名称和中文动作宏；`motion_clip.py`：角色相对周期、腿部 IK、跑步腾空、跳跃根位移、关键帧与插值、BODY_18 和独立跟/趾控制。模型只消费标准身体点，辅助足部控制转换为脚踝端点。
+- `motion_reference.py`：本次参考的 DWPose 适配，或明确标注的双足轮廓估计；不套用另一角色坐标。输入 SHA-256 和布局信息随结果保存。
+- `motion_editor.py`：Qt 拖动关节、基准/逐帧编辑、骨骼预览与保存；数据按角色校验值/动作存储，入队后深拷贝快照。修改关键帧后重新生成整个连续片段。
+- `pose_animation.py`：原生 WanAnimateToVideo Move 条件图，参考图 + CLIP Vision + 平衡 ImageBatch 拼接全部姿态，TrimVideoLatent 移除参考潜帧；原生 VAE 解码。480×640、17/33 输入帧，对应 8/16 导出帧，等待上限两小时。整周期均匀取样，不做逐帧地面对齐，保留跳跃位移。
+- `foot_quality.py`：有原图约束的浅色鞋局部蓝色漏色修正，只改变有限 RGB 区域，Alpha 不动，保留原图与逐帧记录；不负责拓扑修复或普遍质量评分。
+- `task_display.py`：左侧当前任务名称、状态、百分比和细进度条；内部编号仅用于缓存、日志和服务端跟踪。
+- `tools/prepare_pose_models.py`：固定发布版本、字节数及 SHA-256，安装 Animate FP8 和独立诊断加速 LoRA；复用既有编码器/VAE/视觉编码器，不向 UI 环境加入推理框架。
+
+`data/animations/<任务>/motion.json` 保存 schema_version、角色校验、动作、画布、帧率、完整关键帧、基准、edited；`poses/` 保存真正上传的每帧条件。`sequence.json` schema 4 记录方法、动作、原生帧数、完整周期取样索引、状态及导出。`video/` 保存完整 API、原始 RGB、latent 和服务端任务号；`frame_XXX/` 保存输出姿态、足部检查及修正前图。向左结果统一镜像回原方向。历史兼容仍使用 kind=walk，实际动作由 action 字段区分。
+
+## 图像、共享模块与历史后端
 
 - `aipictures/app.py`：Qt 窗口、后台 QThread、串行本地队列和事件消费。网络和推理等待不阻塞主线程。
 - `aipictures/engine.py`：本地 ComfyUI REST / WebSocket 适配器。模型发现、执行、进度、按任务取消、历史和文件下载。HTTP 超时 20 秒，单任务等待上限 30 分钟。
@@ -24,8 +38,8 @@
 - `aipictures/character_profile.py`：版本化角色提示词、BODY_18 骨架、姿态草案和参考重绘/骨骼控制两条独立图构建器；图片、姿态和完整工作流实例在 data/characters 中保存。
 - `aipictures/action_intent.py`：有限中文动作词表、否定处理与英文条件映射；保存识别/未识别内容，不调用云端语言服务。单张图按动作选择姿态图，行走由生成类型显式选择。
 - `aipictures/prompt_text.py`：单图 SDXL / 旧版骨骼的有限中文外观与反向词映射，未映射负向词保留原文并报告；Wan 使用完整中文原文。动画动作由选择框决定，外观补充会移除冲突的站立等姿势指令。
-- `aipictures/temporal_animation.py`：Wan2.2 14B 的高 / 低噪声专家连续采样、非人体参考准备、文字模式角色图生成、透明背景处理、整帧稳定和循环区间选择。两专家共享视频潜空间，无人体骨骼检测或肢体分层。使用原生连续 VAE 解码，保存原始采样 latent，便于复查解码而不重新推理。576×768 原始连续帧保留在 video/，同一尺度的输出为 768×1024；单次连续推理等待上限 2 小时。确认后端队列空闲后释放推理缓存，为 CPU 透明处理腾出内存，有其他任务时跳过。生成、保存和取消共用现有串行队列，界面不加载 Torch。
-- `aipictures/background.py`：本地 CPU IS-Net / BiRefNet 会话、Alpha 分割和原图备份。配置 data/background-settings.json 选择权重及根目录，模型文件必须已安装；生成时不隐式联网下载。保留导入 PNG 的有效 Alpha，只计算生成 RGB 的遮罩。默认 CPU 线程数为 6，任务结束及下一次大模型推理前销毁会话，释放内存。连续动画先按 RGB 缩略图选择循环帧，仅分割最终 8 / 16 帧，每 4 帧重建会话，避免长批次 CPU 内存池累积。
+- `aipictures/temporal_animation.py`：历史自由 I2V 后端，Wan2.2 14B 的高 / 低噪声专家连续采样、非人体参考准备、文字模式角色图生成、透明背景处理、整帧稳定和循环区间选择。两专家共享视频潜空间，无人体骨骼检测或肢体分层。使用原生连续 VAE 解码，保存原始采样 latent，便于复查解码而不重新推理。576×768 原始连续帧保留在 video/，同一尺度的输出为 768×1024；单次连续推理等待上限 2 小时。确认后端队列空闲后释放推理缓存，为 CPU 透明处理腾出内存，有其他任务时跳过。生成、保存和取消共用现有串行队列，界面不加载 Torch。
+- `aipictures/background.py`：本地 CPU IS-Net / BiRefNet 会话、Alpha 分割和原图备份。配置 data/background-settings.json 选择权重及根目录，模型文件必须已安装；生成时不隐式联网下载。保留导入 PNG 的有效 Alpha，只计算生成 RGB 的遮罩。默认 CPU 线程数为 6，任务结束及下一次大模型推理前销毁会话，释放内存。旧自由 I2V 按缩略图选帧，新 Animate 按完整周期取样；均仅分割最终 8 / 16 帧，每 4 帧重建会话，避免长批次 CPU 内存池累积。
 - `tools/rebuild_animation_mattes.py`：复用已完成的连续动画原始 RGB，调用与生产相同的 finish_sequence 后处理；先在任务内临时目录完成全部输出，再备份旧文件并替换。不会提交新的 ComfyUI 推理任务，不处理其他目录或旧版骨骼缓存。
 - `tools/prepare_wan_models.py`：只在显式 --download 时下载指定版本权重；固定仓库提交、按 Range 断点续传、SHA-256 校验后才安装。已有不同内容模型不覆盖；局部文件保留为 .part，模型目录不纳入 Git。
 - `aipictures/reference_analysis.py`：保留输入 Alpha、主体归一化、DWPose 身体/手部坐标提取、侧视骨骼标定和按图片 SHA-256 的识别缓存。姿态检测使用已有 ComfyUI 节点的 openpose_json 返回，不向 UI 环境安装 Torch。遮挡侧由可见侧估计，元数据明确记录。
@@ -34,7 +48,7 @@
 - `aipictures/animation_player.py` / `sequence_preview.py`：本地帧播放、定位、完整帧浏览、精灵图预览与 ZIP 导出；QTimer 不等待推理线程。棋盘格由 `transparent_preview.py` 绘制，不修改输出。
 - `aipictures/background.py`：CPU ONNX IS-Net 主体分割；只求遮罩并直接应用到原始 RGB，避免 cutout 预乘后再次合成导致褪色，透明输入保留既有 Alpha。后台线程保留原图后生成 RGBA，独立于 ComfyUI 的 Torch 环境；模型由 `tools/prepare_background.py` 预安装。
 
-行走任务目录为 `data/animations/<时间_UUID>/`，`job.json` 的 kind=walk，sequence.json 包含版本、FPS、画幅、地面线、固定种子、参考图校验、意图、逐帧 phase/stage/工作流/任务 ID、导出信息与状态。每帧输入、遮罩、API 图和原始 AI 输出写入同名子目录，透明最终帧写入任务根。只有全部帧和导出成功才标记 completed。取消/失败保留部分数据，不重提已完成的 ComfyUI 任务。左右方向通过最终统一镜像实现，骨骼记录仍是面朝右的生成条件，manifest 显式记录 mirrored。
+历史网格行走任务目录为 `data/animations/<时间_UUID>/`，`job.json` 的 kind=walk，sequence.json 包含版本、FPS、画幅、地面线、固定种子、参考图校验、意图、逐帧 phase/stage/工作流/任务 ID、导出信息与状态。旧版每帧输入、遮罩、API 图和原始 AI 输出写入同名子目录，透明最终帧写入任务根。只有全部帧和导出成功才标记 completed。取消/失败保留部分数据，不重提已完成的 ComfyUI 任务。旧版左右方向通过最终统一镜像实现，骨骼记录仍是面朝右的生成条件，manifest 显式记录 mirrored。新 Animate 数据见本页前段。
 
 任务目录 `data/jobs/<时间_UUID>/` 包含 `job.json`、`workflow.json`、`result.json`、`image_000.png`。任务记录版本为 1，kind 当前为 image，状态包括 created、queued、running、completed、failed、cancelled。随机种子在提交前固化，完整工作流和 ComfyUI history 用于复现。程序重启会重新扫描图片记录；不会自动重提中断任务，以免重复生成。崩溃时 queued/running 记录可能陈旧，可用 prompt_id 在 ComfyUI 查询。
 
@@ -52,8 +66,10 @@
 
 第二阶段：独立训练进程 / 环境适配器，输入 DatasetManifest（版本、图片路径、标注、权利来源、预处理记录）和 TrainingRequest（框架、基础模型、参数、输出目录）；事件统一转换为任务 kind=training 的 progress/result/error。训练产物 ModelVersion 保存父模型、数据集版本、参数和校验值，注册到可配置 LoRA 目录。不得直接向界面环境安装训练依赖。
 
-第三阶段：PoseDocument 保存版本、画布尺寸、朝向、关节 ID/坐标/父子关系；AnimationDocument 保存 fps、帧号、姿态关键帧和角色参考素材 ID。姿态渲染器输出条件 PNG，工作流适配器将其送到已验证 ControlNet / IP-Adapter 管线。时间轴独立消费任务结果。骨架迁移需显式版本转换；AIGAMING v1/v2 只作导入参考，不混用。
+第三阶段后续：已有完整动作骨骼编辑；进一步独立的 PoseDocument 保存版本、画布尺寸、朝向、关节 ID/坐标/父子关系；AnimationDocument 保存 fps、帧号、姿态关键帧和角色参考素材 ID。姿态渲染器输出条件 PNG，由模型适配器绑定到对应输入，当前连续动画使用 Wan Animate，历史管线使用 ControlNet / IP-Adapter。时间轴独立消费任务结果。骨架迁移需显式版本转换；AIGAMING v1/v2 只作导入参考，不混用。
 
 第四阶段：VideoRequest 与视频工作流适配器独立于游戏帧任务；共享 AssetManifest（文件、媒体类型、来源任务、校验值）。Wan 等先验证显存预算、许可证与节点支持，再添加模型配置。
 
-尚未实现：训练、数据集编辑、姿态编辑、动画时间轴、独立通用视频 / MP4 编辑导出、局部重绘、LLM 多轮对话理解、断线自动恢复、实时中间图预览。Wan 视频推理当前专用于行走帧生成，未提供第四阶段的通用视频页面。当前显示的是采样进度及最终图片 / 动画。
+尚未实现：训练、数据集编辑、通用多轨动画时间轴、独立通用视频 / MP4 编辑导出、局部重绘、LLM 多轮对话理解、断线自动恢复、实时中间图预览。Wan 视频推理当前专用于角色动作帧生成，未提供第四阶段的通用视频页面。当前显示的是采样进度及最终图片 / 动画。
+
+游戏素材生产的后续范围、三类素材请求及导出顺序见 [路线](GAME_ART_ROADMAP.md)。

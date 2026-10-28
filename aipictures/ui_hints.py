@@ -10,8 +10,9 @@ def tip(text):
 def install_hints(w):
     descriptions={
         'generation_type':'选择单张图片或连续动画；动画类型由此决定，不需要在提示词重复写“动画”。',
-        'animation_action':'当前支持走路：生成一组可循环播放的动作帧。',
-        'animation_engine':'AI 连续动画适合人物与卡通角色；旧版骨骼只适合侧视人体且需要 ControlNet。',
+        'animation_action':'选择待机、走路、跑步、跳跃或伸手。所选动作拥有完整骨骼预设，不依赖提示词关键词。',
+        'animation_engine':'完整骨骼动作把整段姿态序列直接送入模型；自动适配即可生成，手调为可选。',
+        'motion_mode':'自动适配按当前参考图生成完整动作；手动方式使用你保存的逐帧关节调整。',
         'animation_source':'参考图沿用已有角色；仅文字会先绘制角色，再生成动作。',
         'animation_steps':'动画推理次数。默认 20；增加会更慢，不保证外观更准确。',
         'walk_count':'从连续动画选出 8 或 16 张帧。16 帧播放更细，但不保证动作更准确。',
@@ -52,8 +53,8 @@ def install_hints(w):
     item_hints={
         'reference_policy':['外观以参考图为准；单图轻度重绘，动画保留参考条件。AI 仍可能改变细节。','允许提示词、LoRA 和高清修复改变参考图外观。'],
         'quality_mode':['只平滑透明边缘和显示缩放，不生成额外纹理。','适合动漫线条；可能重画纹理，耗时增加。','适合照片；可能重画皮肤和材质，耗时增加。'],
-        'generation_type':['绘制一张图片，可使用文字或参考图。','生成连续走路帧，可预览并导出精灵图和 GIF。'],
-        'animation_engine':['连续视频推理，不要求识别人体关节。','人体分层和骨骼约束，非人角色请使用 AI 连续动画。'],
+        'generation_type':['绘制一张图片，可使用文字或参考图。','按所选动作生成连续帧，可预览并导出精灵图和 GIF。'],
+        'animation_engine':['输入完整的逐帧姿态序列，自动适配或手动调整均可。'],
         'animation_source':['请主动添加参考图；不会自动使用历史角色图。','无需参考图；先按外观描述生成角色，再制作动作。'],
     }
     for name,texts in item_hints.items():

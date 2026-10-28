@@ -33,6 +33,8 @@ def main():
         if time.monotonic()-state['start']>7200 and state['stage']!='exit': raise TimeoutError(state['stage'])
         if state['stage']=='connect' and window.connected:
             window.timer.stop(); window.generation_type.setCurrentIndex(1)
+            window.animation_engine.addItem('测试历史自由动画后端','wan')
+            window.animation_engine.setCurrentIndex(window.animation_engine.findData('wan'))
             if args.reference:
                 window.set_reference(args.reference)
                 window.positive.setPlainText('参考图中的同一角色，自然站立，侧视，全身，保持一致')

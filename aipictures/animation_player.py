@@ -23,6 +23,8 @@ class AnimationPlayer(QWidget):
         frames=[path.parent/item['image'] for item in manifest['frames']]
         if not frames or any(not item.is_file() for item in frames): raise ValueError('序列图片缺失')
         self.stop(); self.manifest=path; self.frames=frames; self.fps=manifest['fps']; self.index=0
+        self.title=manifest.get('title','行走动画')
+        self.action=manifest.get('action','walk')
         self.slider.setRange(0,len(frames)-1); self.seek(0); self.show()
         self.window.sequence_preview.load(manifest,path.parent)
         self.play.setText('暂停'); self.timer.start(round(1000/self.fps))
@@ -46,21 +48,21 @@ class AnimationPlayer(QWidget):
         self.index=index; self.window.pixmap=QPixmap(str(self.frames[index])); self.window.output=str(self.frames[index])
         self.window.preview_path=str(self.frames[index]); self.window.preview_role='animation'
         self.window.fit_preview(); self.label.setText(f'{index+1}/{len(self.frames)} · {self.fps} FPS')
-        self.window.caption.setText('行走动画 · '+self.frames[index].parent.name)
+        self.window.caption.setText(getattr(self,'title','动作动画'))
 
     def export(self):
         if not self.manifest: return
         if self.window.cache_busy: self.window.status.setText('请等待缓存清理结束后再导出。'); return
-        path,_=QFileDialog.getSaveFileName(self,'导出 PNG 序列、精灵图和 GIF','walk-animation.zip','ZIP (*.zip)')
+        path,_=QFileDialog.getSaveFileName(self,'导出 PNG 序列、精灵图和 GIF',getattr(self,'action','walk')+'-animation.zip','ZIP (*.zip)')
         if not path: return
         try:
             manifest=json.loads(self.manifest.read_text('utf-8'))
-            files=self.frames+[self.manifest.parent/'sprite_sheet.png',self.manifest.parent/'walk.gif']
+            files=self.frames+[self.manifest.parent/manifest['exports']['sprite_sheet'],self.manifest.parent/manifest['exports']['gif']]
             target=self.window.cache_store.validate_export(path)
             if target.resolve() in {p.resolve() for p in files}: raise ValueError('导出位置不能覆盖原始帧')
             portable={'schema_version':1,'fps':manifest['fps'],'frame_count':len(self.frames),
                       'canvas':manifest['canvas'],'frames':[p.name for p in self.frames],
-                      'exports':manifest['exports'],'direction':manifest['intent']['direction']}
+                      'exports':manifest['exports'],'direction':manifest['intent']['direction'],'action':manifest.get('action','walk')}
             with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as archive:
                 for file in files: archive.write(file,file.name)
                 archive.writestr('animation.json',json.dumps(portable,ensure_ascii=False,indent=2))

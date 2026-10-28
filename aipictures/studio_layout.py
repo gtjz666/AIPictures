@@ -49,8 +49,15 @@ def build_studio(w):
     w.intent_hint = QLabel('输入中文动作，自动选择对应骨骼参考。'); w.intent_hint.setWordWrap(True)
     w.walk_settings, wf = form()
     w.animation_action = QComboBox(); w.animation_action.addItem('走路', 'walk'); wf.addRow('动画类型',w.animation_action)
-    w.animation_engine = QComboBox(); w.animation_engine.addItem('AI 连续动画 · Wan2.2 14B','wan')
-    w.animation_engine.addItem('旧版人体骨骼序列 · 侧视人物','rig'); wf.addRow('生成方式',w.animation_engine)
+    # Unreliable static-pose/direct routes are kept out of the standard creation flow.
+    # Historical graphs remain available in the advanced workflow editor.
+    w.animation_engine = QComboBox(); w.animation_engine.addItem('完整骨骼动作 · Wan Animate','animate')
+    w.motion_mode=QComboBox(); w.motion_mode.addItem('自动适配完整骨骼（推荐）','auto'); w.motion_mode.addItem('使用手动调整的完整骨骼','manual')
+    wf.addRow('骨骼方式',w.motion_mode)
+    edit_motion=QPushButton('查看 / 调整完整动作骨骼…'); edit_motion.clicked.connect(w.open_motion_editor); wf.addRow(edit_motion)
+    from .animation_actions import ACTIONS
+    for key,(title,_) in ACTIONS.items():
+        if key!='walk': w.animation_action.addItem(title,key)
     w.animation_source = QComboBox(); w.animation_source.addItem('参考图（导入或角色基准）','reference')
     w.animation_source.addItem('仅文字描述（先生成角色图）','text'); wf.addRow('角色来源',w.animation_source)
     w.animation_source.setCurrentIndex(1)
@@ -58,7 +65,7 @@ def build_studio(w):
     w.walk_count = QComboBox(); w.walk_count.addItem('8 帧 · 标准周期',8); w.walk_count.addItem('16 帧 · 更平滑',16)
     wf.addRow('帧数', w.walk_count)
     w.walk_fps = w.spin(1,30,8); wf.addRow('播放帧率', w.walk_fps)
-    note = QLabel('选择“走路”即生成行走，无需在提示词中重复写动作。\nAI 连续动画支持人物和卡通角色，不要求人体关节识别。14B 首次加载较慢；可检查完整帧后导出 PNG / 精灵图 / GIF。'); note.setWordWrap(True); wf.addRow(note)
+    note = QLabel('动作由选择框决定，自动加入完整动作提示词。完整骨骼先适配角色比例，再生成整个周期，手动调整为可选。当前骨架适用双足角色；其他布局需要校准。'); note.setWordWrap(True); wf.addRow(note)
     cf.addRow(w.walk_settings); w.walk_settings.hide()
     w.generation_type.currentIndexChanged.connect(w.generation_type_changed)
     w.character_route.currentIndexChanged.connect(w.character_selection_changed)
@@ -71,7 +78,7 @@ def build_studio(w):
     w.workflow_selector.currentIndexChanged.connect(w.select_chat_workflow)
     bf.addRow('后台预设', w.workflow_selector)
     w.model = QComboBox(); bf.addRow('基础模型', w.model)
-    model_note=QLabel('后台预设用于单张图片。基础模型也用于文字动画的角色图；连续动画使用 Wan2.2 14B。')
+    model_note=QLabel('后台预设用于单张图片。基础模型也用于文字动画的角色图；动作使用独立骨骼动画模型。')
     model_note.setWordWrap(True); model_note.setObjectName('muted'); bf.addRow(model_note)
     size = QWidget(); size_layout = QHBoxLayout(size); size_layout.setContentsMargins(0, 0, 0, 0)
     w.width = w.spin(64, 2048, 768, 64); w.height = w.spin(64, 2048, 768, 64)
@@ -120,11 +127,14 @@ def build_studio(w):
     settings_button('connection','连接与显存',connection,400)
     side.addSpacing(12)
     files = QPushButton('生成记录与缓存…'); files.clicked.connect(w.open_assets); side.addWidget(files)
-    bone = QPushButton('骨骼与参考图…'); bone.clicked.connect(w.open_skeleton); side.addWidget(bone)
+    bone = QPushButton('动作骨骼…'); bone.clicked.connect(w.open_motion_editor); side.addWidget(bone)
     edit = QPushButton('高级工作流…'); edit.clicked.connect(lambda: w.tabs.setCurrentIndex(1)); side.addWidget(edit)
     guide=QLabel('选择生成类型\n→ 填写正向 / 反向提示词\n→ 生成、预览，再另存需要的结果'); guide.setWordWrap(True)
     guide.setObjectName('muted')
     side.addStretch(); side.addWidget(guide)
+    from .task_display import TaskDisplay
+    w.task_display=TaskDisplay(w); side.addWidget(w.task_display)
+    w.status=w.task_display.status; w.progress=w.task_display.progress
     sidebar.setMinimumWidth(210); sidebar.setMaximumWidth(270); split.addWidget(sidebar); w.inspector = sidebar
     workspace = QWidget(); cv = QVBoxLayout(workspace); cv.setContentsMargins(22, 8, 16, 6)
     w.context_label = QLabel('创作'); w.context_label.setStyleSheet('font-size:18px;font-weight:600;'); cv.addWidget(w.context_label)
@@ -183,9 +193,7 @@ def build_studio(w):
     w.diagnostics.setWidget(w.output_tabs); w.diagnostics.setMinimumHeight(170)
     w.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,w.diagnostics)
     w.resizeDocks([w.diagnostics],[220],Qt.Orientation.Vertical); w.diagnostics.hide()
-    footer = QHBoxLayout(); w.status = QLabel('正在连接本地引擎…')
-    w.status.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred); footer.addWidget(w.status,1)
-    w.progress = QProgressBar(); w.progress.setMaximumWidth(210); footer.addWidget(w.progress)
+    footer = QHBoxLayout(); footer.addStretch()
     w.output_toggle = QPushButton('输出面板'); w.output_toggle.setCheckable(True)
     w.output_toggle.setToolTip('展开 / 隐藏消息、任务与日志：Ctrl+J')
     w.output_toggle.toggled.connect(w.diagnostics.setVisible)
@@ -203,6 +211,8 @@ def build_studio(w):
         signal.connect(lambda _:w.update_sidebar_summary())
     w.animation_engine.currentIndexChanged.connect(w.generation_type_changed)
     w.animation_source.currentIndexChanged.connect(w.generation_type_changed)
+    w.animation_action.currentIndexChanged.connect(w.generation_type_changed)
+    w.motion_mode.currentIndexChanged.connect(w.generation_type_changed)
     from .ui_hints import install_hints
     install_hints(w)
     w.update_intent_hint()
