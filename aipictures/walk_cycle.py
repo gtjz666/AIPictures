@@ -8,7 +8,8 @@ from uuid import uuid4
 
 from PIL import Image, ImageOps
 
-from .action_intent import parse_intent
+from .action_intent import walk_intent
+from .prompt_text import negative_text
 from .character_profile import JOINT_NAMES, character_workflow, paint_pose, rig_document, NEGATIVE
 from .engine import Cancelled
 from .storage import DATA, write_json
@@ -71,7 +72,7 @@ def frame_workflow(reference_name, pose_name, guide_name, seed, positive, checkp
     graph['5']['inputs'].update(latent_image=['31',0],seed=seed,denoise=.35,steps=steps,cfg=4.5)
     graph['1']['inputs']['ckpt_name'] = checkpoint
     graph['2']['inputs']['text'] = positive
-    graph['3']['inputs']['text'] = (NEGATIVE + ', white socks, boots, changed shoes, motion blur, speed lines') if negative is None else negative
+    graph['3']['inputs']['text'] = negative_text(NEGATIVE if negative is None else negative)[0]
     graph['13']['inputs']['weight'] = .9
     graph['22']['inputs']['strength'] = .75
     return graph
@@ -121,11 +122,9 @@ def new_sequence():
 
 def generate_walk(client, folder, profile, prompt, checkpoint, seed, count, fps, emit, cancel, steps=20, negative=None, reference=None):
     """Sequential GPU jobs, immutable frame graphs, partial results survive cancellation."""
-    folder = Path(folder); intent = parse_intent(prompt)
+    folder = Path(folder); intent = walk_intent(prompt)
     if count not in (8,16): raise ValueError('当前支持 8 或 16 帧行走周期')
     if not 1 <= fps <= 30: raise ValueError('播放帧率范围为 1–30')
-    if intent.action in ('run','jump','reach','stand') or ('walk' in intent.negated and intent.action != 'walk'):
-        raise ValueError('当前选择了人物行走动画帧，请输入行走要求；其他动作请使用单张图片。')
     reference=reference or profile['reference']
     manifest = {'schema_version':2,'kind':'walk','status':'preparing','fps':fps,'frame_count':count,
         'canvas':list(SIZE),'ground_y':978,'seed':seed,'user_prompt':prompt,'intent':intent.to_dict(),

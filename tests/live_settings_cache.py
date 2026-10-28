@@ -59,8 +59,9 @@ def tick():
         # Queue a real application request without dispatching a GPU job, inspect the snapshot.
         queued=test_root/'animations'/'queued'
         window.generation_type.setCurrentIndex(1)
+        window.animation_engine.setCurrentIndex(1)
         window.positive.setPlainText('人物原地向右走路')
-        with patch('aipictures.walk_cycle.new_sequence',return_value=queued),patch.object(window,'start_next'):
+        with patch('aipictures.walk_cycle.new_sequence',return_value=queued),patch.object(window,'start_next'),patch('aipictures.app.check_models'):
             window.enqueue_walk()
         assert window.pending[-1][1]['negative']=='watermark, extra fingers, blurry'
         window.clear_pending(); window.generation_type.setCurrentIndex(0)

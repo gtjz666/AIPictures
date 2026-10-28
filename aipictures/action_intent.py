@@ -1,12 +1,14 @@
 """Local, explicit Chinese action vocabulary; no remote translation service."""
 import re
 from dataclasses import asdict, dataclass, field
+from .prompt_text import APPEARANCE
 
 
 @dataclass
 class ActionIntent:
     action: str | None = None
     direction: str = 'right'
+    direction_explicit: bool = False
     pace: str = 'normal'
     english: str = ''
     recognized: list[str] = field(default_factory=list)
@@ -32,12 +34,13 @@ ACTION_EN = {
 }
 TRANSLATIONS = {
     '侧视': 'strict side profile', '侧面': 'strict side profile',
-    '全身': 'full body, both shoes visible', '蓝色头发': 'navy-blue hair', '蓝发': 'navy-blue hair',
+    '全身': 'full body, entire head and feet visible', '蓝色头发': 'navy-blue hair', '蓝发': 'navy-blue hair',
     '短发': 'short bob hair', '白色衬衫': 'white blouse', '黑色袜子': 'black knee-high socks',
     '棕色鞋': 'brown loafers', '浅蓝色背景': 'plain pale-blue background',
     '白色背景': 'plain white background', '保持一致': 'consistent character and outfit',
     '人物一致': 'consistent character and outfit', '动漫': '2D anime illustration',
 }
+TRANSLATIONS.update(APPEARANCE)
 
 
 def parse_intent(text):
@@ -76,14 +79,17 @@ def parse_intent(text):
         for word in sorted(words, key=len, reverse=True):
             if word in remaining:
                 setattr(result, attr, value); result.recognized.append(word)
+                if attr=='direction': result.direction_explicit=True
                 if attr == 'pace' and not result.action: result.action = 'walk'
                 remaining = remaining.replace(word, ' ')
     for zh, en in sorted(TRANSLATIONS.items(), key=lambda pair: -len(pair[0])):
         if zh in remaining:
-            phrases.append(en); result.recognized.append(zh); remaining = remaining.replace(zh, ' ')
+            result.recognized.append(zh); remaining = remaining.replace(zh, ' '+en+' ')
     if result.action: phrases.insert(0, ACTION_EN[result.action])
     # Preserve English verbatim; unsupported Chinese is reported instead of fake translation.
-    english = re.sub(r'[\u3400-\u9fff]+', ' ', remaining).strip(' ,，。；;!！')
+    english = re.sub(r'[\u3400-\u9fff]+', ' ', remaining)
+    english = re.sub(r'[，。；、]+', ', ', english)
+    english = re.sub(r' +',' ',english).strip(' ,，。；;!！')
     if english: phrases.append(english)
     for word in ('请', '帮我', '生成', '制作', '一个', '一张', '人物', '角色', '动画', '序列帧',
                  '精灵图', '原地', '自然', '正常', '循环', '的', '并且', '然后', '而是', '保持', '参考图'):
@@ -91,3 +97,27 @@ def parse_intent(text):
     result.unmatched = ''.join(re.findall(r'[\u3400-\u9fff]+', remaining))
     result.english = ', '.join(dict.fromkeys(phrases))
     return result
+
+
+def walk_intent(text):
+    """The selected animation type owns the action; text supplies direction/appearance."""
+    result = parse_intent(text)
+    appearance=parse_intent(appearance_description(text)).english
+    for phrase in ACTION_EN.values(): appearance=appearance.replace(phrase,'')
+    result.action = 'walk'
+    result.english = ACTION_EN['walk'] + (', ' + appearance.strip(' ,') if appearance.strip(' ,') else '')
+    return result
+
+
+def appearance_description(text):
+    """Remove conflicting pose commands when the UI has already selected an animation."""
+    for noun in ('动画序列帧','动画帧','动画','序列帧','精灵图'): text=text.replace(noun,' ')
+    for words in VOCAB.values():
+        for word in sorted(words,key=len,reverse=True):
+            text=re.sub(r'(?:不要|不需要|不想|不是|禁止|别|无需|不)\s*'+re.escape(word),' ',text)
+            text=text.replace(word,' ')
+    for phrase in (*ACTION_EN.values(),'双臂自然下垂','双脚平稳接触地面','保持站立','arms relaxed at sides'):
+        text=text.replace(phrase,' ')
+    text=re.sub(r'\b(?:standing(?: still)?|stand|walking(?: in place)?|walk|reaching(?: forward)?|reach|running|run|jumping|jump)\b',' ',text,flags=re.I)
+    text=re.sub(r'[，,；;。\n]+',', ',text)
+    return re.sub(r' +',' ',text).strip(' ,')

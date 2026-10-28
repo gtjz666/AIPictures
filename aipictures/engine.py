@@ -101,7 +101,7 @@ class ComfyClient:
                     if history:
                         if history.get('status', {}).get('status_str') == 'error':
                             raise RuntimeError(json.dumps(history['status'], ensure_ascii=False))
-                        images = []
+                        images = []; latents = []
                         for output in history.get('outputs', {}).values():
                             for item in output.get('images', []):
                                 if item.get('type', 'output') != 'output':
@@ -110,9 +110,14 @@ class ComfyClient:
                                 path = folder / f'image_{len(images):03d}.png'
                                 path.write_bytes(content)
                                 images.append(str(path))
+                            for item in output.get('latents', []):
+                                if item.get('type', 'output') != 'output': continue
+                                content = self.request('/view?' + urlencode(item), raw=True)
+                                path = folder / f'samples_{len(latents):03d}.latent'
+                                path.write_bytes(content); latents.append(str(path))
                         if not images:
                             raise RuntimeError('工作流执行结束但没有保存图片，请使用 SaveImage 输出节点')
-                        return {'prompt_id': prompt_id, 'images': images, 'history': history}
+                        return {'prompt_id': prompt_id, 'images': images, 'latents':latents, 'history': history}
             raise TimeoutError(f'等待超过 {timeout} 秒；ComfyUI 任务可能仍在执行，任务 ID：{prompt_id}')
         finally:
             ws.close()

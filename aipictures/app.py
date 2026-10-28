@@ -17,7 +17,8 @@ from .workflow_editor import WorkflowEditor
 from .prompt_binding import bind_request, bindings, check_models
 from .workflow_library import list_workflows, workflow_path, digest
 from .character_profile import load_profile
-from .action_intent import parse_intent
+from .action_intent import parse_intent, walk_intent
+from .prompt_text import negative_text
 from .panels import SkeletonDialog
 from .result_cache import ResultCache, within_any
 
@@ -50,6 +51,7 @@ class Window(QMainWindow):
         self.custom_graph = None
         self.active_title = '自动选择'
         self.reference_path = None
+        self.reference_display_name = None
         self.reference_character=False
         self.preparing = False
         self.prepare_cancel = threading.Event()
@@ -108,7 +110,7 @@ class Window(QMainWindow):
             self.sampler.clear(); self.sampler.addItems(data['samplers'])
             self.scheduler.clear(); self.scheduler.addItems(data['schedulers'])
             self.generate_button.setEnabled(True)
-            self.workflow_selector.setEnabled(True)
+            self.workflow_selector.setEnabled(self.generation_type.currentData()!='walk')
             if not self.template_restored:
                 self.template_restored = True
                 try:
@@ -227,8 +229,10 @@ class Window(QMainWindow):
 
     def update_sidebar_summary(self):
         walking=self.generation_type.currentData()=='walk'
-        text=('人物行走动画帧' if walking else '单张图片')+'\n'
-        if walking: text+=f'{self.walk_count.currentData()} 帧 · {self.walk_fps.value()} FPS\n'
+        text=('走路动画序列帧' if walking else '单张图片')+'\n'
+        if walking:
+            text+=('AI 连续 · 14B' if self.animation_engine.currentData()=='wan' else '旧版人体骨骼')+'\n'
+            text+=f'{self.walk_count.currentData()} 帧 · {self.walk_fps.value()} FPS\n'
         text+=f'{self.width.value()} × {self.height.value()} · 透明输出'
         self.creation_summary.setText(text)
 
@@ -253,21 +257,40 @@ class Window(QMainWindow):
             self.lora.setEnabled(False); self.strength.setEnabled(False)
         if walking:
             self.width.setValue(768); self.height.setValue(1024)
-        title=self.character_profile['title'] if self.character_profile else '导入参考图'
-        self.context_label.setText('人物行走动画 · '+title if walking else self.active_title)
+        self.animation_steps.setEnabled(walking and self.animation_engine.currentData()=='wan')
+        temporal=walking and self.animation_engine.currentData()=='wan'
+        self.model.setEnabled(not temporal or self.animation_source.currentData()=='text')
+        self.steps.setEnabled(not temporal)
+        self.sampler.setEnabled(not walking); self.scheduler.setEnabled(not walking)
+        self.workflow_selector.setEnabled(not walking and self.connected and not self.preparing)
+        title=(self.reference_display_name or Path(self.reference_path).name) if self.reference_path else (
+            self.character_profile['title'] if self.character_profile else '导入参考图')
+        if walking and self.animation_source.currentData()=='text': title='文字创建角色'
+        if walking and self.animation_source.currentData()=='text':
+            self.reference_label.setText('文字创建角色 · 本次动画不使用已添加的参考图。')
+        elif self.reference_path:
+            self.reference_label.setText('已添加参考图：'+(self.reference_display_name or Path(self.reference_path).name))
+        elif self.character_profile:
+            self.reference_label.setText('使用角色基准：'+self.character_profile['title'])
+        else: self.reference_label.setText('可添加参考图')
+        self.context_label.setText('走路动画 · '+title if walking else self.active_title)
         self.update_intent_hint()
         self.update_sidebar_summary()
 
     def update_intent_hint(self):
-        intent = parse_intent(self.positive.toPlainText())
+        walking = self.generation_type.currentData() == 'walk'
+        intent = walk_intent(self.positive.toPlainText()) if walking else parse_intent(self.positive.toPlainText())
         labels = {'walk':'行走','reach':'向前伸手','stand':'站立','run':'奔跑','jump':'跳跃'}
         title = labels.get(intent.action,'未指定动作')
-        walking = self.generation_type.currentData() == 'walk'
-        text = ('行走周期 · ' if walking else '动作识别 · ') + title
-        text += ' · 朝' + ('左' if intent.direction == 'left' else '右')
+        text = ('已选择动画 · ' if walking else '动作识别 · ') + title
+        if walking and self.animation_engine.currentData()=='wan' and not intent.direction_explicit:
+            text += ' · 朝向沿用参考图'
+        else: text += ' · 朝' + ('左' if intent.direction == 'left' else '右')
         if intent.action in ('run','jump'): text += '\n此动作暂未提供骨骼周期。'
         elif intent.action == 'walk' and not walking: text += '\n当前只生成单张；连续动作请选人物行走动画帧。'
-        if intent.unmatched: text += '\n暂未识别：' + intent.unmatched
+        if walking and self.animation_engine.currentData()=='wan':
+            text += ' · 中文描述直接送入动画工作流'
+        elif intent.unmatched: text += '\n暂未识别：' + intent.unmatched
         self.intent_hint.setText(text)
 
     def apply_character(self, _checked=False, route=None):
@@ -351,14 +374,16 @@ class Window(QMainWindow):
         target = DATA / 'references' / (uuid4().hex + source.suffix.lower())
         target.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(source, target)
         self.reference_path = target
+        self.reference_display_name = source.name
+        self.animation_source.setCurrentIndex(0)
         if not self.character_loading and self.character_profile and digest(target)!=self.character_profile['source_sha256']:
             from .character_profile import character_workflow
             from .reference_analysis import REFERENCE_POSITIVE,REFERENCE_NEGATIVE
             graph=character_workflow('__reference__')
             graph['2']['inputs']['text']=REFERENCE_POSITIVE; graph['3']['inputs']['text']=REFERENCE_NEGATIVE
-            self.activate_template(graph,'导入人物参考 · 自动适配')
+            self.activate_template(graph,'导入参考图 · 自动适配')
             self.reference_character=True
-            self.character_summary.setText('使用新导入的人物图。行走生成会识别主体与关节，并适配该角色的比例和颜色。')
+            self.character_summary.setText('使用新导入的参考图。AI 连续动画按完整主体生成；旧版骨骼方式仅适用于人物。')
         elif self.character_loading:
             self.reference_character=bool(self.character_profile and self.character_profile.get('adaptive'))
         size = reader.size()
@@ -376,8 +401,12 @@ class Window(QMainWindow):
 
     def clear_reference(self):
         self.reference_path = None
+        self.reference_display_name = None
         self.reference_character=False
-        self.reference_label.setText('使用角色基准图，可添加其他参考图临时替换。' if self.character_profile else '可添加参考图')
+        self.animation_source.setCurrentIndex(1)
+        if self.character_profile or self.custom_graph is not None: self.reset_graph()
+        self.reference_label.setText('已移除参考图：仅按文字描述生成，可重新添加参考图。')
+        self.generation_type_changed()
 
     def tab_changed(self, index):
         if index == 1 and self.connected:
@@ -399,24 +428,37 @@ class Window(QMainWindow):
             self.width.value(), self.height.value(), self.steps.value(), self.cfg.value(), seed,
             self.sampler.currentText(), self.scheduler.currentText(), self.lora.currentData() or '', self.strength.value())
         user_prompt = r.positive
+        raw_negative = r.negative
+        r.negative, negative_unmatched = negative_text(raw_negative)
         intent = parse_intent(user_prompt)
         source_graph = self.custom_graph
         pose_key = self.pose_choice.currentData()
         route = self.character_route.currentData()
         adaptive_action=None
+        pose_unavailable=False
+        object_info=getattr(self,'info',{}).get('object_info',{})
+        pose_choices=object_info.get('ControlNetLoader',{}).get('input',{}).get('required',{}).get('control_net_name',[[]])[0]
+        pose_model=(self.character_profile or {}).get('pose_requires','controlnet-openpose-sdxl-1.0-xinsir.safetensors')
+        pose_available=pose_model in pose_choices
+        if self.character_profile and route=='pose' and not pose_available:
+            raise ValueError('骨骼约束需要模型：'+pose_model+'。可切换为参考重绘或 AI 连续动画。')
         adaptive_reference=bool(reference_name and (self.reference_character or (self.character_profile and self.character_profile.get('adaptive'))))
         if adaptive_reference:
             from .reference_analysis import REFERENCE_POSITIVE
             r.positive=REFERENCE_POSITIVE+(', '+intent.english if intent.english else '')
-            if intent.action in ('stand','reach','walk'):
+            if intent.action in ('stand','reach','walk') and pose_available and 'DWPreprocessor' in getattr(self,'info',{}).get('nodes',[]):
                 from .walk_cycle import frame_workflow
                 adaptive_action=intent.action
                 pose_key='reach' if intent.action=='reach' else 'stand'; route='pose'
                 r.width=768; r.height=1024
                 self.width.setValue(768); self.height.setValue(1024)
                 source_graph=frame_workflow(reference_name,'__adaptive_pose__','__adaptive_guide__',seed,r.positive,r.checkpoint,r.steps,r.negative)
+            else:
+                from .character_profile import character_workflow
+                source_graph=character_workflow(reference_name); route='baseline'
+                pose_unavailable=intent.action in ('stand','reach','walk')
         elif self.character_profile:
-            if intent.action in ('stand','reach','walk'):
+            if intent.action in ('stand','reach','walk') and pose_available:
                 pose_key = 'reach' if intent.action == 'reach' else 'stand'
                 route = 'pose'
                 if intent.action == 'walk':
@@ -428,6 +470,9 @@ class Window(QMainWindow):
                 source_graph = json.loads(Path(self.character_profile['poses'][pose_key]['graph']).read_text('utf-8'))
                 # Uploaded during preparation along with the identity reference.
                 source_graph['21']['inputs']['image'] = '__aipictures_pose__'
+            elif intent.action in ('stand','reach','walk') and route=='baseline':
+                pose_unavailable=True
+                source_graph=json.loads(Path(self.character_profile['baseline_graph']).read_text('utf-8'))
             key = 'positive' if route == 'baseline' else 'pose_positive'
             r.positive = self.character_profile[key] + ('\nAdditional target: ' + intent.english if intent.english else '')
         elif intent.english:
@@ -443,8 +488,10 @@ class Window(QMainWindow):
         params = asdict(r)
         params.update(mode='chat', user_prompt=user_prompt, template=self.active_title, bindings=mapping, denoise=self.denoise.value())
         params['intent'] = intent.to_dict()
+        params.update(user_negative=raw_negative, negative_unmatched=negative_unmatched)
+        if pose_unavailable: params['pose_fallback']='optional_pose_model_unavailable'
         if adaptive_action: params['adaptive_action']=adaptive_action
-        if self.character_profile and not adaptive_reference and intent.action in ('stand','reach','walk'):
+        if self.character_profile and not adaptive_reference and intent.action in ('stand','reach','walk') and not pose_unavailable:
             params['pose_upload'] = str(pose_path)
         if self.character_profile and self.character_profile.get('adaptive'):
             params['prepared_reference']=self.character_profile['analysis']['opaque']
@@ -486,6 +533,10 @@ class Window(QMainWindow):
             self.add_chat('你', params['user_prompt'].strip() or fallback, str(reference) if reference else None)
             if params['intent']['unmatched']:
                 self.add_chat('软件','未识别的中文暂未写入模型提示词：'+params['intent']['unmatched'])
+            if params['negative_unmatched']:
+                self.add_chat('软件','部分反向中文没有词表映射，已保留原文：'+params['negative_unmatched'])
+            if params.get('pose_fallback'):
+                self.add_chat('软件','可选姿态模型当前不可用，本次按参考图重绘。')
             if reference:
                 self.preparing = True; self.prepare_cancel.clear()
                 self.status.setText('正在准备并上传参考图…')
@@ -495,12 +546,17 @@ class Window(QMainWindow):
                     if kind=='reference_stage': self.status.setText(data['message']); return
                     if kind not in ('result','error','cancelled'): return
                     self.preparing = False
-                    self.generate_button.setEnabled(self.connected); self.connect_button.setEnabled(self.current is None); self.workflow_selector.setEnabled(True)
+                    self.generate_button.setEnabled(self.connected); self.connect_button.setEnabled(self.current is None)
+                    self.workflow_selector.setEnabled(self.generation_type.currentData()!='walk')
                     if self.prepare_cancel.is_set():
                         self.status.setText('生成准备已取消'); self.add_chat('软件', '本次生成准备已取消。'); return
                     if kind == 'error':
                         self.status.setText('参考图准备失败'); self.add_chat('软件', '参考图识别或上传失败：' + str(data)); return
                     if kind != 'result': return
+                    if data.get('fallback_graph'):
+                        graph.clear(); graph.update(data['fallback_graph']); params['bindings']=bindings(graph)
+                        params['pose_fallback']=data['pose_fallback']; params.pop('adaptive_action',None)
+                        self.add_chat('软件','这张图未适用人体骨骼，本次按参考主体重绘，不强行套用人体姿态。')
                     for key in params['bindings']['reference']: graph[key]['inputs']['image'] = data['reference']
                     if data.get('pose'): graph['21']['inputs']['image'] = data['pose']
                     if data.get('guide'): graph['30']['inputs']['image'] = data['guide']
@@ -508,13 +564,23 @@ class Window(QMainWindow):
                     params['uploaded_reference'] = data['reference']
                     self.submit_chat_graph(graph, params)
                 def prepare(emit):
-                    from .reference_analysis import prepare_reference,action_rig,opaque_reference
+                    from .reference_analysis import prepare_reference,action_rig,opaque_reference,PoseNotApplicable
                     from PIL import Image,ImageOps
                     result={}
                     if params.get('adaptive_action'):
                         from .character_profile import paint_pose
                         from .skin_warp import AdaptiveCutout
-                        analysis=prepare_reference(reference,client,emit,self.prepare_cancel)
+                        try:
+                            analysis=prepare_reference(reference,client,emit,self.prepare_cancel)
+                        except PoseNotApplicable as exc:
+                            from .character_profile import character_workflow
+                            from .temporal_animation import prepare_subject
+                            staging=DATA/'references'/(uuid4().hex+'_subject'); staging.mkdir()
+                            prepare_subject(reference,staging/'reference_rgb.png',self.prepare_cancel)
+                            request=ImageRequest(**{field:params[field] for field in ImageRequest.__dataclass_fields__})
+                            fallback,_=bind_request(character_workflow('__reference__'),request,'__reference__',params['denoise'])
+                            return {'reference':client.upload_image(staging/'reference_rgb.png'),
+                                    'fallback_graph':fallback,'pose_fallback':str(exc)}
                         base=json.loads(Path(analysis['rig']).read_text('utf-8'))
                         rig=action_rig(base,params['adaptive_action'])
                         staging=DATA/'references'/(uuid4().hex+'_pose'); staging.mkdir()
@@ -613,62 +679,102 @@ class Window(QMainWindow):
     def enqueue_walk(self):
         from .walk_cycle import new_sequence, frame_workflow
         profile = load_profile()
-        reference=self.reference_path or (profile['reference'] if profile else None)
-        if not reference: raise ValueError('请先添加一张完整的侧视人物参考图。')
-        if not profile: profile={'reference':str(reference)}
-        if 'DWPreprocessor' not in self.info['nodes']: raise ValueError('参考图骨骼适配需要本地 DWPose 预处理节点。')
-        intent = parse_intent(self.positive.toPlainText())
-        if intent.action in ('stand','reach','run','jump') or ('walk' in intent.negated and intent.action != 'walk'):
-            raise ValueError('人物行走动画帧需要行走指令；站立和伸手请选单张图片。')
+        engine=self.animation_engine.currentData()
+        reference=(self.reference_path or (profile['reference'] if profile else None)) if self.animation_source.currentData()=='reference' else None
+        if not reference and self.animation_source.currentData()=='reference': raise ValueError('请添加参考图，或将角色来源切换为“仅文字描述”。')
+        if not reference and not self.positive.toPlainText().strip(): raise ValueError('文字模式请先描述角色外观。')
+        if not profile: profile={'reference':str(reference) if reference else None}
         seed = int(self.seed.text())
         if seed == -1: seed = secrets.randbelow(2**53)
         if not 0 <= seed < 2**64: raise ValueError('种子范围不正确')
-        graph = frame_workflow('__ref__','__pose__','__guide__',seed,'walk',self.model.currentText(),self.steps.value(),self.negative.toPlainText())
-        missing = {node['class_type'] for node in graph.values()}-set(self.info['nodes'])
-        if missing: raise ValueError('缺少节点：'+', '.join(sorted(missing)))
-        check_models(graph,self.info['object_info'])
+        if engine=='wan':
+            from .temporal_animation import check_video_models
+            from .background import model_file
+            check_video_models(self.info['object_info'])
+            if not model_file().is_file(): raise ValueError('透明动画需要本地去背景模型，请先运行 setup.bat。')
+        else:
+            if not reference: raise ValueError('旧版骨骼流程需要人物参考图；仅文字模式请选择 AI 连续动画。')
+            if 'DWPreprocessor' not in self.info['nodes']: raise ValueError('旧版人体骨骼适配需要本地 DWPose 节点。')
+            graph = frame_workflow('__ref__','__pose__','__guide__',seed,'walk',self.model.currentText(),self.steps.value(),self.negative.toPlainText())
+            missing = {node['class_type'] for node in graph.values()}-set(self.info['nodes'])
+            if missing: raise ValueError('缺少节点：'+', '.join(sorted(missing)))
+            check_models(graph,self.info['object_info'])
         folder = new_sequence()
-        params = {'mode':'walk','profile':profile,'reference':str(reference),'prompt':self.positive.toPlainText(),
+        params = {'mode':'walk','engine':engine,'source':self.animation_source.currentData(),'profile':profile if engine=='rig' else None,
+                  'reference':str(reference) if reference else None,'prompt':self.positive.toPlainText(),
                   'checkpoint':self.model.currentText(),'seed':seed,'count':self.walk_count.currentData(),
-                  'fps':self.walk_fps.value(),'steps':self.steps.value(),'negative':self.negative.toPlainText()}
+                  'fps':self.walk_fps.value(),'steps':self.animation_steps.value() if engine=='wan' else self.steps.value(),
+                  'negative':self.negative.toPlainText()}
         write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'queued','params':params})
         item = QListWidgetItem(folder.name+' · 行走动画 · 等待'); self.queue_list.addItem(item)
         self.pending.append((None,params,folder,item))
-        self.add_chat('你',params['prompt'] or '按角色基准生成行走动画')
-        self.add_chat('软件',f'行走动画已入队：{params["count"]} 帧。将识别本次参考图并适配骨骼，共享原图颜色，只修复关节局部细节。'+
-                      ('\n未识别中文：'+intent.unmatched if intent.unmatched else ''),job=str(folder))
+        self.add_chat('你',params['prompt'] or '按参考图生成走路动画')
+        detail=('Wan2.2 整段连续推理，不依赖人体关节识别。' if engine=='wan' else '旧版人体分层与关节局部修复。')
+        self.add_chat('软件',f'已选择走路动画：{params["count"]} 帧。'+detail,job=str(folder))
         self.start_next()
 
     def start_walk(self, params, folder, item):
         from .walk_cycle import generate_walk
         cancel = threading.Event(); self.current={'folder':folder,'cancel':cancel,'params':params}
         self.connect_button.setEnabled(False); self.progress.setRange(0,100); self.progress.setValue(0)
-        item.setText(folder.name+' · 行走动画执行中'); self.status.setText('准备行走骨骼与角色分层…')
+        item.setText(folder.name+' · 行走动画执行中')
+        temporal=params.get('engine')=='wan'
+        self.status.setText('准备参考主体与连续动画…' if temporal else '准备行走骨骼与角色分层…')
         write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'running','params':params})
         def event(kind,data):
             if kind == 'reference_stage': self.status.setText(data['message'])
+            elif kind in ('video_event','character_event'):
+                stage='连续动画' if kind=='video_event' else '角色图片'
+                if data['event']=='progress':
+                    if kind=='video_event': stage='细节完善' if self.current.get('video_expert',0) else '动作生成'
+                    step=data['data']; self.status.setText(f'{stage}推理 {step["value"]}/{step["max"]}')
+                    fraction=step['value']/max(1,step['max'])
+                    offset=10 if params.get('source')=='text' else 0
+                    if kind=='character_event': value=10*fraction
+                    else: value=offset+(80-offset)*(self.current.get('video_expert',0)+fraction)/2
+                    self.progress.setValue(max(self.progress.value(),round(value)))
+                elif data['event']=='queued': self.current['prompt_id']=data['data']['prompt_id']
+                elif data['event']=='executing':
+                    node=str(data['data'].get('node') or '')
+                    if kind=='video_event' and node in ('11','12'): self.current['video_expert']=int(node=='12')
+                    labels={'1':'加载模型','2':'加载模型','3':'处理描述','4':'准备图像',
+                        '5':'处理描述','6':'处理描述','7':'读取参考','8':'准备连续帧',
+                        '9':'准备推理','10':'准备推理','11':'动作生成','12':'细节完善',
+                        '13':'解码连续帧','14':'保存连续帧'} if kind=='video_event' else {
+                        '1':'加载模型','2':'处理描述','3':'处理描述','4':'准备画布','5':'绘制角色','6':'解码图片','7':'保存图片'}
+                    self.status.setText(stage+' · '+labels.get(node,'保存结果'))
+            elif kind=='matte_progress':
+                self.progress.setValue(round(80+15*data['value']/max(1,data['max'])))
             elif kind == 'frame_started':
                 self.status.setText(f'行走第 {data["index"]+1}/{data["count"]} 帧 · {data["stage"]}')
             elif kind == 'frame_event':
                 if data['event'] == 'progress':
                     step=data['data']; self.status.setText(f'第 {data["index"]+1}/{data["count"]} 帧 · 采样 {step["value"]}/{step["max"]}')
             elif kind == 'frame_ready':
-                self.progress.setValue(round((data['index']+1)/data['count']*100)); self.show_image(data['image'], allow_zoom=False)
+                fraction=(data['index']+1)/data['count']
+                self.progress.setValue(round(95+4*fraction) if temporal else round(fraction*100))
+                self.show_image(data['image'], allow_zoom=False)
             elif kind in ('result','error','cancelled'):
                 status={'result':'completed','error':'failed','cancelled':'cancelled'}[kind]
                 write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':status,'params':params,
                                             'result':data if kind=='result' else None,'error':None if kind=='result' else str(data)})
                 if kind == 'result':
                     self.animation_player.load(data['manifest']); self.load_gallery()
-                    last=folder/f'frame_{params["count"]-1:03d}'/'workflow.json'
+                    last=Path(data.get('workflow') or folder/f'frame_{params["count"]-1:03d}'/'workflow.json')
                     self.last_chat_graph=json.loads(last.read_text('utf-8')); self.editor_needs_sync=True; self.sync_editor_if_needed()
                     message='行走序列已完成，可循环播放、逐帧查看或导出 PNG / Sprite Sheet / GIF。'
                 else: message=('行走任务已取消。' if kind=='cancelled' else '行走生成失败：'+str(data))+' 已完成的帧保留在本地。'
                 self.add_chat('软件',message,job=str(folder)); self.log.append(folder.name+' · '+status)
+                if kind=='result': self.progress.setValue(100)
                 item.setText(folder.name+' · 行走动画 · '+status); self.status.setText(message)
                 self.current=None; self.connect_button.setEnabled(True); QTimer.singleShot(0,self.start_next)
-        self.launch(lambda emit:generate_walk(self.client,folder,params['profile'],params['prompt'],params['checkpoint'],
-            params['seed'],params['count'],params['fps'],emit,cancel,params['steps'],params['negative'],params['reference']),event)
+        if params.get('engine')=='wan':
+            from .temporal_animation import generate_temporal
+            self.launch(lambda emit:generate_temporal(self.client,folder,params['prompt'],params['negative'],
+                params['seed'],params['count'],params['fps'],emit,cancel,params['reference'],params['checkpoint'],params['steps']),event)
+        else:
+            self.launch(lambda emit:generate_walk(self.client,folder,params['profile'],params['prompt'],params['checkpoint'],
+                params['seed'],params['count'],params['fps'],emit,cancel,params['steps'],params['negative'],params['reference']),event)
 
     def update_job(self, status, error=None):
         if self.current:

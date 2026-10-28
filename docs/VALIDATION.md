@@ -1,5 +1,29 @@
 # 本机验证记录
 
+## 2026-10-28：连续行走与透明背景
+
+本轮保持 ComfyUI 源码、已有工作流和旧 SDXL 模型不变。下载并校验 Wan2.2 I2V 14B FP8 的高 / 低噪声模型、UMT5 编码器和 Wan2.1 VAE，共 35,579,207,879 字节，安装位置为 `D:\Local Comfy\ComfyUI\models`；逐文件 SHA-256 校验成功，记录在 `data/wan-model-installation.json`。
+
+BiRefNet general 已安装并启用，972,666,916 字节，位于 `D:\ComfyModels\matting\models\birefnet-general\birefnet-general.onnx`，MD5 为 `7a35a0141cbbc80de11d9c9a28f52697`，与 [rembg 模型定义](https://github.com/danielgatis/rembg/blob/main/rembg/sessions/birefnet_general.py)一致。旧 IS-Net 权重保留，设置在 `data/background-settings.json`，安装与对比记录在 `data/background-model-installation.json`、`data/birefnet-comparison/comparison.json`。
+
+真实推理与视觉检查分别记录：
+
+- 黄色卡通参考图：通过真实 Qt 入队，20 步、33 张原始连续帧，输出 8 张不同的透明 PNG、精灵图和 GIF，收到 20 次采样进度；不使用人体检测、ControlNet 或肢体复制。原始端到端测试约 682 秒。最终采用原生 VAE 连续解码，未见先前周期性闪帧和双眼重影。结果在 `data/animations/20261028_123718_6d9c75ca`。
+- 粉发红衣人物：真实 14B 推理约 653 秒；整段生成取代旧衣袖拼接。用 BiRefNet 复用原始 RGB 重做透明帧，白色靴子恢复，腿间空隙仍透明。对比点原始 RGB `[238,233,234]` 不变，旧 Alpha 0、新 Alpha 255。结果在 `data/animations/20261028_125126_27785417`。
+- 纯文字角色：输入 `黄色卡通小恐龙，白色肚皮，大眼睛，全身，侧视`，没有“动画 / 走路”关键词；界面选择走路后，先生成角色图，再真实运行 14B。约 603 秒，收到 20 次视频采样进度。BiRefNet 重做 8 帧后，肚皮和嘴部不再被误删，PNG / GIF 外围透明、8 帧均不同、Qt 播放和图片操作通过。本次机器高负载下透明重做约 580 秒。**功能与前景分割通过，完整精灵成品质量未通过**：仍有脚趾形状变化、源角色图自带的白色描边和地面阴影；这些已经存在于生成 RGB 中，不是抠图漏色。结果在 `data/animations/20261028_133436_072961cc`，分项验收分别保存，未把功能成功记成视觉成功。
+
+解码问题曾做同一 latent 的受控对比：时间分块大小 16 的解码在第 12 / 24 帧附近引入明显变化；原生解码消除这组闪变。对比在黄色卡通缓存的 `decode-comparison` 子目录，没有重新采样或更换角色来掩盖问题。
+
+36 项单元测试通过。真实 Qt 检查通过：浅色布局、并排提示词、可复用设置弹窗、生成类型优先于提示词动作、参考 / 文字来源切换、图片原尺寸放大、动画点击不放大、隐藏输出面板、缓存清理与外部保存文件保留。证据在 `data/preview-controls-acceptance.json`、`data/settings-cache-acceptance.json`。最后一次预览检查直接加载新的文字动画缓存。
+
+最终配置的 CPU 实际分割检查通过：原始 RGB 逐像素保持，白色鞋面保持不透明，背景角落为 0。Qt 计时器响应 5,158 次；销毁分割会话后，该进程驻留内存从约 8.99GB 降到 0.39GB。检查约 108 秒（机器同时有其他较高负载），记录在 `data/foreground-live-acceptance.json`。长批次内存池与负载曾显著拖慢处理，现先按缩略图选循环帧，仅处理导出的 8 / 16 帧，并每 4 帧释放模型会话；不把短测约 8 秒 / 帧视为稳定速度承诺。
+
+当前 8188 服务没有枚举到旧版 SDXL Pose ControlNet 权重；旧版骨骼入口会明确报告缺失，普通参考图单张重绘会跳过可选姿态，默认 Wan 连续动画不依赖它。没有把模拟的模型可用性检查当作真实生成通过。16 帧选项有结构覆盖，未单独运行完整 14B 视觉验收；长时间压力、复杂遮挡、多主体和所有角色种类未验收。AI 仍可能改变鞋型、细小衣饰、动作幅度和循环接缝，负向提示词不能保证消除这些问题。手动骨骼编辑尚未实现。
+
+所有原图、帧、参数、模型和测试缓存均留在本机并由 Git 忽略；仅源码、测试和文档上传仓库。
+
+## 初始阶段与历史验证
+
 日期：2026-10-26。
 
 环境：Windows，RTX 4080 Laptop GPU，12282 MiB 显存，约 32GB 系统内存。软件独立 Python 3.13.14、PySide6 6.12.0。既有 ComfyUI 0.20.1 位于 `D:\Local Comfy\ComfyUI`，其独立 Python 3.13.12、Torch 2.10.0+cu130。服务监听 127.0.0.1:8188。

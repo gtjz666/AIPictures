@@ -37,6 +37,7 @@ def tick():
         assert 'reaching forward' in graph['2']['inputs']['text']
         assert graph['21']['inputs']['image'] in ('__aipictures_pose__','__adaptive_pose__')
         window.generation_type.setCurrentIndex(1)
+        window.animation_engine.setCurrentIndex(1)  # This acceptance covers the retained legacy rig backend.
         window.open_settings('creation')
         assert window.walk_settings.isVisible() and not window.character_route.isVisible()
         window.settings_dialogs['creation'].close()

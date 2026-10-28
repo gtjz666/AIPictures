@@ -18,7 +18,8 @@ class WalkTests(unittest.TestCase):
         self.assertEqual(parse_intent('向前伸手，然后站立').action,'stand')
         self.assertIn('walk',parse_intent('不走路').negated)
         self.assertEqual(parse_intent('原地慢走动画').pace,'slow')
-        self.assertEqual(parse_intent('换成红色外套').unmatched,'换成红色外套')
+        self.assertEqual(parse_intent('换成红色外套').unmatched,'换成')
+        self.assertIn('red',parse_intent('换成红色外套').english)
 
     def test_bone_lengths_ground_contact_and_loop(self):
         for pace in ('slow','normal','fast'):

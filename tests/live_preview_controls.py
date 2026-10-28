@@ -1,6 +1,7 @@
 """Exercise real Qt output-panel and image-viewer interactions without GPU jobs."""
 import hashlib
 import json
+import argparse
 from pathlib import Path
 from unittest.mock import patch
 from PySide6.QtCore import QPoint, QPointF, Qt
@@ -12,14 +13,26 @@ from aipictures.storage import DATA, write_json
 
 
 def main():
-    record = json.loads((DATA / 'walk-acceptance.json').read_text('utf-8'))
-    folder = Path(record['folder']); image = folder / 'frame_000.png'
+    parser=argparse.ArgumentParser(); parser.add_argument('--manifest')
+    args=parser.parse_args()
+    if args.manifest: folder=Path(args.manifest).resolve().parent
+    else:
+        record = json.loads((DATA / 'walk-acceptance.json').read_text('utf-8'))
+        folder = Path(record['folder'])
+    image = folder / 'frame_000.png'
     original_hash = hashlib.sha256(image.read_bytes()).hexdigest()
     app = create_application([])
     # Keep the user's connection and persistent history untouched during inspection.
     with patch.object(Window, 'connect_engine', lambda self: None), patch('aipictures.app.write_json'):
         window = Window(); window.timer.stop(); window.show()
         QTest.qWait(250)
+        window.generation_type.setCurrentIndex(1)
+        window.positive.setPlainText('自然站立，全身，侧视')
+        assert '行走' in window.intent_hint.text()
+        assert not window.model.isEnabled() and not window.workflow_selector.isEnabled()
+        window.animation_source.setCurrentIndex(1)
+        assert window.model.isEnabled() and '不使用' in window.reference_label.text()
+        window.generation_type.setCurrentIndex(0)
         assert not window.diagnostics.isVisible() and not window.chat.isVisible()
         assert window.positive.isVisible() and window.negative.isVisible()
         window.add_chat('软件', '预览操作验收：消息默认收起，按需查看。')
@@ -94,7 +107,7 @@ def main():
         'passed': True, 'output_hidden_by_default': True, 'output_button_and_ctrl_j': True,
         'full_resolution_image_viewer': True, 'wheel_zoom_drag_100_percent_fit_escape': True,
         'playing_paused_selected_animation_frames_not_enlarged': True,
-        'static_sprite_sheet_enlarged': True, 'source_unchanged': True})
+        'static_sprite_sheet_enlarged': True, 'source_unchanged': True,'manifest':str(folder/'sequence.json')})
     print('Output panel and full-resolution image controls passed; animation clicks remain unchanged.')
 
 

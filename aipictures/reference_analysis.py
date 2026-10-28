@@ -25,13 +25,17 @@ REFERENCE_NEGATIVE=('different character, changed hairstyle, changed outfit, cha
     'deformed anatomy, front view, cropped head, cropped feet, multiple people, text, watermark, blurry')
 
 
+class PoseNotApplicable(ValueError):
+    """The image may be a valid reference without being an OpenPose-compatible person."""
+
+
 def clean_foreground(image):
     """Ignore isolated near-transparent specks without cutting holes into colored clothing."""
     rgba=np.array(image.convert('RGBA'))
     labels,count=ndimage.label(rgba[:,:,3]>24)
-    if not count: raise ValueError('图片没有可识别的人物主体，请换一张清晰的全身侧视图。')
+    if not count: raise ValueError('图片没有可识别的主体，请换一张清晰的参考图。')
     sizes=np.bincount(labels.ravel()); sizes[0]=0; main=labels==int(sizes.argmax())
-    if int(main.sum())<200: raise ValueError('人物主体太小，无法适配行走骨骼。')
+    if int(main.sum())<200: raise ValueError('参考主体太小，请使用更清晰的图片。')
     nearby=ndimage.binary_dilation(main,iterations=2)
     rgba[:,:,3]=np.where(nearby,rgba[:,:,3],0)
     # Tiny matte pinholes inside a solid region are repaired using neighboring source colors.
@@ -80,10 +84,10 @@ def parse_detected_pose(history):
             frames=json.loads(output['openpose_json'][0])
             frame=frames[0] if isinstance(frames,list) else frames
             people=frame.get('people',[])
-            if len(people)!=1: raise ValueError('请使用只有一个人物的全身侧视参考图。')
+            if len(people)!=1: raise PoseNotApplicable('未识别到唯一完整的人体姿态。')
             coordinates=people[0]['pose_keypoints_2d']
             return frame,np.asarray(coordinates[:54],dtype=np.float64).reshape(18,3)
-    raise ValueError('姿态识别没有返回关节坐标，请检查本地 DWPose 节点。')
+    raise PoseNotApplicable('姿态识别没有返回可用的人体关节坐标。')
 
 
 def aligned_rig(points,canvas,rgba,hands=None):
@@ -91,7 +95,7 @@ def aligned_rig(points,canvas,rgba,hands=None):
     points=points.copy(); points[:,0]*=768/canvas[0]; points[:,1]*=1024/canvas[1]
     required=(0,1,2,3,4,5,6,7,8,9,10,11,12,13)
     visible=[i for i in required if points[i,2]>.25]
-    if len(visible)<10: raise ValueError('人体关节识别不完整，请使用头、手和脚都完整可见的侧视站立图。')
+    if len(visible)<10: raise PoseNotApplicable('人体关节识别不完整；卡通角色可使用 AI 连续动画。')
     direction='right' if points[0,0]>=points[1,0] else 'left'
     if direction=='left':
         rgba=ImageOps.mirror(rgba); points[:,0]=767-points[:,0]
@@ -99,7 +103,7 @@ def aligned_rig(points,canvas,rgba,hands=None):
     arm=min(arm_sides,key=lambda ids:float(points[list(ids),0].mean()))
     leg=(8,9,10) if arm[0]==2 else (11,12,13)
     for index in (*arm,*leg):
-        if points[index,2]<.25: raise ValueError('可见侧的手臂或腿未识别完整，请更换更清晰的侧视全身图。')
+        if points[index,2]<.25: raise PoseNotApplicable('可见侧的手臂或腿未识别完整。')
     hand=None
     if hands:
         hand=hands.get('right' if arm[0]==2 else 'left')
@@ -115,10 +119,10 @@ def aligned_rig(points,canvas,rgba,hands=None):
         canonical[far]=canonical[near]+np.array([max(5,body_width*.07),0,0]); canonical[far,2]=.35
     lengths=[math.dist(canonical[a,:2],canonical[b,:2]) for a,b in ((2,3),(3,4),(8,9),(9,10))]
     if min(lengths)<35 or max(lengths)>400:
-        raise ValueError('检测到的人物比例不适合当前行走骨骼，请使用站立全身侧视图。')
+        raise PoseNotApplicable('检测到的角色比例不适合人体骨骼。')
     # A front-facing person has a broad shoulder axis; this release is a profile walk.
     shoulder_gap=abs(points[2,0]-points[5,0])
-    if shoulder_gap>max(75,body_width*.6): raise ValueError('当前适配器面向侧视人物；正面或多人图请先使用单张图片。')
+    if shoulder_gap>max(75,body_width*.6): raise PoseNotApplicable('当前人体骨骼适配器面向侧视人物。')
     rig=rig_document(); rig.update(schema_version=4,rig_id='detected_side_v2',annotation='dwpose_visible_with_occluded_estimates',
         source_direction=direction,ground_y=978,
         notes='DWPose 识别可见侧；遮挡侧按可见侧估计。未识别的面部点不用于肢体分层。')

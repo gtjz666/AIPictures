@@ -24,6 +24,7 @@ htmlcov/
 /tmp/
 *.log
 *.tmp
+*.latent
 *.sqlite
 *.sqlite3
 *.db
@@ -32,6 +33,7 @@ htmlcov/
 
 # Model weights and training checkpoints (never commit large weights)
 *.safetensors
+*.wan-download.part
 *.ckpt
 *.pt
 *.pth

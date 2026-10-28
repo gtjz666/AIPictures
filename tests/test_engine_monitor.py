@@ -20,8 +20,9 @@ class MonitorRetryTests(unittest.TestCase):
                 histories.append(path)
                 if len(histories) == 1: raise TimeoutError('busy during decode')
                 return {'owned-prompt': {'status': {'status_str':'success'},
-                    'outputs': {'7': {'images': [{'filename':'result.png','type':'output'}]}}}}
-            if path.startswith('/view?'): return b'local image bytes'
+                    'outputs': {'7': {'images': [{'filename':'result.png','type':'output'}]},
+                                '15': {'latents': [{'filename':'samples.latent','type':'output'}]}}}}
+            if path.startswith('/view?'): return b'latent tensor bytes' if '.latent' in path else b'local image bytes'
             raise AssertionError(path)
         client.request = request
         ws = Mock(); ws.recv.return_value = json.dumps({'type':'status','data':{}})
@@ -29,6 +30,7 @@ class MonitorRetryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch('aipictures.engine.websocket.create_connection',return_value=ws), patch('aipictures.engine.time.monotonic',side_effect=itertools.count()):
             result = client.generate({},Path(directory),lambda kind,data: events.append(kind),threading.Event())
             self.assertEqual(Path(result['images'][0]).read_bytes(),b'local image bytes')
+            self.assertEqual(Path(result['latents'][0]).read_bytes(),b'latent tensor bytes')
         self.assertEqual(calls.count('/prompt'),1)
         self.assertIn('monitor_waiting',events)
         ws.close.assert_called_once()
