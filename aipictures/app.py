@@ -835,6 +835,7 @@ class Window(QMainWindow):
         item.setText(task_name(params) + ' · 执行中')
         cancel = threading.Event()
         self.current = {'folder': folder, 'cancel': cancel, 'params': params}
+        self.task_display.start()
         self.connect_button.setEnabled(False); self.progress.setRange(0, 0)
         self.status.setText('排队 / 加载模型…'); self.update_job('running')
         def event(kind, data):
@@ -863,6 +864,7 @@ class Window(QMainWindow):
                     elif kind == 'cancelled': self.add_chat('软件', '任务已取消。', job=str(folder))
                     else: self.add_chat('软件', '生成失败：' + str(data), job=str(folder))
                 self.update_job({'result': 'completed', 'error': 'failed', 'cancelled': 'cancelled'}[kind], None if kind == 'result' else data)
+                self.task_display.finish({'result':'completed','error':'failed','cancelled':'cancelled'}[kind])
                 self.log.append(f'{folder.name} · {kind}' + (f'：{data}' if kind != 'result' else ' · 已自动保存'))
                 item.setText(task_name(params) + ' · ' + {'result':'完成','error':'失败','cancelled':'取消'}[kind])
                 self.status.setText({'result':'生成完成，已保存','error':'任务失败，详见日志','cancelled':'任务已取消'}[kind])
@@ -940,6 +942,7 @@ class Window(QMainWindow):
     def start_walk(self, params, folder, item):
         from .walk_cycle import generate_walk
         cancel = threading.Event(); self.current={'folder':folder,'cancel':cancel,'params':params}
+        self.task_display.start()
         self.connect_button.setEnabled(False); self.progress.setRange(0,100); self.progress.setValue(0)
         item.setText(task_name(params)+' · 执行中')
         temporal=params.get('engine') in ('wan','animate')
@@ -992,8 +995,10 @@ class Window(QMainWindow):
                 self.show_image(data['image'], allow_zoom=False)
             elif kind in ('result','error','cancelled'):
                 status={'result':'completed','error':'failed','cancelled':'cancelled'}[kind]
+                self.task_display.finish(status)
                 write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':status,'params':params,
-                                            'result':data if kind=='result' else None,'error':None if kind=='result' else str(data)})
+                                            'result':data if kind=='result' else None,'error':None if kind=='result' else str(data),
+                                            'duration_seconds':round(self.task_display.seconds(),2)})
                 if kind == 'result':
                     self.animation_player.load(data['manifest']); self.load_gallery()
                     last=Path(data.get('workflow') or folder/f'frame_{params["count"]-1:03d}'/'workflow.json')
@@ -1023,7 +1028,8 @@ class Window(QMainWindow):
     def update_job(self, status, error=None):
         if self.current:
             write_json(self.current['folder'] / 'job.json', {'schema_version': 1, 'kind': 'image',
-                'status': status, 'params': self.current['params'], 'prompt_id': self.current.get('prompt_id'), 'error': error})
+                'status': status, 'params': self.current['params'], 'prompt_id': self.current.get('prompt_id'), 'error': error,
+                'duration_seconds':round(self.task_display.seconds(),2)})
 
     def cancel_current(self):
         if self.current: self.current['cancel'].set(); self.status.setText('正在请求取消本任务…')

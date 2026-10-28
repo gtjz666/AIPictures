@@ -53,7 +53,7 @@ def main():
             graph=json.loads((folder/'video/workflow.json').read_text('utf-8'))
             assert graph['8']['class_type']=='WanAnimateToVideo' and graph['8']['inputs']['pose_video']
             assert '左右腿交替' in graph['5']['inputs']['text']
-            assert graph['11']['inputs']['cfg']>1 and 'acceleration' not in graph
+            assert graph['11']['inputs']['cfg']==1 and 'acceleration' not in graph
             assert len({digest(folder/item['image']) for item in manifest['frames']})==8
             for item in manifest['frames']:
                 assert (folder/item['pose']).is_file()

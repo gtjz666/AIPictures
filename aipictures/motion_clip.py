@@ -8,7 +8,8 @@ from PIL import Image,ImageDraw
 from .character_profile import JOINT_NAMES,LIMBS,COLORS
 from .storage import DATA,write_json
 from .walk_cycle import walk_rig,knee_ik
-from .animation_actions import ACTIONS
+from .animation_actions import ACTIONS,stage_label
+from .motion_dynamics import enrich_body
 
 FOOT_NAMES=('right_heel','right_toe','left_heel','left_toe')
 JOINT_LABELS=dict(zip(JOINT_NAMES,('鼻尖','颈部','右肩','右肘','右腕','左肩','左肘','左腕',
@@ -109,7 +110,8 @@ def pose_at(base,phase,action='walk'):
                 upper=math.dist(shoulder[:2],elbow[:2]); lower=math.dist(elbow[:2],wrist[:2]); angle=up*math.pi*.65
                 elbow[:2]=[shoulder[0]+upper*math.sin(angle),shoulder[1]+upper*math.cos(angle)]
                 wrist[:2]=[elbow[0]+lower*math.sin(angle),elbow[1]+lower*math.cos(angle)]
-    rig.update(action=action,phase=phase,stage=ACTIONS[action][0],ground_y=base.get('ground_y',978))
+    enrich_body(rig,base,phase,action)
+    rig.update(action=action,phase=phase,stage=stage_label(action,phase),ground_y=base.get('ground_y',978))
     feet_for_pose(rig,base,phase,action)
     return rig
 
@@ -119,7 +121,7 @@ def make_clip(base,source_sha,action='walk',count=8,fps=8):
     base=with_feet(base)
     frames=[pose_at(base,i/count,action) for i in range(count)]
     clip={'schema_version':1,'source_sha256':source_sha,'action':action,'frame_count':count,'fps':fps,
-          'canvas':[768,1024],'base_rig':base,'frames':frames,'edited':False,'loop':action!='jump'}
+          'canvas':[768,1024],'base_rig':base,'frames':frames,'edited':False,'loop':action!='jump','generator_version':2}
     validate_clip(clip); return clip
 
 

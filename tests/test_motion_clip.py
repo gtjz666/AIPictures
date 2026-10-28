@@ -105,7 +105,7 @@ class MotionClipTests(unittest.TestCase):
         self.assertEqual(leaves(graph['8']['inputs']['pose_video']),names)
         self.assertEqual(graph['12']['inputs']['trim_amount'],['8',3])
         self.assertEqual(graph['13']['inputs']['samples'],['12',0])
-        self.assertGreater(graph['11']['inputs']['cfg'],1)
+        self.assertEqual(graph['11']['inputs']['cfg'],1)
         self.assertNotIn('acceleration',graph)
 
     def test_action_selection_owns_text_and_appearance_macro_is_removed_for_character(self):
@@ -121,6 +121,13 @@ class MotionClipTests(unittest.TestCase):
         for action in ('run','jump'):
             self.assertNotIn('脚部悬空',default_prompts(True,True,action)[1])
         self.assertIn('脚部悬空',default_prompts(True,True,'walk')[1])
+
+    def test_negative_exclusions_are_written_into_cfg1_generation_requirements(self):
+        text=animation_prompt('参考角色','run',True,'颜色缺失，鞋子重影，机械翅膀')
+        self.assertIn('参考配色完整统一',text)
+        self.assertIn('鞋底轮廓清晰',text)
+        self.assertIn('避免出现机械翅膀',text)
+        self.assertIn('避免出现帽子',animation_prompt('参考角色','walk',True,'不要出现帽子'))
 
 
 if __name__=='__main__': unittest.main()

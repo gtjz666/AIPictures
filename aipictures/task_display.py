@@ -1,6 +1,7 @@
-"""Compact task name and percentage; identifiers remain in logs and metadata."""
+"""Task name, progress and monotonic elapsed time, independent of worker events."""
+import time
 from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QLabel,QProgressBar,QSizePolicy
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt,QTimer
 from PySide6.QtCore import Signal
 
 
@@ -16,6 +17,8 @@ class TaskLabel(QLabel):
 
     def setText(self,text):
         self.setToolTip(str(text))
+        display=getattr(self.owner,'task_display',None)
+        if display: display.record_stage(str(text))
         current=getattr(self.owner,'current',None)
         if current:
             value=task_name(current['params'])
@@ -50,6 +53,33 @@ class TaskDisplay(QWidget):
         self.progress.setMinimumWidth(0)
         self.progress.setTextVisible(False); self.progress.setMaximumHeight(5); layout.addWidget(self.progress)
         self.progress.valueChanged.connect(self.update_percent); self.progress.rangeChanged.connect(self.update_percent)
+        self.elapsed=QLabel('尚未开始'); self.elapsed.setWordWrap(True); self.elapsed.setObjectName('muted'); layout.addWidget(self.elapsed)
+        self.started=None; self.finished_seconds=0.; self.stage='准备'
+        self.clock=QTimer(self); self.clock.setInterval(250); self.clock.timeout.connect(self.update_elapsed)
+
+    def start(self):
+        self.started=time.monotonic(); self.finished_seconds=0.; self.stage='准备'; self.clock.start(); self.update_elapsed()
+
+    def seconds(self):
+        return max(0.,time.monotonic()-self.started) if self.started is not None else self.finished_seconds
+
+    def finish(self,status='completed'):
+        self.finished_seconds=self.seconds(); self.started=None; self.clock.stop()
+        self.stage={'completed':'完成','failed':'失败','cancelled':'已取消'}.get(status,status); self.update_elapsed()
+
+    def record_stage(self,text):
+        if self.started is None: return
+        for words,label in ((('透明','分离','抠图'),'透明处理'),(('导出','保存连续帧','打包'),'保存资源'),
+            (('亮度','偏色','颜色'),'颜色校验'),
+            (('采样','推理','模型处理','动作生成','节点'),'模型推理'),(('排队','等待引擎'),'等待引擎'),
+            (('参考','骨骼','准备','描述'),'准备素材')):
+            if any(word in text for word in words): self.stage=label; break
+        self.update_elapsed()
+
+    def update_elapsed(self):
+        seconds=int(self.seconds()); hours,remaining=divmod(seconds,3600); minutes,seconds=divmod(remaining,60)
+        duration=f'{hours:02d}:{minutes:02d}:{seconds:02d}' if hours else f'{minutes:02d}:{seconds:02d}'
+        self.elapsed.setText(('已用时 ' if self.started is not None else '耗时 ')+duration+' · '+self.stage)
 
     def update_percent(self,*_):
         p=self.progress

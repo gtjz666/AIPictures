@@ -88,7 +88,6 @@ def remove_background(path,cancel,anti_alias=True):
 
 def process_result(result,folder,emit,cancel,anti_alias=True):
     try:
-        session()
         originals=[]
         for i,path in enumerate(result['images']):
             emit('postprocess',{'index':i,'count':len(result['images'])})

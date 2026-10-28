@@ -32,7 +32,11 @@ class SequencePreview(QTabWidget):
     def load(self,manifest,folder):
         self.frames.clear(); folder=Path(folder)
         for entry in manifest['frames']:
-            item=QListWidgetItem(QIcon(str(folder/entry['image'])),f'{entry["index"]+1:02d} · {entry["stage"]}')
+            review=entry.get('color_consistency',{}).get('status')=='color_cast_requires_review' or bool(
+                entry.get('hand_quality',{}).get('unresolved_pixels') or entry.get('foot_quality',{}).get('unresolved_pixels'))
+            caption=f'{entry["index"]+1:02d} · {entry["stage"]}'+(' · 待复查' if review else '')
+            item=QListWidgetItem(QIcon(str(folder/entry['image'])),caption)
+            if review: item.setToolTip('此帧仍有不确定的局部颜色，请点击检查。原始帧已保留。')
             item.setData(Qt.ItemDataRole.UserRole,entry['index']); self.frames.addItem(item)
         self.sheet_path=folder/'sprite_sheet.png'; self.sheet_pixmap=QPixmap(str(self.sheet_path))
         self.sheet.set_clickable(not self.sheet_pixmap.isNull())

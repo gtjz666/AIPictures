@@ -8,10 +8,15 @@
 
 - `animation_actions.py`：五种动作名称和中文动作宏；`motion_clip.py`：角色相对周期、腿部 IK、跑步腾空、跳跃根位移、关键帧与插值、BODY_18 和独立跟/趾控制。模型只消费标准身体点，辅助足部控制转换为脚踝端点。
 - `motion_reference.py`：本次参考的 DWPose 适配，或明确标注的双足轮廓估计；不套用另一角色坐标。输入 SHA-256 和布局信息随结果保存。
+- `motion_dynamics.py`：按动作的重心、肩胯、头部缓冲与腿部 IK，保留脚部接触和骨长；不覆盖旧手动关键帧。
+- `pose_condition.py`：DWPose 风格的原生分辨率条件图及随前臂转换的参考手指关键点，独立于编辑器展示。
+- `motion_preview.py`：参考取色的矢量人物示意，无推理与纹理重绘。
+- `sequence_color.py` / `hand_quality.py`：整段多区域曝光校验和有参考约束的局部新色相修正；不自动独立缩放 RGB 通道，Alpha 不变，不证明几何修复。
+- `animation_constraints.py`：CFG 1 下将常见排除文本写成正向生成要求，自定义项保留；不选择 LoRA。
 - `motion_editor.py`：Qt 拖动关节、基准/逐帧编辑、骨骼预览与保存；数据按角色校验值/动作存储，入队后深拷贝快照。修改关键帧后重新生成整个连续片段。
 - `pose_animation.py`：原生 WanAnimateToVideo Move 条件图，参考图 + CLIP Vision + 平衡 ImageBatch 拼接全部姿态，TrimVideoLatent 移除参考潜帧；原生 VAE 解码。480×640、17/33 输入帧，对应 8/16 导出帧，等待上限两小时。整周期均匀取样，不做逐帧地面对齐，保留跳跃位移。
 - `foot_quality.py`：有原图约束的浅色鞋局部蓝色漏色修正，只改变有限 RGB 区域，Alpha 不动，保留原图与逐帧记录；不负责拓扑修复或普遍质量评分。
-- `task_display.py`：左侧当前任务名称、状态、百分比和细进度条；内部编号仅用于缓存、日志和服务端跟踪。
+- `task_display.py`：左侧当前任务名称、状态、百分比、细进度条及独立于工作线程事件的单调时钟；内部编号仅用于缓存、日志和服务端跟踪。
 - `tools/prepare_pose_models.py`：固定发布版本、字节数及 SHA-256，安装 Animate FP8 和独立诊断加速 LoRA；复用既有编码器/VAE/视觉编码器，不向 UI 环境加入推理框架。
 
 `data/animations/<任务>/motion.json` 保存 schema_version、角色校验、动作、画布、帧率、完整关键帧、基准、edited；`poses/` 保存真正上传的每帧条件。`sequence.json` schema 4 记录方法、动作、原生帧数、完整周期取样索引、状态及导出。`video/` 保存完整 API、原始 RGB、latent 和服务端任务号；`frame_XXX/` 保存输出姿态、足部检查及修正前图。向左结果统一镜像回原方向。历史兼容仍使用 kind=walk，实际动作由 action 字段区分。

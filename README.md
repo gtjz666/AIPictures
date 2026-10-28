@@ -36,7 +36,7 @@ Windows 独立本地 AI 图像与动画创作桌面软件。Python + PySide6，C
 
 当前任务名称和百分比统一放在左下角，任务序号仅保存在内部记录与日志。右侧提供动画播放、全部帧、可放大的精灵图。满意后主动“导出动画…”选择位置；PNG 保留半透明边缘，GIF 使用二值透明。
 
-本机新增 Animate FP8 模型约 **18.40GB**，另有快速诊断用的 Lightx2v 权重约 **738MB**，总计 **19,139,766,330 字节**，均校验 SHA-256。常规生成默认 20 步、CFG 3.5，不加载该加速权重；原 SDXL / Wan I2V 权重保留，复用已有 UMT5、VAE 和 CLIP Vision H。安装工具：
+本机新增 Animate FP8 模型约 **18.40GB**，另有快速诊断用的 Lightx2v 权重约 **738MB**，总计 **19,139,766,330 字节**，均校验 SHA-256。常规生成默认 20 步、CFG 1，不加载该加速权重；原 SDXL / Wan I2V 权重保留，复用已有 UMT5、VAE 和 CLIP Vision H。安装工具：
 
 ```powershell
 & .\.venv\Scripts\python.exe -m tools.prepare_pose_models --models 'D:\Local Comfy\ComfyUI\models'
@@ -160,3 +160,5 @@ Windows 独立本地 AI 图像与动画创作桌面软件。Python + PySide6，C
 阶段四验收目标：独立视频工作流真实生成→首尾帧与参数可复现→预览导出→验证 12GB 显存策略和取消/错误处理。
 
 模块设计见 `docs/ARCHITECTURE.md`。GitHub 创建步骤见 `docs/GITHUB.md`。
+
+逐帧编辑、完整本地预览、自然动作、已用时及颜色修正见 [动作与颜色说明](docs/MOTION_REFINEMENT.md)。

@@ -1,5 +1,6 @@
 """Pose-sequence-conditioned Wan Animate, separate from free I2V and legacy skin warps."""
 import json
+import time
 from copy import deepcopy
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from .storage import write_json
 from .temporal_animation import initial_character_workflow,ENCODER,VAE
 from .walk_cycle import export_sequence,SIZE
 from .workflow_library import digest
+from .pose_condition import render_condition
 
 MODEL='Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors'
 SPEED_LORA='AIPictures/animation/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors'
@@ -21,7 +23,7 @@ VISION='CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors'
 VIDEO_SIZE=(480,640)
 
 
-def animation_prompt(text,action='walk',preserve=True):
+def animation_prompt(text,action='walk',preserve=True,negative=''):
     from .action_intent import appearance_description
     if action not in ACTIONS: raise ValueError('未知动画类型。')
     result=('一个完整主体，固定镜头，全身入镜，保持参考图朝向与视角，背景简洁。'+ACTIONS[action][1]+
@@ -29,10 +31,14 @@ def animation_prompt(text,action='walk',preserve=True):
         '每条腿只连接一只脚，每只鞋只有一个鞋跟、一个鞋尖和一层清晰鞋底；总共两只脚。'
         '脚部遵循所选动作与每帧骨骼，鞋面和鞋底轮廓清晰，不出现叠加鞋尖、分叉鞋底或额外脚掌。'
         '保持参考图的物种、五官、发型、发色、服装纹样、配饰、鞋型、身体比例与绘画风格。')
+    result+='躯干随承重自然起伏，肩胯与摆臂协调，头部轻微缓冲，保持整段曝光、色温和配色一致。不添加参考图中没有的物品，不将姿态图彩色线条画成肤色或衣服。'
     if not preserve:
         extra=appearance_description(text)
         if extra: result+='外观补充：'+extra
     result+=' Exactly two feet, one foot per leg, one heel and one toe per shoe, clean single soles. Follow the complete pose sequence.'
+    if negative:
+        from .animation_constraints import positive_restrictions
+        result+='生成要求：'+positive_restrictions(negative)
     return result
 
 
@@ -84,7 +90,7 @@ def video_workflow(reference,poses,positive,negative,seed,steps=20,fast=False,fa
             'lora_name':SPEED_LORA,'strength_model':1.0}}
         graph['9']['inputs'].update(model=['acceleration',0],shift=8.0)
     graph['11']={'class_type':'KSampler','inputs':{'model':['9',0],'seed':seed,'steps':int(steps),
-        'cfg':1.0 if fast else 3.5,'sampler_name':'euler','scheduler':'simple','denoise':1.0,
+        'cfg':1.0,'sampler_name':'euler','scheduler':'simple','denoise':1.0,
         'positive':['8',0],'negative':['8',1],'latent_image':['8',2]}}
     graph['12']={'class_type':'TrimVideoLatent','inputs':{'samples':['11',0],'trim_amount':['8',3]}}
     graph['13']={'class_type':'VAEDecode','inputs':{'samples':['12',0],'vae':['4',0]}}
@@ -123,7 +129,7 @@ def export_frames(folder,result,manifest,clip,emit,cancel):
     count=clip['frame_count']; length=manifest['source_frame_count']
     if len(result['images'])!=length: raise ValueError('生成帧数与骨骼序列不一致，原始结果已保留。')
     indices=[round(i*(length-1)/count) for i in range(count)]
-    frames=[]
+    frames=[]; matte_paths=[]; poses=[]; matting_seconds=[]; started=time.monotonic()
     reference_rgba=None
     if manifest.get('preserve_reference',True) and (folder/'reference_analysis.json').is_file():
         analysis=json.loads((folder/'reference_analysis.json').read_text('utf-8'))
@@ -132,44 +138,78 @@ def export_frames(folder,result,manifest,clip,emit,cancel):
         for i,index in enumerate(indices):
             if cancel.is_set(): raise Cancelled('动作透明处理已取消，原始帧已保留。')
             emit('reference_stage',{'message':f'处理{ACTIONS[clip["action"]][0]}透明帧 {i+1}/{count}'})
+            frame_started=time.monotonic()
             with Image.open(result['images'][index]) as raw: image=foreground_rgba(raw,cancel)
             image=clean_foreground(image).resize(SIZE,Image.Resampling.LANCZOS)
             frame_pose=sample_clip(clip,i/count)
             key=folder/f'frame_{i:03d}'; key.mkdir(exist_ok=True)
-            quality={'changed_pixels':0}
-            if reference_rgba is not None:
-                from .foot_quality import repair_light_footwear
-                corrected,quality=repair_light_footwear(image,reference_rgba,frame_pose,clip['base_rig'])
-                if quality['changed_pixels']:
-                    image.save(key/'matte_before_color_repair.png'); image=corrected
-                write_json(key/'foot-quality.json',quality)
-            # Keep the model's shared coordinates: per-frame grounding would erase a jump.
-            output=folder/f'frame_{i:03d}.png'; image.save(output); frames.append(output)
-            condition_pose=body_pose(frame_pose,clip['base_rig'])
-            if manifest.get('source_direction')=='left':
-                image=ImageOps.mirror(image); image.save(output)
-                for rig in (frame_pose,condition_pose):
-                    for point in rig['joints'].values(): point[0]=767-point[0]
-                frame_pose['direction']='left'
-            write_json(key/'pose.json',frame_pose)
-            paint_rig(condition_pose,SIZE,include_feet=False).save(key/'pose.png')
-            paint_rig(frame_pose,SIZE).save(key/'foot-controls.png')
-            manifest['frames'].append({'index':i,'image':output.name,'source_frame':index,
-                'stage':ACTIONS[clip['action']][0],'phase':i/count,'pose':f'frame_{i:03d}/pose.json',
-                'workflow':'video/workflow.json','prompt_id':result['prompt_id'],'foot_quality':quality})
-            # Magnified lower-leg review is saved separately so shoe topology is inspected.
-            points=[frame_pose['joints'][side+'_'+part] for side in ('right','left') for part in ('ankle','heel','toe')]
-            crop=image.crop((max(0,int(min(p[0] for p in points))-45),max(0,int(min(p[1] for p in points))-65),
-                min(768,int(max(p[0] for p in points))+45),min(1024,int(max(p[1] for p in points))+25)))
-            crop.save(key/'feet.png')
-            write_json(folder/'sequence.json',manifest)
-            emit('matte_progress',{'value':i+1,'max':count}); emit('frame_ready',{'index':i,'count':count,'image':str(output)})
+            matte_path=key/'matte.png'; image.save(matte_path); matte_paths.append(matte_path); poses.append(frame_pose)
+            matting_seconds.append(round(time.monotonic()-frame_started,3))
+            emit('matte_progress',{'value':i+1,'max':count})
             if (i+1)%4==0: release_session()
     finally: release_session()
+    manifest.setdefault('timings',{}).update(matting_seconds=round(time.monotonic()-started,3),per_frame_matting_seconds=matting_seconds)
+    emit('reference_stage',{'message':'检查并统一整段动画的亮度与偏色…'})
+    from .sequence_color import plan_files,apply_correction
+    color_started=time.monotonic(); color_plan=plan_files(matte_paths,poses)
+    manifest['color_consistency']=color_plan; write_json(folder/'color-consistency.json',color_plan)
+    for i,(matte_path,frame_pose) in enumerate(zip(matte_paths,poses)):
+        if cancel.is_set(): raise Cancelled('颜色处理已取消，原始透明帧已保留。')
+        key=folder/f'frame_{i:03d}'; index=indices[i]
+        with Image.open(matte_path) as matte: image=apply_correction(matte,color_plan['frames'][i])
+        quality={'changed_pixels':0}
+        if reference_rgba is not None:
+            from .reference_color import repair_reference_hair
+            corrected,hair_quality=repair_reference_hair(image,reference_rgba,frame_pose,clip['base_rig'])
+            if hair_quality['changed_pixels']:
+                image.save(key/'before_hair_color_repair.png'); image=corrected
+            write_json(key/'hair-quality.json',hair_quality)
+            from .hand_quality import repair_reference_hands
+            corrected,hand_quality=repair_reference_hands(image,reference_rgba,frame_pose,clip['base_rig'])
+            if hand_quality['changed_pixels']:
+                image.save(key/'before_hand_color_repair.png'); image=corrected
+            write_json(key/'hand-quality.json',hand_quality)
+            from .foot_quality import repair_light_footwear
+            corrected,quality=repair_light_footwear(image,reference_rgba,frame_pose,clip['base_rig'])
+            if quality['changed_pixels']:
+                image.save(key/'matte_before_color_repair.png'); image=corrected
+            write_json(key/'foot-quality.json',quality)
+        else:
+            hand_quality={'changed_pixels':0,'reason':'no_preserved_reference'}
+            hair_quality={'changed_pixels':0,'reason':'no_preserved_reference'}
+        # Keep the model's shared coordinates: per-frame grounding would erase a jump.
+        output=folder/f'frame_{i:03d}.png'; image.save(output); frames.append(output)
+        condition_pose=body_pose(frame_pose,clip['base_rig'])
+        condition_image=render_condition(condition_pose,clip['base_rig'],SIZE)
+        if manifest.get('source_direction')=='left':
+            image=ImageOps.mirror(image); image.save(output)
+            condition_image=ImageOps.mirror(condition_image)
+            for rig in (frame_pose,condition_pose):
+                for point in rig['joints'].values(): point[0]=767-point[0]
+            frame_pose['direction']='left'
+        write_json(key/'pose.json',frame_pose)
+        condition_image.save(key/'pose.png')
+        paint_rig(frame_pose,SIZE).save(key/'foot-controls.png')
+        manifest['frames'].append({'index':i,'image':output.name,'source_frame':index,
+            'stage':ACTIONS[clip['action']][0],'phase':i/count,'pose':f'frame_{i:03d}/pose.json',
+            'workflow':'video/workflow.json','prompt_id':result['prompt_id'],'foot_quality':quality,
+            'color_consistency':color_plan['frames'][i],'hand_quality':hand_quality,'hair_quality':hair_quality})
+        # Magnified lower-leg review is saved separately so shoe topology is inspected.
+        points=[frame_pose['joints'][side+'_'+part] for side in ('right','left') for part in ('ankle','heel','toe')]
+        crop=image.crop((max(0,int(min(p[0] for p in points))-45),max(0,int(min(p[1] for p in points))-65),
+            min(768,int(max(p[0] for p in points))+45),min(1024,int(max(p[1] for p in points))+25)))
+        crop.save(key/'feet.png')
+        write_json(folder/'sequence.json',manifest)
+        emit('frame_ready',{'index':i,'count':count,'image':str(output)})
+    manifest['timings']['color_and_frame_export_seconds']=round(time.monotonic()-color_started,3)
+    emit('reference_stage',{'message':'保存精灵图与动画预览…'})
+    export_started=time.monotonic()
     build_foot_review(folder,count)
     manifest.update(exports=export_sequence(folder,frames,clip['fps'],clip['action']),status='completed',
         pose_selection={'method':'entire_controlled_cycle','source_indices':indices,'endpoint_duplicate_excluded':True},
         quality_review={'feet':'foot-review.jpg','accepted':False,'note':'需逐帧检查足部结构；自动检查不证明生成准确率。'})
+    write_json(folder/'sequence.json',manifest)
+    manifest['timings']['sheet_and_gif_seconds']=round(time.monotonic()-export_started,3)
     write_json(folder/'sequence.json',manifest)
     return {'manifest':str(folder/'sequence.json'),'frames':[str(p) for p in frames],
         'workflow':str(folder/'video/workflow.json'),'gif':str(folder/(clip['action']+'.gif')),'sprite_sheet':str(folder/'sprite_sheet.png')}
@@ -198,10 +238,11 @@ def math_ceil_half(value):
 def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=None,checkpoint='',steps=20,
              action='walk',motion=None,lora='',lora_strength=.8,static_test=False,fast=False,raw_only=False,preserve_reference=True):
     folder=Path(folder)
+    started=time.monotonic()
     manifest={'schema_version':4,'kind':'walk','action':action,'title':ACTIONS[action][0]+'动画',
         'method':'wan_animate_pose_sequence','status':'preparing','frames':[],'frame_count':count,'fps':fps,
         'canvas':list(SIZE),'seed':seed,'user_prompt':prompt,'negative':negative,'static_test':static_test,
-        'preserve_reference':preserve_reference or reference is None}
+        'preserve_reference':preserve_reference or reference is None,'timings':{}}
     save=lambda:write_json(folder/'sequence.json',manifest)
     save()
     try:
@@ -217,7 +258,9 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
             result=process_result(result,base,emit,cancel); write_json(base/'result.json',result)
             reference=result['images'][0]
         emit('reference_stage',{'message':'自动适配角色骨骼与脚部位置…'})
+        analysis_started=time.monotonic()
         analysis=prepare_motion_reference(reference,client,emit,cancel)
+        manifest['timings']['reference_analysis_seconds']=round(time.monotonic()-analysis_started,3)
         base=json.loads(Path(analysis['rig']).read_text('utf-8'))
         sha=digest(reference)
         if motion is not None:
@@ -233,30 +276,37 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
         # Exact cycle timing; no similarity heuristic may select only its first half.
         # Playback FPS changes playback only. It must not create hundreds of model frames.
         length=count*2+1
+        pose_started=time.monotonic()
         pose_folder=folder/'poses'; pose_folder.mkdir(); names=[]
         for i in range(length):
             if cancel.is_set(): raise Cancelled('骨骼准备已取消。')
             pose=clip['base_rig'] if static_test else sample_clip(clip,i/(length-1))
             write_json(pose_folder/f'pose_{i:03d}.json',pose)
             path=pose_folder/f'pose_{i:03d}.png'
-            paint_rig(body_pose(pose,clip['base_rig']),VIDEO_SIZE,include_feet=False).save(path)
+            render_condition(body_pose(pose,clip['base_rig']),clip['base_rig'],VIDEO_SIZE).save(path)
             names.append(client.upload_image(path,subfolder='AIPictures/poses'))
+        manifest['timings']['pose_preparation_seconds']=round(time.monotonic()-pose_started,3)
         release_session(); manifest['pose_cache_release']=release_idle_models(client)
         video=folder/'video'; video.mkdir()
-        effective_negative=negative+'，多余脚掌，重复鞋尖，分叉鞋底，双层鞋底，鞋子重影，断开的脚踝'
-        graph=video_workflow(reference_name,names,animation_prompt(prompt,action,preserve_reference),effective_negative,seed,steps,fast)
+        effective_negative=negative+'，多余脚掌，重复鞋尖，分叉鞋底，双层鞋底，鞋子重影，断开的脚踝，姿态控制线条，额外色块，曝光突变，色温漂移'
+        graph=video_workflow(reference_name,names,animation_prompt(prompt,action,preserve_reference,negative),effective_negative,seed,steps,fast)
         bind_model_names(graph,client.discover()['object_info'])
         write_json(video/'workflow.json',graph)
         manifest.update(status='running',source_frame_count=length,effective_negative=effective_negative,
-            pose_format='openpose_body18_with_foot_derived_ankles'); save()
+            pose_format='dwpose_body18_with_reference_hands_and_foot_derived_ankles',
+            negative_policy='positive_constraints_with_cfg1_negative_recorded'); save()
+        inference_started=time.monotonic()
         result=client.generate(graph,video,lambda k,d:emit('pose_video_event',{'event':k,'data':d}),cancel,timeout=7200,
             submitted=lambda pid:write_json(video/'submitted.json',{'prompt_id':pid}))
+        manifest['timings']['inference_wait_and_download_seconds']=round(time.monotonic()-inference_started,3)
         write_json(video/'result.json',result); manifest['video_cache_release']=release_idle_models(client)
         manifest['prompt_id']=result['prompt_id']
         if raw_only:
             manifest.update(status='completed_raw_test',raw_images=result['images']); save()
             return {'raw_images':result['images'],'manifest':str(folder/'sequence.json')}
-        return export_frames(folder,result,manifest,clip,emit,cancel)
+        exports=export_frames(folder,result,manifest,clip,emit,cancel)
+        manifest['timings']['total_seconds']=round(time.monotonic()-started,3); save()
+        return exports
     except Exception as exc:
         manifest.update(status='cancelled' if isinstance(exc,Cancelled) else 'failed',error=str(exc)); save(); raise
     finally: release_session()
