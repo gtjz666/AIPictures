@@ -45,8 +45,10 @@ class SequencePreview(QTabWidget):
 
     def fit_sheet(self):
         if not self.sheet_pixmap.isNull():
-            self.sheet.setPixmap(self.sheet_pixmap.scaled(self.sheet.size(),Qt.AspectRatioMode.KeepAspectRatio,
-                                                       Qt.TransformationMode.SmoothTransformation))
+            ratio=self.sheet.devicePixelRatioF()
+            scaled=self.sheet_pixmap.scaled(self.sheet.size()*ratio,Qt.AspectRatioMode.KeepAspectRatio,
+                                          Qt.TransformationMode.SmoothTransformation)
+            scaled.setDevicePixelRatio(ratio); self.sheet.setPixmap(scaled)
 
     def resizeEvent(self,event):
         super().resizeEvent(event); self.fit_sheet()

@@ -19,6 +19,7 @@ from .workflow_library import list_workflows, workflow_path, digest
 from .character_profile import load_profile
 from .action_intent import parse_intent, walk_intent
 from .prompt_text import negative_text
+from .lora_catalog import entry_for,display_name,style_prompt,validate_selection
 from .panels import SkeletonDialog
 from .result_cache import ResultCache, within_any
 
@@ -47,6 +48,8 @@ class Window(QMainWindow):
         self.current = None
         self.pixmap = QPixmap()
         self.output = None
+        self.preview_path=None
+        self.preview_role=None
         self.image_viewer = None
         self.custom_graph = None
         self.active_title = '自动选择'
@@ -85,6 +88,44 @@ class Window(QMainWindow):
         worker.finished.connect(lambda: self.workers.remove(worker))
         worker.finished.connect(worker.deleteLater); worker.start()
 
+    def refresh_loras(self):
+        selected=self.lora.currentData(); category=self.lora_category.currentText()
+        self.lora.blockSignals(True); self.lora.clear(); self.lora.addItem('不使用 LoRA','')
+        for name in getattr(self,'info',{}).get('loras',[]):
+            entry=entry_for(name)
+            if category!='全部类型' and (entry['category'] if entry else '未分类')!=category: continue
+            self.lora.addItem(display_name(name),name)
+            if entry: self.lora.setItemData(self.lora.count()-1,entry['description'],Qt.ItemDataRole.ToolTipRole)
+        index=self.lora.findData(selected)
+        self.lora.setCurrentIndex(max(0,index)); self.lora.blockSignals(False)
+        self.update_lora_state()
+
+    def lora_changed(self):
+        entry=entry_for(self.lora.currentData())
+        if entry: self.strength.setValue(entry['recommended_strength'])
+        self.update_lora_state()
+
+    def update_lora_state(self):
+        if not hasattr(self,'lora_details'): return
+        walking=self.generation_type.currentData()=='walk'
+        enabled=not walking or (self.animation_engine.currentData()=='wan' and self.animation_source.currentData()=='text')
+        self.lora.setEnabled(enabled); self.lora_category.setEnabled(enabled)
+        self.strength.setEnabled(enabled and bool(self.lora.currentData()))
+        if not enabled:
+            self.lora_details.setText('当前模式不使用 SDXL 风格 LoRA。文字动画可用于角色图；参考图动画沿用参考外观。\n如需改变参考画风，可先用单张 + LoRA 生成，再作为动画参考。')
+            return
+        entry=entry_for(self.lora.currentData())
+        scope='文字动画：仅角色图生效，Wan 沿用角色外观。' if walking else '本次单图生效，自动接入当前工作流。'
+        if entry:
+            trigger='、'.join(entry['triggers']) or '无需触发词'
+            self.lora_details.setText(f'{entry["description"]}\n适用 SDXL · 推荐强度 {entry["recommended_strength"]:g}\n触发词：{trigger}\n选中后加入对应风格词和触发词。\n'+scope)
+            try: validate_selection(self.lora.currentData(),self.model.currentText())
+            except ValueError: self.lora_details.setText(self.lora_details.text()+'\n当前基础模型未确认兼容，请选择 SDXL。')
+        else:
+            self.lora_details.setText(('未分类本地 LoRA，请核对其基础模型。\n' if self.lora.currentData() else '可按类型选择风格。\n')+scope)
+        if self.custom_graph and any(n['class_type']=='LoraLoader' and not n.get('_meta',{}).get('aipictures_lora') for n in self.custom_graph.values()):
+            self.lora_details.setText(self.lora_details.text()+'\n原工作流另有 LoRA，当前选择会叠加；可在高级编辑器调整原配置。')
+
     def connect_engine(self):
         if self.current or self.pending or self.preparing:
             self.log.append('请等待任务结束后更换连接。'); return
@@ -104,11 +145,15 @@ class Window(QMainWindow):
             required_pose = profile['pose_requires'] if profile else 'controlnet-openpose-sdxl-1.0-xinsir.safetensors'
             pose_weights = data['object_info'].get('ControlNetLoader', {}).get('input', {}).get('required', {}).get('control_net_name', [[]])[0]
             self.character_route.setItemText(1, '骨骼约束 · 已识别' if required_pose in pose_weights else '骨骼约束 · 缺权重')
+            previous_model=self.model.currentText(); previous_sampler=self.sampler.currentText() or 'dpmpp_2m'
+            previous_scheduler=self.scheduler.currentText() or 'karras'
             self.model.clear(); self.model.addItems(data['checkpoints'])
-            self.lora.clear(); self.lora.addItem('不使用 LoRA', '')
-            for name in data['loras']: self.lora.addItem(name, name)
+            if self.model.findText(previous_model)>=0: self.model.setCurrentText(previous_model)
+            self.refresh_loras()
             self.sampler.clear(); self.sampler.addItems(data['samplers'])
             self.scheduler.clear(); self.scheduler.addItems(data['schedulers'])
+            if self.sampler.findText(previous_sampler)>=0: self.sampler.setCurrentText(previous_sampler)
+            if self.scheduler.findText(previous_scheduler)>=0: self.scheduler.setCurrentText(previous_scheduler)
             self.generate_button.setEnabled(True)
             self.workflow_selector.setEnabled(self.generation_type.currentData()!='walk')
             if not self.template_restored:
@@ -117,8 +162,10 @@ class Window(QMainWindow):
                     saved = DATA / 'chat' / 'active-workflow.json'
                     if saved.exists():
                         preset = json.loads(saved.read_text('utf-8'))
-                        if preset.get('character_id'): self.apply_character(route=preset.get('route', 'baseline'))
-                        elif preset.get('graph'): self.activate_template(preset['graph'], preset['title'], preset.get('entry_id'))
+                        # References are session choices: never restore a bundled image implicitly.
+                        if preset.get('graph') and not preset.get('character_id') and not any(
+                            node['class_type']=='LoadImage' for node in preset['graph'].values()):
+                            self.activate_template(preset['graph'], preset['title'], preset.get('entry_id'))
                 except (OSError, ValueError, KeyError) as exc: self.log.append('未恢复上次工作流：' + str(exc))
             self.status.setText(f'已连接 · {len(data["checkpoints"])} 个 checkpoint · {len(data["loras"])} 个 LoRA')
             write_json(DATA / 'settings.json', {'url': client.url}); self.refresh_stats()
@@ -156,7 +203,7 @@ class Window(QMainWindow):
         self.positive.setPlaceholderText('描述画面或动作要求…')
         self.last_chat_graph = None; self.editor_needs_sync = False
         self.workflow_label.setText('后台自动选择：只输入文字走文生图，添加参考图走图生图。')
-        self.lora.setEnabled(True); self.strength.setEnabled(True)
+        self.update_lora_state()
         self.workflow_selector.blockSignals(True); self.workflow_selector.setCurrentIndex(0); self.workflow_selector.blockSignals(False)
         write_json(DATA / 'chat' / 'active-workflow.json', {'graph': None})
 
@@ -205,8 +252,8 @@ class Window(QMainWindow):
                 name = node['inputs']['ckpt_name']
                 if self.model.findText(name) < 0: self.model.addItem(name)
                 self.model.setCurrentText(name)
-        self.lora.setEnabled(False); self.strength.setEnabled(False)
-        self.workflow_label.setText('后台：' + title + '\n聊天输入、负向词和采样设置会写入此工作流。LoRA 由工作流编辑器配置。')
+        self.update_lora_state()
+        self.workflow_label.setText('后台：' + title + '\n聊天输入、负向词、采样和所选风格 LoRA 会写入工作流副本。')
         self.workflow_selector.blockSignals(True)
         chosen = next((i for i in range(self.workflow_selector.count())
                        if isinstance(self.workflow_selector.itemData(i), dict)
@@ -263,6 +310,7 @@ class Window(QMainWindow):
         self.steps.setEnabled(not temporal)
         self.sampler.setEnabled(not walking); self.scheduler.setEnabled(not walking)
         self.workflow_selector.setEnabled(not walking and self.connected and not self.preparing)
+        self.update_lora_state()
         title=(self.reference_display_name or Path(self.reference_path).name) if self.reference_path else (
             self.character_profile['title'] if self.character_profile else '导入参考图')
         if walking and self.animation_source.currentData()=='text': title='文字创建角色'
@@ -285,6 +333,8 @@ class Window(QMainWindow):
         text = ('已选择动画 · ' if walking else '动作识别 · ') + title
         if walking and self.animation_engine.currentData()=='wan' and not intent.direction_explicit:
             text += ' · 朝向沿用参考图'
+        elif not walking and not intent.direction_explicit and not self.character_profile:
+            text += ' · 朝向未指定'
         else: text += ' · 朝' + ('左' if intent.direction == 'left' else '右')
         if intent.action in ('run','jump'): text += '\n此动作暂未提供骨骼周期。'
         elif intent.action == 'walk' and not walking: text += '\n当前只生成单张；连续动作请选人物行走动画帧。'
@@ -315,7 +365,7 @@ class Window(QMainWindow):
             self.denoise.setValue(.3 if mode == 'baseline' else 1.)
             self.seed.setText('20261026')
             self.positive.setPlaceholderText('输入动作或补充要求；留空可按角色基准生成。')
-            self.show_image(profile['reference']); self.caption.setText('角色基准 · 尚未生成')
+            self.show_image(profile['reference'],role='reference'); self.caption.setText('角色基准 · 尚未生成')
             missing = None
             try: check_models(graph, self.info['object_info'])
             except ValueError as exc: missing = str(exc)
@@ -392,6 +442,7 @@ class Window(QMainWindow):
             self.width.setValue(max(64, round(size.width() * scale / 8) * 8))
             self.height.setValue(max(64, round(size.height() * scale / 8) * 8))
         self.reference_label.setText('已添加参考图：' + source.name + ' · 后续发送会使用此图，可随时移除。')
+        self.show_image(str(target),role='reference')
         if not self.character_loading: self.generation_type_changed()
 
     def use_current_as_reference(self):
@@ -405,6 +456,10 @@ class Window(QMainWindow):
         self.reference_character=False
         self.animation_source.setCurrentIndex(1)
         if self.character_profile or self.custom_graph is not None: self.reset_graph()
+        if self.preview_role=='reference':
+            self.pixmap=QPixmap(); self.output=None; self.preview_path=None; self.preview_role=None
+            self.preview.clear(); self.preview.setText(''); self.preview.set_clickable(False)
+            self.caption.setText('尚未选择参考图')
         self.reference_label.setText('已移除参考图：仅按文字描述生成，可重新添加参考图。')
         self.generation_type_changed()
 
@@ -482,12 +537,18 @@ class Window(QMainWindow):
         if not r.positive.strip():
             if reference_name: r.positive = 'high quality, detailed image'
             else: raise ValueError('请先输入画面描述，或添加一张参考图。')
+        r.positive,lora_info=style_prompt(r.positive,r.lora)
         if any(v % 8 for v in (r.width, r.height)): raise ValueError('宽高需为 8 的倍数')
         graph = source_graph if source_graph is not None else build_workflow(r)
         graph, mapping = bind_request(graph, r, reference_name, self.denoise.value())
+        from .image_quality import append_quality
+        quality=self.quality_mode.currentData()
+        append_quality(graph,quality,r.width,r.height)
         params = asdict(r)
         params.update(mode='chat', user_prompt=user_prompt, template=self.active_title, bindings=mapping, denoise=self.denoise.value())
         params['intent'] = intent.to_dict()
+        params['lora_style']=lora_info
+        params.update(quality_mode=quality,edge_smoothing=(entry_for(r.lora) or {}).get('quality')!='pixel')
         params.update(user_negative=raw_negative, negative_unmatched=negative_unmatched)
         if pose_unavailable: params['pose_fallback']='optional_pose_model_unavailable'
         if adaptive_action: params['adaptive_action']=adaptive_action
@@ -523,8 +584,11 @@ class Window(QMainWindow):
             if self.generation_type.currentData() == 'walk':
                 self.enqueue_walk(); return
             reference = self.reference_path
-            if self.character_profile and reference is None: reference = Path(self.character_profile['reference'])
             graph, params = self.graph_snapshot('__aipictures_reference__' if reference else '')
+            if not reference and params['bindings']['reference']:
+                raise ValueError('此工作流需要参考图。请主动添加一张图，或恢复自动工作流进行纯文字生成。')
+            from .image_quality import check_quality_models
+            check_quality_models(self.info['object_info'],params['quality_mode'])
             from .background import model_file
             if not model_file().is_file(): raise ValueError('透明输出需要本地去背景模型，请先运行 setup.bat 安装。')
             check_models(graph, self.info['object_info'])
@@ -579,6 +643,8 @@ class Window(QMainWindow):
                             prepare_subject(reference,staging/'reference_rgb.png',self.prepare_cancel)
                             request=ImageRequest(**{field:params[field] for field in ImageRequest.__dataclass_fields__})
                             fallback,_=bind_request(character_workflow('__reference__'),request,'__reference__',params['denoise'])
+                            from .image_quality import append_quality
+                            append_quality(fallback,params.get('quality_mode','off'),request.width,request.height)
                             return {'reference':client.upload_image(staging/'reference_rgb.png'),
                                     'fallback_graph':fallback,'pose_fallback':str(exc)}
                         base=json.loads(Path(analysis['rig']).read_text('utf-8'))
@@ -673,14 +739,14 @@ class Window(QMainWindow):
         def generate(emit):
             from .background import process_result
             result=self.client.generate(graph,folder,emit,cancel)
-            return process_result(result,folder,emit,cancel)
+            return process_result(result,folder,emit,cancel,params.get('edge_smoothing',True))
         self.launch(generate, event)
 
     def enqueue_walk(self):
         from .walk_cycle import new_sequence, frame_workflow
-        profile = load_profile()
+        profile = self.character_profile
         engine=self.animation_engine.currentData()
-        reference=(self.reference_path or (profile['reference'] if profile else None)) if self.animation_source.currentData()=='reference' else None
+        reference=self.reference_path if self.animation_source.currentData()=='reference' else None
         if not reference and self.animation_source.currentData()=='reference': raise ValueError('请添加参考图，或将角色来源切换为“仅文字描述”。')
         if not reference and not self.positive.toPlainText().strip(): raise ValueError('文字模式请先描述角色外观。')
         if not profile: profile={'reference':str(reference) if reference else None}
@@ -690,7 +756,10 @@ class Window(QMainWindow):
         if engine=='wan':
             from .temporal_animation import check_video_models
             from .background import model_file
+            from .image_quality import check_quality_models
             check_video_models(self.info['object_info'])
+            check_quality_models(self.info['object_info'],self.quality_mode.currentData())
+            if reference is None: validate_selection(self.lora.currentData() or '',self.model.currentText())
             if not model_file().is_file(): raise ValueError('透明动画需要本地去背景模型，请先运行 setup.bat。')
         else:
             if not reference: raise ValueError('旧版骨骼流程需要人物参考图；仅文字模式请选择 AI 连续动画。')
@@ -704,7 +773,9 @@ class Window(QMainWindow):
                   'reference':str(reference) if reference else None,'prompt':self.positive.toPlainText(),
                   'checkpoint':self.model.currentText(),'seed':seed,'count':self.walk_count.currentData(),
                   'fps':self.walk_fps.value(),'steps':self.animation_steps.value() if engine=='wan' else self.steps.value(),
-                  'negative':self.negative.toPlainText()}
+                  'negative':self.negative.toPlainText(),
+                  'lora':(self.lora.currentData() or '') if engine=='wan' and reference is None else '',
+                  'lora_strength':self.strength.value(),'quality_mode':self.quality_mode.currentData()}
         write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'queued','params':params})
         item = QListWidgetItem(folder.name+' · 行走动画 · 等待'); self.queue_list.addItem(item)
         self.pending.append((None,params,folder,item))
@@ -723,6 +794,9 @@ class Window(QMainWindow):
         write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'running','params':params})
         def event(kind,data):
             if kind == 'reference_stage': self.status.setText(data['message'])
+            elif kind=='quality_event':
+                if data['event']=='queued': self.current['prompt_id']=data['data']['prompt_id']
+                self.status.setText('正在进行手动选择的高清修复…')
             elif kind in ('video_event','character_event'):
                 stage='连续动画' if kind=='video_event' else '角色图片'
                 if data['event']=='progress':
@@ -771,7 +845,8 @@ class Window(QMainWindow):
         if params.get('engine')=='wan':
             from .temporal_animation import generate_temporal
             self.launch(lambda emit:generate_temporal(self.client,folder,params['prompt'],params['negative'],
-                params['seed'],params['count'],params['fps'],emit,cancel,params['reference'],params['checkpoint'],params['steps']),event)
+                params['seed'],params['count'],params['fps'],emit,cancel,params['reference'],params['checkpoint'],params['steps'],
+                params.get('lora',''),params.get('lora_strength',.8),params.get('quality_mode','off')),event)
         else:
             self.launch(lambda emit:generate_walk(self.client,folder,params['profile'],params['prompt'],params['checkpoint'],
                 params['seed'],params['count'],params['fps'],emit,cancel,params['steps'],params['negative'],params['reference']),event)
@@ -847,6 +922,7 @@ class Window(QMainWindow):
             if within_any(self.output,removed) or within_any(self.animation_player.manifest,removed):
                 self.animation_player.reset(); self.sequence_preview.clear_sequence()
                 self.output=None; self.pixmap=QPixmap(); self.preview.clear(); self.preview.setText('缓存已清除，可继续生成或打开已保存文件。')
+                self.preview_path=None; self.preview_role=None
                 self.preview.set_clickable(False)
                 self.caption.setText('未另存的生成结果保存在本地缓存')
             for message in self.chat_messages:
@@ -873,15 +949,16 @@ class Window(QMainWindow):
         self.show_image(path)
         self.assets_dialog.close()
 
-    def show_image(self, path, allow_zoom=True):
+    def show_image(self, path, allow_zoom=True,role='result'):
         self.animation_player.stop()
         self.sequence_preview.clear_sequence()
-        self.pixmap = QPixmap(path); self.output = path
+        self.pixmap = QPixmap(path); self.output = path if role=='result' else None
+        self.preview_path=path; self.preview_role=role
         self.preview.set_clickable(allow_zoom and not self.pixmap.isNull() and Path(path).suffix.lower() != '.gif')
-        self.caption.setText('本地图片 · ' + Path(path).name); self.fit_preview()
+        self.caption.setText(('参考图 · ' if role=='reference' else '本地图片 · ') + Path(path).name); self.fit_preview()
 
     def open_current_image(self):
-        if self.preview.clickable and self.output: self.open_image_viewer(self.output)
+        if self.preview.clickable and self.preview_path: self.open_image_viewer(self.preview_path)
 
     def open_image_viewer(self, path):
         if not path: return
@@ -894,7 +971,10 @@ class Window(QMainWindow):
             self.add_chat('软件', '打开图片失败：' + str(exc))
 
     def fit_preview(self):
-        if not self.pixmap.isNull(): self.preview.setPixmap(self.pixmap.scaled(self.preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        if not self.pixmap.isNull():
+            ratio=self.preview.devicePixelRatioF()
+            scaled=self.pixmap.scaled(self.preview.size()*ratio,Qt.KeepAspectRatio,Qt.SmoothTransformation)
+            scaled.setDevicePixelRatio(ratio); self.preview.setPixmap(scaled)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

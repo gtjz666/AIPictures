@@ -27,6 +27,7 @@ def main():
         window = Window(); window.timer.stop(); window.show()
         QTest.qWait(250)
         window.generation_type.setCurrentIndex(1)
+        window.animation_source.setCurrentIndex(0)
         window.positive.setPlainText('自然站立，全身，侧视')
         assert '行走' in window.intent_hint.text()
         assert not window.model.isEnabled() and not window.workflow_selector.isEnabled()
@@ -44,7 +45,7 @@ def main():
         assert window.diagnostics.isVisible() and window.chat.isVisible()
         assert '预览操作验收' in window.chat.toPlainText()
         assert window.preview.height() < preview_height
-        assert window.preview.pixmap().height() <= window.preview.height()
+        assert window.preview.pixmap().deviceIndependentSize().height() <= window.preview.height()
         window.grab().save(str(DATA / 'output-panel-preview.png'))
         window.diagnostics.close(); QTest.qWait(100)
         assert not window.output_toggle.isChecked()

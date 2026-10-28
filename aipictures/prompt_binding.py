@@ -110,6 +110,8 @@ def bind_request(template, request, reference='', denoise=.6):
             graph[mapping['reference'][0]]['inputs']['image'] = reference
             if image_sources(graph, sampler.get('latent_image')):
                 sampler['denoise'] = denoise
+    from .lora_catalog import bind_lora
+    bind_lora(graph,request.lora,request.lora_strength,request.checkpoint)
     return graph, mapping
 
 

@@ -16,6 +16,8 @@ NEGATIVE = {
     '文字':'text', '水印':'watermark', '标志':'logo', '低质量':'low quality',
     '多余肢体':'extra limbs', '肢体畸形':'deformed limbs', '重复手臂':'duplicate arms',
     '重复手部':'duplicate hands', '断手':'disconnected hands', '颜色变化':'changed colors',
+    '人物设定图':'character sheet', '三视图':'three views', '多视图':'multiple views',
+    '画面分格':'panels', '拼贴':'collage', '画面分屏':'split screen', '多余道具':'unwanted props',
 }
 
 APPEARANCE = {

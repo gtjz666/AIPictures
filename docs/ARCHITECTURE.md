@@ -7,6 +7,9 @@
 - `aipictures/app.py`：Qt 窗口、后台 QThread、串行本地队列和事件消费。网络和推理等待不阻塞主线程。
 - `aipictures/engine.py`：本地 ComfyUI REST / WebSocket 适配器。模型发现、执行、进度、按任务取消、历史和文件下载。HTTP 超时 20 秒，单任务等待上限 30 分钟。
 - `aipictures/workflow.py`：可序列化 ImageRequest 和 SDXL 工作流构建，LoRA 的 model/clip 与 VAE 独立连接。
+- `aipictures/lora_catalog.py` / `resources/lora_catalog.json`：静态人工登记的风格标签、SDXL 兼容性、强度、触发词与固定版本下载信息。类型筛选只改列表，具体 LoRA 由用户手选，提示词不参与选择。独立的标记层接入 checkpoint 的 model / clip 输出，覆盖 IP-Adapter 上游；重复绑定替换本软件的层，保留作者原有层及 VAE。
+- `aipictures/image_quality.py`：轮廓 Alpha 的轻量平滑，以及显式可选的 Real-ESRGAN 工作流。标准模式不加载超分模型。连续动画先选帧、释放 Wan 缓存，再提交独立高清任务；按 SaveImage 节点 ID 重排返回帧，随后统一抠图和稳定。缓存清理包含高清中间文件，原始连续帧保留。
+- `tools/prepare_style_models.py`：固定 LoRA 提交与 SHA-256 下载校验；官方 Real-ESRGAN 发布文件按大小检查并记录 SHA-256。模型装在 ComfyUI 模型目录，不进入 Git。无需修改原 ComfyUI 工作流或安装额外 Python 依赖。
 - `aipictures/storage.py`：项目数据根、原子 JSON 写入、任务目录。输出与源码分离。
 - `aipictures/workflow_editor.py`：Qt WebEngine 内嵌本地 ComfyUI 前端，独立 profile/cache；通过异步 JavaScript 桥接读写画布副本、导出 UI/API、向 app 发出运行请求。前端通过本机公开的 comfyAPI/app 接口转换图，不向 ComfyUI 安装扩展或修改资源。桥接接口随前端版本可能变化。
 - `aipictures/workflow_library.py`：本地目录索引、导入路径解析、已安装节点/模型/输入图和连线的兼容检查。`tools/migrate_local_workflows.py` 负责非破坏性复制和来源校验，不把迁移数据放入源码目录。

@@ -26,7 +26,8 @@ def build_workflow(r: ImageRequest):
     graph = {'1': {'class_type': 'CheckpointLoaderSimple', 'inputs': {'ckpt_name': r.checkpoint}}}
     if r.lora:
         graph['8'] = {'class_type': 'LoraLoader', 'inputs': {'model': model, 'clip': clip,
-            'lora_name': r.lora, 'strength_model': r.lora_strength, 'strength_clip': r.lora_strength}}
+            'lora_name': r.lora, 'strength_model': r.lora_strength, 'strength_clip': r.lora_strength},
+            '_meta':{'aipictures_lora':True,'title':'所选风格 LoRA'}}
         model, clip = ['8', 0], ['8', 1]
     graph.update({
         '2': {'class_type': 'CLIPTextEncode', 'inputs': {'text': r.positive, 'clip': clip}},

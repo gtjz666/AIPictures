@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal,QPointF
 from PySide6.QtGui import QPainter, QColor
 from PySide6.QtWidgets import QLabel
 
@@ -34,6 +34,8 @@ class TransparentPreview(QLabel):
                 painter.fillRect(x,y,tile,tile,QColor('#e8eaed' if (x//tile+y//tile)%2 else '#f7f8fa'))
         pixmap=self.pixmap()
         if pixmap and not pixmap.isNull():
-            painter.drawPixmap((self.width()-pixmap.width())//2,(self.height()-pixmap.height())//2,pixmap)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform,True)
+            size=pixmap.deviceIndependentSize()
+            painter.drawPixmap(QPointF((self.width()-size.width())/2,(self.height()-size.height())/2),pixmap)
         else:
             painter.setPen(QColor('#7d838d')); painter.drawText(self.rect(),Qt.AlignmentFlag.AlignCenter,self.text())

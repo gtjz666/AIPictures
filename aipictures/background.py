@@ -62,7 +62,7 @@ def release_session():
         _session=None
 
 
-def foreground_rgba(image,cancel):
+def foreground_rgba(image,cancel,anti_alias=True):
     """Straight RGBA: preserve source RGB instead of multiplying colors by alpha twice."""
     if cancel.is_set(): raise Cancelled('任务已取消')
     image=ImageOps.exif_transpose(image).convert('RGBA')
@@ -75,15 +75,18 @@ def foreground_rgba(image,cancel):
     alpha=alpha.point(lambda a:0 if a<12 else 255 if a>232 else a)
     output=image.copy()
     output.putalpha(alpha)
+    if anti_alias:
+        from .image_quality import smooth_alpha
+        output=smooth_alpha(output)
     if cancel.is_set(): raise Cancelled('任务已取消，原图已保留')
     return output
 
 
-def remove_background(path,cancel):
-    with Image.open(path) as image: return foreground_rgba(image,cancel)
+def remove_background(path,cancel,anti_alias=True):
+    with Image.open(path) as image: return foreground_rgba(image,cancel,anti_alias)
 
 
-def process_result(result,folder,emit,cancel):
+def process_result(result,folder,emit,cancel,anti_alias=True):
     try:
         session()
         originals=[]
@@ -92,8 +95,8 @@ def process_result(result,folder,emit,cancel):
             raw=Path(folder)/f'original_{i:03d}.png'
             if raw.exists(): raise ValueError('原始图片备份已存在，拒绝覆盖：'+str(raw))
             shutil.copy2(path,raw); originals.append(str(raw))
-            cutout=remove_background(path,cancel); cutout.save(path)
+            cutout=remove_background(path,cancel,anti_alias); cutout.save(path)
         result['original_images']=originals
-        result['background']={'transparent':True,'model':MODEL,'device':'cpu'}
+        result['background']={'transparent':True,'model':MODEL,'device':'cpu','edge_smoothing':anti_alias}
         return result
     finally: release_session()

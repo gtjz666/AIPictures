@@ -44,6 +44,7 @@ class AnimationPlayer(QWidget):
         if not self.frames: return
         self.window.preview.set_clickable(False)
         self.index=index; self.window.pixmap=QPixmap(str(self.frames[index])); self.window.output=str(self.frames[index])
+        self.window.preview_path=str(self.frames[index]); self.window.preview_role='animation'
         self.window.fit_preview(); self.label.setText(f'{index+1}/{len(self.frames)} · {self.fps} FPS')
         self.window.caption.setText('行走动画 · '+self.frames[index].parent.name)
 

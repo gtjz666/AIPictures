@@ -1,0 +1,285 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "id": "anime-slider",
+      "title": "日系动漫",
+      "category": "动漫",
+      "description": "动漫风格强度，可保留原角色描述。",
+      "base_family": "sdxl",
+      "base_model": "stabilityai/stable-diffusion-xl-base-1.0",
+      "filename": "AIPictures/anime-slider-sdxl.safetensors",
+      "recommended_strength": 2.0,
+      "strength_range": [
+        -3,
+        3
+      ],
+      "triggers": [
+        "anime"
+      ],
+      "quality": "anime",
+      "source": "https://huggingface.co/ntc-ai/SDXL-LoRA-slider.anime",
+      "license": "mit",
+      "license_url": "https://huggingface.co/ntc-ai/SDXL-LoRA-slider.anime",
+      "download": {
+        "url": "https://huggingface.co/ntc-ai/SDXL-LoRA-slider.anime/resolve/3b21c1f0714401442d852804753d900b710c5f61/anime.safetensors",
+        "revision": "3b21c1f0714401442d852804753d900b710c5f61",
+        "bytes": 8789076,
+        "sha256": "996f4ac936d328c0db1c8c43abe6e1b1ae92c61416fd5df5d6d3787c3e5ccf7b"
+      }
+    },
+    {
+      "id": "ghibli",
+      "title": "手绘动画",
+      "category": "动漫",
+      "description": "柔和手绘动画与自然配色。",
+      "base_family": "sdxl",
+      "base_model": "stabilityai/stable-diffusion-xl-base-1.0",
+      "filename": "AIPictures/ghibli-sdxl.safetensors",
+      "recommended_strength": 0.8,
+      "strength_range": [
+        0,
+        1.2
+      ],
+      "triggers": [
+        "Studio Ghibli",
+        "StdGBRedmAF"
+      ],
+      "quality": "anime",
+      "source": "https://huggingface.co/artificialguybr/StudioGhibli.Redmond-V2",
+      "license": "author-page",
+      "license_url": "https://huggingface.co/artificialguybr/StudioGhibli.Redmond-V2",
+      "download": {
+        "url": "https://huggingface.co/artificialguybr/StudioGhibli.Redmond-V2/resolve/303da5a04027e0a1095fcf088bed56d2c0e7314f/StudioGhibli.Redmond-StdGBRRedmAF-StudioGhibli.safetensors",
+        "revision": "303da5a04027e0a1095fcf088bed56d2c0e7314f",
+        "bytes": 228450868,
+        "sha256": "516fe22303b8a24f800a0a24a8f4c864121411b7261206c406183c1103b7bf37"
+      }
+    },
+    {
+      "id": "lineart",
+      "title": "漫画线稿",
+      "category": "动漫",
+      "description": "人物线稿；可用 colorful / black and white 控制彩色或黑白。",
+      "base_family": "sdxl",
+      "base_model": "stabilityai/stable-diffusion-xl-base-1.0",
+      "filename": "AIPictures/lineart-sdxl.safetensors",
+      "recommended_strength": 0.8,
+      "strength_range": [
+        0,
+        1.2
+      ],
+      "triggers": [
+        "LineAniAF",
+        "lineart"
+      ],
+      "quality": "anime",
+      "source": "https://huggingface.co/artificialguybr/LineAniRedmond-LinearMangaSDXL-V2",
+      "license": "creativeml-openrail-m",
+      "license_url": "https://huggingface.co/artificialguybr/LineAniRedmond-LinearMangaSDXL-V2",
+      "download": {
+        "url": "https://huggingface.co/artificialguybr/LineAniRedmond-LinearMangaSDXL-V2/resolve/411d5335378c13e63bf0d5376b405a39e9a869cb/LineAniRedmondV2-Lineart-LineAniAF.safetensors",
+        "revision": "411d5335378c13e63bf0d5376b405a39e9a869cb",
+        "bytes": 170540028,
+        "sha256": "1692a2c7d285f6c94b7910bc8f8ec2758163ba2710214bd35bb20cc94d2488c8"
+      }
+    },
+    {
+      "id": "cute-cartoon",
+      "title": "可爱卡通",
+      "category": "卡通",
+      "description": "圆润卡通角色与吉祥物。",
+      "base_family": "sdxl",
+      "base_model": "stabilityai/stable-diffusion-xl-base-1.0",
+      "filename": "AIPictures/cute-cartoon-sdxl.safetensors",
+      "recommended_strength": 0.8,
+      "strength_range": [
+        0,
+        1.2
+      ],
+      "triggers": [
+        "CuteCartoonAF",
+        "Cute Cartoon"
+      ],
+      "quality": "anime",
+      "source": "https://huggingface.co/artificialguybr/CuteCartoonRedmond-V2",
+      "license": "creativeml-openrail-m",
+      "license_url": "https://huggingface.co/artificialguybr/CuteCartoonRedmond-V2",
+      "download": {
+        "url": "https://huggingface.co/artificialguybr/CuteCartoonRedmond-V2/resolve/b2fbae8ce2772276b3ad6c0a64e7bfa3ec916a90/CuteCartoonRedmond-CuteCartoon-CuteCartoonAF.safetensors",
+        "revision": "b2fbae8ce2772276b3ad6c0a64e7bfa3ec916a90",
+        "bytes": 170540036,
+        "sha256": "a0d1360609bfc7bdb19e1180fd36f762d9e8765bf7accabff36f627c5414d7b9"
+      }
+    },
+    {
+      "id": "render-3d",
+      "title": "3D 角色",
+      "category": "卡通",
+      "description": "3D 渲染与立体角色。",
+      "base_family": "sdxl",
+      "base_model": "stabilityai/stable-diffusion-xl-base-1.0",
+      "filename": "AIPictures/render-3d-sdxl.safetensors",
+      "recommended_strength": 0.8,
+      "strength_range": [
+        0,
+        1.2
+      ],
+      "triggers": [
+        "3D Render Style",
+        "3DRenderAF"
+      ],
+      "quality": "general",
+      "source": "https://huggingface.co/artificialguybr/3DRedmond-V1",
+      "license": "author-page",
+      "license_url": "https://huggingface.co/artificialguybr/3DRedmond-V1",
+      "download": {
+        "url": "https://huggingface.co/artificialguybr/3DRedmond-V1/resolve/f4b4b980972566aea7c71af9d4e170d7fcb6c404/3DRedmond-3DRenderStyle-3DRenderAF.safetensors",
+        "revision": "f4b4b980972566aea7c71af9d4e170d7fcb6c404",
+        "bytes": 170540036,
+        "sha256": "c4ad16f1b116f10bbb4070d3abd0249f799b609dad8bc8cf92a0ac94a8de8133"
+      }
+    },
+    {
+      "id": "clay",
+      "title": "黏土动画",
+      "category": "卡通",
+      "description": "黏土与定格动画质感。",
+      "base_family": "sdxl",
+      "base_model": "stabilityai/stable-diffusion-xl-base-1.0",
+      "filename": "AIPictures/clay-sdxl.safetensors",
+      "recommended_strength": 0.8,
+      "strength_range": [
+        0,
+        1.2
+      ],
+      "triggers": [
+        "Clay Animation",
+        "Clay"
+      ],
+      "quality": "general",
+      "source": "https://huggingface.co/artificialguybr/ClayAnimationRedmond",
+      "license": "creativeml-openrail-m",
+      "license_url": "https://huggingface.co/artificialguybr/ClayAnimationRedmond",
+      "download": {
+        "url": "https://huggingface.co/artificialguybr/ClayAnimationRedmond/resolve/e9ff71de987133002aca87e4a01e2ec95af8b6b0/ClayAnimationRedm.safetensors",
+        "revision": "e9ff71de987133002aca87e4a01e2ec95af8b6b0",
+        "bytes": 170540036,
+        "sha256": "1ab7e69b8c5118918bab5a193c2c85497f7138eec081da51d7ef7b54f0efe006"
+      }
+    },
+    {
+      "id": "photoreal",
+      "title": "写实增强",
+      "category": "写实",
+      "description": "增强写实摄影倾向；不锁定真人身份。",
+      "base_family": "sdxl",
+      "base_model": "stabilityai/stable-diffusion-xl-base-1.0",
+      "filename": "AIPictures/photoreal-sdxl.safetensors",
+      "recommended_strength": 1.5,
+      "strength_range": [
+        0,
+        5
+      ],
+      "triggers": [
+        "more realistic"
+      ],
+      "quality": "general",
+      "source": "https://huggingface.co/ostris/photorealistic-slider-sdxl-lora",
+      "license": "other",
+      "license_url": "https://huggingface.co/ostris/photorealistic-slider-sdxl-lora",
+      "download": {
+        "url": "https://huggingface.co/ostris/photorealistic-slider-sdxl-lora/resolve/07ca23b849863eb4cba0c1d4d4a40ae5d3ebc103/sdxl_photorealistic_slider_v1-0.safetensors",
+        "revision": "07ca23b849863eb4cba0c1d4d4a40ae5d3ebc103",
+        "bytes": 24179004,
+        "sha256": "2764f1f25ee63df2ad7685b73572fce19593086b967a67c61e75ff6353746224"
+      },
+      "conditioning": [
+        "photograph",
+        "photorealistic",
+        "natural lighting"
+      ]
+    },
+    {
+      "id": "portrait-photo",
+      "title": "人像摄影",
+      "category": "写实",
+      "description": "生活感与自拍人像；不是特定人物身份模型。",
+      "base_family": "sdxl",
+      "base_model": "stabilityai/stable-diffusion-xl-base-1.0",
+      "filename": "AIPictures/portrait-photo-sdxl.safetensors",
+      "recommended_strength": 0.8,
+      "strength_range": [
+        0,
+        1.2
+      ],
+      "triggers": [
+        "instagram model"
+      ],
+      "quality": "general",
+      "source": "https://huggingface.co/artificialguybr/selfiephotographyredmond-selfie-photography-lora-for-sdxl",
+      "license": "other",
+      "license_url": "https://multimodal.art/civitai-licenses?allowNoCredit=False&allowCommercialUse=Rent&allowDerivatives=True&allowDifferentLicense=False",
+      "download": {
+        "url": "https://huggingface.co/artificialguybr/selfiephotographyredmond-selfie-photography-lora-for-sdxl/resolve/b06b0989f0623330d7e06ae20dd814981bc1fb24/SelfiePhotographyRedmond.safetensors",
+        "revision": "b06b0989f0623330d7e06ae20dd814981bc1fb24",
+        "bytes": 170540044,
+        "sha256": "633c7e51719f9aacfd1660a782a7d1969537ac618d9ddff5def88ee0571604f6"
+      }
+    },
+    {
+      "id": "watercolor",
+      "title": "水彩绘画",
+      "category": "插画",
+      "description": "水彩笔触与纸面绘画。",
+      "base_family": "sdxl",
+      "base_model": "stabilityai/stable-diffusion-xl-base-1.0",
+      "filename": "AIPictures/watercolor-sdxl.safetensors",
+      "recommended_strength": 0.8,
+      "strength_range": [
+        0,
+        1.2
+      ],
+      "triggers": [],
+      "quality": "anime",
+      "source": "https://huggingface.co/ostris/watercolor_style_lora_sdxl",
+      "license": "apache-2.0",
+      "license_url": "https://huggingface.co/ostris/watercolor_style_lora_sdxl",
+      "download": {
+        "url": "https://huggingface.co/ostris/watercolor_style_lora_sdxl/resolve/0b65af0ac64347c8a35b82b4695ef5eadeffd5d7/watercolor_v1_sdxl.safetensors",
+        "revision": "0b65af0ac64347c8a35b82b4695ef5eadeffd5d7",
+        "bytes": 11860808,
+        "sha256": "d375ae7e68e1377305c168b0550a0fda33925421f570f87870fb19278786e9ac"
+      },
+      "conditioning": [
+        "watercolor painting",
+        "fluid pigment washes on paper"
+      ]
+    },
+    {
+      "id": "pixel-art",
+      "title": "游戏像素",
+      "category": "像素",
+      "description": "像素风格有意保留方格边缘，不自动做线条平滑或超分。",
+      "base_family": "sdxl",
+      "base_model": "stabilityai/stable-diffusion-xl-base-1.0",
+      "filename": "AIPictures/pixel-art-sdxl.safetensors",
+      "recommended_strength": 1.0,
+      "strength_range": [
+        0,
+        1.5
+      ],
+      "triggers": [],
+      "quality": "pixel",
+      "source": "https://huggingface.co/nerijs/pixel-art-xl",
+      "license": "creativeml-openrail-m",
+      "license_url": "https://huggingface.co/nerijs/pixel-art-xl",
+      "download": {
+        "url": "https://huggingface.co/nerijs/pixel-art-xl/resolve/8bf4a4d9ea283e00a51fafda8e0539f8248ea037/pixel-art-xl.safetensors",
+        "revision": "8bf4a4d9ea283e00a51fafda8e0539f8248ea037",
+        "bytes": 170543052,
+        "sha256": "4234637cb80c998f41e348e6a6cb6bc20d8d038b2b0f256b6129b3b5e353eef7"
+      }
+    }
+  ]
+}

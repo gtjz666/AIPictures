@@ -6,6 +6,26 @@
 2. 左侧是设置入口，点击后出现小窗口。修改立即用于下一次生成，点“完成”关闭；重新打开会保留刚才的值。同一时间只显示一个设置窗口。
 3. 正向提示词和反向提示词并排放在右侧。正向写想要的画面或外观，反向写不想出现的内容。AI 连续动画接收完整中文；单张 SDXL 会映射常用中文标准词，未识别词会提示，也可以使用英文。
 
+启动时画面与参考图留空，不恢复旧角色参考。点“＋ 参考图”后立即显示用户选择的图片；图片保持原样，生成时才上传本地服务。点“移除”后清空参考图预览与绑定。只输入文字不会使用磁盘上的默认角色图；已有角色基准需主动点击应用。
+
+## 手动选择 LoRA 风格
+
+1. 打开“采样与 LoRA…”，在“风格类型”中选择动漫、写实、卡通、插画或像素。
+2. 再在“风格 LoRA”中选择具体模型。只选类型时仍是“不使用 LoRA”，不会自动加载第一项；更改提示词不改变选择。
+3. 查看下方的适用模型、推荐强度和触发词，按需调整强度。主动选择模型后，会写入对应触发词 / 风格短语；不调用语言模型分析或推荐 LoRA。
+4. 单张图片使用该 LoRA；文字动画只在第一张角色图使用，之后由 Wan 延续外观。参考图 Wan 动画及旧版骨骼方式不使用此 SDXL 风格选择，控件会禁用并说明。
+
+当前 10 款模型均为 SDXL 风格模型，[完整列表与来源](LORA_MODELS.md)。自定义单基础模型模板也支持选择 LoRA；模板中原有 LoRA 会保留并叠加，可在高级编辑器调整。其他本地 LoRA 以“未分类”显示，需自行核对基础模型。风格 LoRA 不等同于人物身份模型，不保证肢体、数量、构图或所有提示词都准确。
+
+要改变参考动画的画风，可先选“单张图片”，导入参考并手选 LoRA，生成后检查结果，再点“继续创作”把结果作为走路动画参考。Wan 延续确认后的画风，避免把 SDXL LoRA 混接到视频模型。
+
+## 图片锯齿与高清修复
+
+- 原图窗口默认启用“平滑缩放”，放大与缩小时都使用平滑变换；查看像素画可关闭。高分屏预览按实际像素缩放，原始文件不因预览变化而改写。
+- 标准生成会在透明轮廓的一像素邻域平滑 Alpha，内部 RGB 与不透明区域保留；导入 PNG 的原有 Alpha 不重算，像素 LoRA 不加轮廓平滑。
+- “模型与画面… → 画质优化”可手动选择“动漫高清修复”或“写实高清修复”。它们调用本地超分模型再回到所选画布尺寸，会增加耗时；默认“标准平滑”不运行超分。动画只处理选出的 8 / 16 帧，沿用主任务的进度、取消和缓存逻辑。
+- PNG / 精灵图保留半透明边缘。GIF 只支持二值透明，仍可能看到阶梯边缘；游戏资源优先使用 PNG 序列 / 精灵图。高清修复改善线条，不能修复已经生成的多余肢体或错误构图。
+
 ## 查看图片与输出面板
 
 - 消息记录、任务队列和运行日志合并在底部“输出面板”，默认隐藏。点击右下角“输出面板”或按 **Ctrl+J** 展开 / 收起；面板右上角的关闭按钮也可收起。新消息不会自动展开面板，当前进度仍在底部显示。
@@ -104,6 +124,10 @@ FrameRonin 的[公开人物动作前端](https://github.com/systemchester/FrameR
 & .\.venv\Scripts\python.exe -m tests.live_settings_cache
 & .\.venv\Scripts\python.exe -m tests.live_animation_preview
 & .\.venv\Scripts\python.exe -m tests.live_preview_controls
+& .\.venv\Scripts\python.exe -m tests.live_style_controls
+& .\.venv\Scripts\python.exe -m tests.live_style_models
+& .\.venv\Scripts\python.exe -m tests.live_style_image
+& .\.venv\Scripts\python.exe -m tests.live_quality_models
 & .\.venv\Scripts\python.exe -m tests.live_foreground '原始 RGB 帧.png' --opaque '白色主体像素的x,y'
 & .\.venv\Scripts\python.exe -m tests.live_nonhuman_image '你的卡通参考图.png'
 & .\.venv\Scripts\python.exe -m tests.live_temporal_walk --reference '你的卡通参考图.png'

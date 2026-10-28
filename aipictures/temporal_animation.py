@@ -22,7 +22,7 @@ VAE = 'wan_2.1_vae.safetensors'
 VIDEO_SIZE = (576, 768)
 
 
-def initial_character_workflow(prompt, negative, checkpoint, seed, steps=20):
+def initial_character_workflow(prompt, negative, checkpoint, seed, steps=20,lora='',lora_strength=.8,quality_mode='off'):
     from .prompt_text import negative_text
     description=parse_intent(prompt); intent=walk_intent(prompt)
     if not description.english.strip(): raise ValueError('请描述角色外观，例如：黄色卡通小恐龙，白色肚皮，大眼睛，全身，侧视。')
@@ -47,8 +47,12 @@ def initial_character_workflow(prompt, negative, checkpoint, seed, steps=20):
     positive=f'(full side profile:1.35), facing {intent.direction}, '+positive
     positive+=', one visible eye, plain light gray background, '+appearance
     extra_negative+=', front view, three quarter view, looking at viewer'
-    request=ImageRequest(checkpoint,positive,negative_text(negative)[0]+extra_negative,768,1024,max(20,steps),6.0,seed,'dpmpp_2m','karras')
-    return build_workflow(request)
+    from .lora_catalog import style_prompt,validate_selection
+    from .image_quality import append_quality
+    validate_selection(lora,checkpoint); positive,_=style_prompt(positive,lora)
+    request=ImageRequest(checkpoint,positive,negative_text(negative)[0]+extra_negative,768,1024,max(20,steps),6.0,seed,'dpmpp_2m','karras',lora,lora_strength)
+    graph=build_workflow(request); append_quality(graph,quality_mode,768,1024)
+    return graph
 
 
 def animation_prompt(description):
@@ -179,7 +183,7 @@ def stabilize_frames(images):
     return output,{'shared_scale':scale,'translation':offsets,'ground_y':978,'method':'whole_frame_only'}
 
 
-def finish_sequence(folder,result,manifest,emit,cancel):
+def finish_sequence(folder,result,manifest,emit,cancel,enhance=None):
     """CPU-only transparent exports from saved native frames; no new GPU submission."""
     folder=Path(folder); count=manifest['frame_count']; fps=manifest['fps']
     def checked():
@@ -194,12 +198,22 @@ def finish_sequence(folder,result,manifest,emit,cancel):
         with Image.open(path) as image: thumbnails.append(image.resize((48,64)).convert('RGBA'))
     indices,manifest['loop_selection']=loop_indices(thumbnails,count)
     manifest['loop_selection']['measurement']='native_rgb_thumbnails_before_matting'
+    selected=[result['images'][index] for index in indices]
+    if enhance:
+        quality=enhance(selected)
+        manifest['quality']={'mode':manifest.get('quality_mode'),'images':quality['images'],
+            'prompt_id':quality['prompt_id'],'source_indices':indices}
+        selected=quality['images']
+    elif manifest.get('quality'):
+        quality=manifest['quality']
+        if quality['source_indices']!=indices or any(not Path(path).is_file() for path in quality['images']):
+            raise ValueError('缓存中的高清帧不匹配或已缺失，请重新生成；现有导出未修改。')
+        selected=quality['images']
     mattes=[]
     try:
-        for i,index in enumerate(indices):
-            path=result['images'][index]
+        for i,path in enumerate(selected):
             checked(); emit('reference_stage',{'message':f'处理动画帧透明背景 {i+1}/{count}…'})
-            with Image.open(path) as image: matte=foreground_rgba(image,cancel)
+            with Image.open(path) as image: matte=foreground_rgba(image,cancel,manifest.get('edge_smoothing',True))
             mattes.append(clean_foreground(matte))
             emit('matte_progress',{'value':i+1,'max':count})
             if (i+1)%4==0: release_session()
@@ -223,7 +237,7 @@ def finish_sequence(folder,result,manifest,emit,cancel):
 
 
 def generate_temporal(client, folder, prompt, negative, seed, count, fps, emit, cancel,
-                      reference=None, checkpoint='', steps=20):
+                      reference=None, checkpoint='', steps=20,lora='',lora_strength=.8,quality_mode='off'):
     folder = Path(folder)
     if count not in (8,16) or not 1 <= fps <= 30: raise ValueError('请选 8 / 16 帧，帧率 1–30。')
     intent = walk_intent(prompt)
@@ -234,6 +248,9 @@ def generate_temporal(client, folder, prompt, negative, seed, count, fps, emit, 
         'intent':intent_data,'reference':str(reference) if reference else None,
         'method':'wan22_14b_temporal_generation','frames':[],
         'notes':'整段连续 AI 推理，不使用人体分层或逐帧复制肢体。透明遮罩由本地分割模型计算。'}
+    from .lora_catalog import entry_for
+    manifest.update(character_lora=lora if not reference else '',quality_mode=quality_mode,
+        edge_smoothing=(entry_for(lora) or {}).get('quality')!='pixel' if not reference else True)
     save = lambda: write_json(folder/'sequence.json',manifest)
     save()
     def checked():
@@ -243,12 +260,12 @@ def generate_temporal(client, folder, prompt, negative, seed, count, fps, emit, 
         release_session()
         if not reference:
             emit('reference_stage',{'message':'先按文字描述生成角色参考图…'})
-            graph = initial_character_workflow(prompt,negative,checkpoint,seed,steps)
+            graph = initial_character_workflow(prompt,negative,checkpoint,seed,steps,lora,lora_strength,quality_mode)
             base = folder/'character'; base.mkdir(exist_ok=True)
             write_json(base/'workflow.json',graph)
             result = client.generate(graph,base,lambda k,d:emit('character_event',{'event':k,'data':d}),cancel)
             manifest['character_cache_release']=release_idle_models(client)
-            result = process_result(result,base,emit,cancel); write_json(base/'result.json',result)
+            result = process_result(result,base,emit,cancel,manifest['edge_smoothing']); write_json(base/'result.json',result)
             reference = result['images'][0]; manifest['character_prompt_id']=result['prompt_id']
         checked(); emit('reference_stage',{'message':'准备参考主体；人物、卡通双足角色均不依赖人体关节识别…'})
         source = folder/'reference_rgb.png'
@@ -268,7 +285,12 @@ def generate_temporal(client, folder, prompt, negative, seed, count, fps, emit, 
         write_json(video/'result.json',result); checked()
         emit('reference_stage',{'message':'连续推理完成，准备处理透明帧…'})
         manifest['video_cache_release']=release_idle_models(client)
-        return finish_sequence(folder,result,manifest,emit,cancel)
+        def enhance(paths):
+            from .image_quality import enhance_frames
+            enhanced=enhance_frames(client,paths,folder/'quality',quality_mode,emit,cancel)
+            manifest['quality_cache_release']=release_idle_models(client)
+            return enhanced
+        return finish_sequence(folder,result,manifest,emit,cancel,enhance if quality_mode in ('anime','general') else None)
     except Exception as exc:
         manifest['status']='cancelled' if isinstance(exc,Cancelled) else 'failed'; manifest['error']=str(exc); save(); raise
     finally: release_session()

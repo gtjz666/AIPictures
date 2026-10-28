@@ -3,7 +3,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (QDialog, QGraphicsView, QGraphicsScene, QVBoxLayout,
-    QHBoxLayout, QPushButton, QLabel)
+    QHBoxLayout, QPushButton, QLabel, QCheckBox)
 
 
 class ImageView(QGraphicsView):
@@ -14,6 +14,7 @@ class ImageView(QGraphicsView):
         self.setScene(QGraphicsScene(self))
         self.item = None
         self.fit_mode = True
+        self.smooth=True
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         tile = QPixmap(32, 32); tile.fill(QColor('#f7f8fa'))
@@ -26,6 +27,7 @@ class ImageView(QGraphicsView):
     def load(self, pixmap):
         self.scene().clear()
         self.item = self.scene().addPixmap(pixmap)
+        self.item.setTransformationMode(Qt.TransformationMode.SmoothTransformation if self.smooth else Qt.TransformationMode.FastTransformation)
         self.setSceneRect(self.item.boundingRect())
         self.fit_mode = True
         QTimer.singleShot(0, self.fit_image)
@@ -53,8 +55,14 @@ class ImageView(QGraphicsView):
 
     def _updated(self):
         scale = self.transform().m11()
-        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, scale < 1)
+        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform,self.smooth)
         self.zoom_changed.emit(scale)
+
+    def set_smooth(self,enabled):
+        self.smooth=enabled
+        if self.item is not None:
+            self.item.setTransformationMode(Qt.TransformationMode.SmoothTransformation if enabled else Qt.TransformationMode.FastTransformation)
+        self._updated()
 
     def wheelEvent(self, event):
         if event.angleDelta().y():
@@ -84,6 +92,9 @@ class ImageViewer(QDialog):
         self.zoom_in = QPushButton('＋'); self.zoom_in.clicked.connect(lambda: self.view.zoom(1.25))
         self.original = QPushButton('100%'); self.original.clicked.connect(self.view.original_size)
         self.fit = QPushButton('适应窗口'); self.fit.clicked.connect(self.view.fit_image)
+        self.smoothing=QCheckBox('平滑缩放'); self.smoothing.setChecked(True)
+        self.smoothing.setToolTip('关闭后按原像素显示，适合检查像素画。')
+        self.smoothing.toggled.connect(self.view.set_smooth); controls.addWidget(self.smoothing)
         close = QPushButton('关闭'); close.clicked.connect(self.close)
         for button in (self.zoom_out, self.zoom_in, self.original, self.fit, close):
             button.setAutoDefault(False); controls.addWidget(button)
