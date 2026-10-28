@@ -13,6 +13,16 @@ class Cancelled(Exception):
     pass
 
 
+class EngineUnavailable(ConnectionError):
+    """The local server is absent; resubmitting an existing job is never safe."""
+    def __init__(self, url):
+        super().__init__(f'本地生成引擎已断开（{url}）。请点击“启动本地引擎”，或启动 ComfyUI 后重新连接。当前任务不会自动重跑。')
+
+
+def is_engine_unavailable(error):
+    return isinstance(error, EngineUnavailable) or '本地生成引擎已断开' in str(error)
+
+
 class ComfyClient:
     def __init__(self, url='http://127.0.0.1:8188'):
         self.url = url.rstrip('/')
@@ -29,6 +39,10 @@ class ComfyClient:
                 result = response.read()
         except HTTPError as error:
             raise RuntimeError(error.read().decode('utf-8', 'replace')) from error
+        except (URLError, ConnectionError, OSError) as error:
+            reason = getattr(error, 'reason', error)
+            if isinstance(reason, TimeoutError): raise
+            raise EngineUnavailable(self.url) from error
         return result if raw else (json.loads(result) if result.strip() else {})
 
     def discover(self):
@@ -52,8 +66,14 @@ class ComfyClient:
         parts.extend([path.read_bytes(), f'\r\n--{boundary}--\r\n'.encode()])
         req = Request(self.url + '/upload/image', data=b''.join(parts),
                       headers={'Content-Type': 'multipart/form-data; boundary=' + boundary})
-        with self.http.open(req, timeout=30) as response:
-            result = json.loads(response.read())
+        try:
+            with self.http.open(req, timeout=30) as response:
+                result = json.loads(response.read())
+        except HTTPError as error:
+            raise RuntimeError(error.read().decode('utf-8', 'replace')) from error
+        except (URLError, ConnectionError, OSError) as error:
+            if isinstance(getattr(error,'reason',error),TimeoutError): raise
+            raise EngineUnavailable(self.url) from error
         return str(PurePosixPath(result.get('subfolder', '')) / result['name'])
 
     def cancel(self, prompt_id):
@@ -65,8 +85,11 @@ class ComfyClient:
 
     def generate(self, graph, folder, emit, cancel, submitted=lambda _: None, timeout=1800):
         client_id = uuid.uuid4().hex
-        ws = websocket.create_connection(self.url.replace('http:', 'ws:', 1) + '/ws?clientId=' + client_id,
-                                         timeout=1, http_proxy_host=None)
+        try:
+            ws = websocket.create_connection(self.url.replace('http:', 'ws:', 1) + '/ws?clientId=' + client_id,
+                                             timeout=3, http_proxy_host=None)
+        except (ConnectionError, OSError) as error:
+            raise EngineUnavailable(self.url) from error
         prompt_id = None
         try:
             if cancel.is_set():
@@ -81,20 +104,28 @@ class ComfyClient:
                     self.cancel(prompt_id)
                     raise Cancelled('任务已取消')
                 try:
-                    message = ws.recv()
+                    message = ws.recv() if ws is not None else None
                     if isinstance(message, str):
                         event = json.loads(message)
                         data = event.get('data', {})
                         if data.get('prompt_id') == prompt_id:
                             emit(event['type'], data)
-                            if event['type'] in ('execution_error', 'execution_interrupted'):
+                            if event['type']=='execution_interrupted':
+                                raise Cancelled('本任务已中断，已收到的结果保留。')
+                            if event['type']=='execution_error':
                                 raise RuntimeError(data.get('exception_message', '执行中断'))
                 except websocket.WebSocketTimeoutException:
                     pass
+                except (websocket.WebSocketConnectionClosedException, ConnectionError, OSError):
+                    ws.close(); ws = None
+                    emit('monitor_waiting', {'prompt_id':prompt_id,'message':'进度连接中断，正在通过任务记录继续检查。'})
+                if ws is None and cancel.wait(1): continue
                 if time.monotonic() - checked >= 1:
                     checked = time.monotonic()
                     try:
                         history = self.request('/history/' + prompt_id).get(prompt_id)
+                    except EngineUnavailable:
+                        raise
                     except (TimeoutError, URLError) as error:
                         emit('monitor_waiting', {'prompt_id': prompt_id, 'message': str(error)})
                         continue
@@ -120,4 +151,4 @@ class ComfyClient:
                         return {'prompt_id': prompt_id, 'images': images, 'latents':latents, 'history': history}
             raise TimeoutError(f'等待超过 {timeout} 秒；ComfyUI 任务可能仍在执行，任务 ID：{prompt_id}')
         finally:
-            ws.close()
+            if ws is not None: ws.close()

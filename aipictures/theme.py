@@ -18,6 +18,7 @@ QLineEdit,QTextEdit,QPlainTextEdit,QComboBox,QSpinBox,QDoubleSpinBox,QListWidget
     selection-background-color:#e4e7ec; selection-color:#17181a;
 }
 QTextEdit:focus,QPlainTextEdit:focus,QLineEdit:focus,QComboBox:focus,QSpinBox:focus,QDoubleSpinBox:focus { border:1px solid #969ba5; }
+QComboBox:hover,QSpinBox:hover,QDoubleSpinBox:hover { border:1px solid #b8bcc4; }
 QComboBox::drop-down { border:0; width:22px; }
 QComboBox QAbstractItemView { background:#ffffff; color:#242528; selection-background-color:#eceef1; selection-color:#17181a; }
 QTextBrowser { background:#fafafa; border:1px solid #ebebed; border-radius:12px; padding:8px; }
@@ -45,7 +46,7 @@ QScrollBar::handle:vertical { background:#d3d6dc; border-radius:4px; min-height:
 QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical { height:0; }
 QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical { background:transparent; }
 QSplitter::handle { background:#ffffff; width:3px; }
-QToolTip { background:#ffffff; color:#282b30; border:1px solid #d9dce1; padding:5px; }
+QToolTip { background:#ffffff; color:#40434a; border:1px solid #dedfe3; border-radius:6px; padding:8px; font-size:12px; }
 '''
 
 

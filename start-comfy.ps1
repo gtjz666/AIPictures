@@ -10,7 +10,15 @@ try {
     exit 0
 } catch {}
 if (-not (Test-Path -LiteralPath $pythonExe)) { throw 'ComfyUI Python not found. Edit comfyRoot in this file.' }
-$launchArgs = @('main.py', '--listen', '127.0.0.1', '--port', '8188')
+$logStamp = Get-Date -Format 'yyyyMMdd_HHmmss_fff'
+foreach ($logName in @('comfy-output.log', 'comfy-error.log')) {
+    $existingLog = Join-Path $logRoot $logName
+    if (Test-Path -LiteralPath $existingLog) {
+        Copy-Item -LiteralPath $existingLog -Destination (Join-Path $logRoot ($logStamp + '-' + $logName))
+    }
+}
+# Drop disposable node caches under RAM pressure; does not change model precision or sampling.
+$launchArgs = @('main.py', '--listen', '127.0.0.1', '--port', '8188', '--cache-ram', '4')
 if (Test-Path -LiteralPath $modelConfig) { $launchArgs += @('--extra-model-paths-config', ('"' + $modelConfig + '"')) }
 Start-Process -FilePath $pythonExe -ArgumentList $launchArgs -WorkingDirectory $comfyRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logRoot 'comfy-output.log') -RedirectStandardError (Join-Path $logRoot 'comfy-error.log')
 Write-Host 'ComfyUI is starting. Initial model imports may take several minutes. Open run.bat and click Connect when ready.'

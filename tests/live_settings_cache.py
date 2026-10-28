@@ -49,6 +49,7 @@ def tick():
         window.settings_dialogs['creation'].grab().save(str(DATA/'floating-generation-settings.png'))
         window.settings_dialogs['creation'].close()
         window.generation_type.setCurrentIndex(0); window.apply_character(route='baseline')
+        window.reference_policy.setCurrentIndex(window.reference_policy.findData('redraw'))
         window.negative.setPlainText('watermark, extra fingers, blurry')
         window.positive.setPlainText('全身，侧视')
         graph,params=window.graph_snapshot('__reference__')

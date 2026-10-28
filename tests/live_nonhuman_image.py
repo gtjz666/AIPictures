@@ -17,6 +17,7 @@ def tick():
     if state['stage']=='connect' and window.connected:
         window.timer.stop(); window.apply_character(route='baseline'); window.set_reference(reference)
         window.generation_type.setCurrentIndex(0)
+        window.reference_policy.setCurrentIndex(window.reference_policy.findData('redraw'))
         window.positive.setPlainText('参考图中的同一角色，自然站立，侧视，全身，保持一致')
         window.negative.setPlainText('多余手臂，多余腿部，颜色缺失，模糊，水印，文字')
         window.steps.setValue(20); window.seed.setText('20261027'); window.generate_button.click()

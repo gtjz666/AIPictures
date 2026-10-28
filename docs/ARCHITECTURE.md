@@ -6,6 +6,9 @@
 
 - `aipictures/app.py`：Qt 窗口、后台 QThread、串行本地队列和事件消费。网络和推理等待不阻塞主线程。
 - `aipictures/engine.py`：本地 ComfyUI REST / WebSocket 适配器。模型发现、执行、进度、按任务取消、历史和文件下载。HTTP 超时 20 秒，单任务等待上限 30 分钟。
+- `aipictures/engine_service.py`：复用已有 Windows 启动脚本，后台启动本机 8188 服务并等待就绪；启动输出写文件，不使用可能被后台子进程继承而无限等待 EOF 的 PIPE。共享空闲推理缓存释放供单图和动画在 CPU 分割前调用，有其他引擎任务则跳过。连接不可用统一为可操作的 EngineUnavailable；窗口禁用生成、暂停未开始队列，重连后继续。已提交任务不自动重跑；单独 WebSocket 断线降级为相同 prompt_id 的 HTTP 记录查询。
+- `aipictures/reference_fidelity.py`：显式保真策略与低重绘上限。参考图外观优先于外观提示词；保真单图确保有源图潜空间，IP-Adapter 身份条件不能代替图生图潜空间。暂停应用本软件风格 LoRA 与超分，作者预设自带风格 / 姿态约束时明确提示选择其他策略，原文件不变。连续动画保留图像条件和朝向，补充纹样、配饰等约束，不宣称精确像素一致。
+- `aipictures/ui_hints.py`：静态悬浮说明和下拉选项区别，不运行模型分析、不自动改变用户选择。
 - `aipictures/workflow.py`：可序列化 ImageRequest 和 SDXL 工作流构建，LoRA 的 model/clip 与 VAE 独立连接。
 - `aipictures/lora_catalog.py` / `resources/lora_catalog.json`：静态人工登记的风格标签、SDXL 兼容性、强度、触发词与固定版本下载信息。类型筛选只改列表，具体 LoRA 由用户手选，提示词不参与选择。独立的标记层接入 checkpoint 的 model / clip 输出，覆盖 IP-Adapter 上游；重复绑定替换本软件的层，保留作者原有层及 VAE。
 - `aipictures/image_quality.py`：轮廓 Alpha 的轻量平滑，以及显式可选的 Real-ESRGAN 工作流。标准模式不加载超分模型。连续动画先选帧、释放 Wan 缓存，再提交独立高清任务；按 SaveImage 节点 ID 重排返回帧，随后统一抠图和稳定。缓存清理包含高清中间文件，原始连续帧保留。

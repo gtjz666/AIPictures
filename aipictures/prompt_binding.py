@@ -75,7 +75,7 @@ def add_image_input(graph, name, width, height, strength):
     latent = sampler['inputs'].get('latent_image')
     if not is_link(latent) or graph[str(latent[0])]['class_type'] != 'EmptyLatentImage':
         raise ValueError('此工作流没有可自动转换的空白画布，无法安全添加参考图。')
-    decoders = [node for node in graph.values() if node['class_type'] == 'VAEDecode']
+    decoders = [node for node in graph.values() if node['class_type'] in ('VAEDecode','VAEDecodeTiled')]
     if len(decoders) != 1:
         raise ValueError('此工作流有多组图像解码节点，无法确定参考图使用的 VAE。')
     start = max([int(key) for key in graph if key.isdigit()] + [0]) + 1
@@ -90,7 +90,7 @@ def add_image_input(graph, name, width, height, strength):
     return load
 
 
-def bind_request(template, request, reference='', denoise=.6):
+def bind_request(template, request, reference='', denoise=.6, preserve_reference=False):
     graph = deepcopy(template)
     mapping = bindings(graph)
     for key, field in mapping['positive']: graph[key]['inputs'][field] = request.positive
@@ -104,12 +104,27 @@ def bind_request(template, request, reference='', denoise=.6):
         if node['class_type'] in ('EmptyLatentImage', 'ImageScale'):
             node['inputs'].update(width=request.width, height=request.height)
     if reference:
+        if preserve_reference:
+            from .reference_fidelity import effective_denoise
+            denoise=effective_denoise(denoise,True)
+            if any(node['class_type'].startswith('ControlNetApply') for node in graph.values()):
+                raise ValueError('当前工作流带独立姿态控制。优先保留细节请使用自动工作流；改变姿态请选“允许按描述重绘”。')
+            if any((node['class_type'].startswith('LoraLoader') and not node.get('_meta',{}).get('aipictures_lora'))
+                   or node['class_type']=='ImageUpscaleWithModel' for node in graph.values()):
+                raise ValueError('当前预设自带风格 LoRA 或高清重画。优先保留细节请使用自动工作流，或切换“允许按描述重绘”。')
         if not mapping['reference']:
             mapping['reference'] = [add_image_input(graph, reference, request.width, request.height, denoise)]
         else:
             graph[mapping['reference'][0]]['inputs']['image'] = reference
             if image_sources(graph, sampler.get('latent_image')):
                 sampler['denoise'] = denoise
+                if preserve_reference:
+                    for key in image_sources(graph,sampler['latent_image']):
+                        graph[key]['inputs']['image']=reference
+                        if key not in mapping['reference']: mapping['reference'].append(key)
+            elif preserve_reference:
+                # IP-Adapter alone supplies identity embeddings, not source image latents.
+                mapping['reference'].append(add_image_input(graph,reference,request.width,request.height,denoise))
     from .lora_catalog import bind_lora
     bind_lora(graph,request.lora,request.lora_strength,request.checkpoint)
     return graph, mapping

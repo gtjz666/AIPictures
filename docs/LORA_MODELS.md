@@ -30,6 +30,8 @@
 - 单基础模型模板中，所选 LoRA 接在 checkpoint 的 model / clip 输出，位于 IP-Adapter 上游，VAE 保持原连接。作者原有 LoRA 不覆盖；选择项会叠加，界面有提示。多基础模型需在高级编辑器配置。
 - 未登记的本地 LoRA 标为“未分类”；不依据文件名或提示词猜测其风格。
 
+有参考图并使用“优先保留细节”时，单图也暂停应用风格 LoRA 和高清重画；原手选项保留。要改变参考图风格，请在“模型与画面…”明确切换“允许按描述重绘”。
+
 ## 高清修复与文件位置
 
 LoRA：`D:\Local Comfy\ComfyUI\models\loras\AIPictures`。另安装官方 [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) 的 RealESRGAN_x4plus_anime_6B（约 17.9MB）及 RealESRGAN_x2plus（约 67.1MB），位于同一 models 下的 upscale_models。两者在“模型与画面 → 画质优化”手动启用；默认标准平滑只处理预览与透明边缘，不运行超分。

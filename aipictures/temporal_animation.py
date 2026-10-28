@@ -9,6 +9,7 @@ from PIL import Image
 from .action_intent import walk_intent, parse_intent, appearance_description
 from .background import foreground_rgba, process_result, release_session, MODEL as MATTE_MODEL
 from .engine import Cancelled
+from .engine_service import release_idle_models
 from .reference_analysis import clean_foreground, opaque_reference
 from .storage import write_json
 from .walk_cycle import SIZE, export_sequence
@@ -55,19 +56,23 @@ def initial_character_workflow(prompt, negative, checkpoint, seed, steps=20,lora
     return graph
 
 
-def animation_prompt(description):
+def animation_prompt(description,preserve_reference=False):
     intent = walk_intent(description)
-    direction = '面朝'+('左' if intent.direction == 'left' else '右')+'方' if intent.direction_explicit else '保持参考图朝向'
+    direction = '面朝'+('左' if intent.direction == 'left' else '右')+'方' if intent.direction_explicit and not preserve_reference else '保持参考图朝向'
     # Appearance prose may describe the standing input; the selected action is authoritative.
-    text = (f'固定镜头，全身侧视，一个角色{direction}原地走路，完成自然的行走周期。'
+    view='保持参考图视角，全身' if preserve_reference else '全身侧视'
+    text = (f'固定镜头，{view}，一个角色{direction}原地走路，完成自然的行走周期。'
         '左右腿交替迈步，前肢随步伐自然摆动，保持原图的肢体形状和数量。脚掌交替抬起与落地。'
         '保持参考图中主体的物种、身份、脸部、发型、服饰、颜色、身体比例和绘画风格。'
         '完整主体和脚部始终在画面内，位置和大小稳定，背景为简单浅灰色。')
     if intent.pace == 'slow': text += '缓慢行走，小步幅。'
     elif intent.pace == 'fast': text += '较快行走，自然步幅。'
-    appearance=appearance_description(description)
+    if preserve_reference:
+        text+='参考图是外观的唯一依据，仅改变走路所需的肢体姿态；保留原有眼睛、五官、发丝、衣物纹样、配件、鞋面细节、线条和明暗，不添加新装饰，不重新设计角色。'
+    appearance=appearance_description(description) if not preserve_reference else ''
     if appearance: text += '\n外观和细节补充：' + appearance
-    text += '\nFull body side view, the same single character walking in place, alternating steps, fixed camera, consistent appearance.'
+    text += ('\nFull body, same viewpoint as reference, ' if preserve_reference else '\nFull body side view, ')+\
+        'the same single character walking in place, alternating steps, fixed camera, consistent appearance.'
     return text
 
 
@@ -114,21 +119,10 @@ def check_video_models(info):
             raise ValueError('连续动画缺少模型：' + filename + '。安装后点击“连接 / 刷新模型”。')
 
 
-def release_idle_models(client):
-    """Drop disposable inference caches before CPU matting; respect other queued jobs."""
-    try:
-        queue=client.request('/queue')
-        if queue.get('queue_running') or queue.get('queue_pending'):
-            return {'released':False,'reason':'engine_busy'}
-        client.request('/free',{'unload_models':True,'free_memory':True})
-        return {'released':True}
-    except Exception as exc:
-        return {'released':False,'reason':str(exc)}
-
-
-def prepare_subject(reference, target, cancel):
+def prepare_subject(reference, target, cancel, preserve_reference=False):
     """Single subject matte; no assumptions about human joints, sleeves, hair, or species."""
-    with Image.open(reference) as image: rgba = clean_foreground(foreground_rgba(image, cancel))
+    with Image.open(reference) as image: rgba = foreground_rgba(image, cancel)
+    if not preserve_reference: rgba=clean_foreground(rgba)
     box = rgba.getchannel('A').point(lambda value: 255 if value > 24 else 0).getbbox()
     subject = rgba.crop(box)
     scale = min(900 / subject.height, 600 / subject.width)
@@ -138,7 +132,9 @@ def prepare_subject(reference, target, cancel):
     canvas.save(target.parent / 'reference_rgba.png')
     opaque_reference(canvas).resize(VIDEO_SIZE, Image.Resampling.LANCZOS).save(target)
     return {'source_bbox':list(box),'source_size':list(rgba.size),'scale':scale,
-        'method':'foreground_only_no_human_pose','source_sha256':digest(reference)}
+        'method':'foreground_only_no_human_pose','source_sha256':digest(reference),
+        'preserve_source_colors':True,'preserve_imported_alpha':preserve_reference,
+        'conditioning_size':list(VIDEO_SIZE)}
 
 
 def loop_indices(images, count):
@@ -237,16 +233,18 @@ def finish_sequence(folder,result,manifest,emit,cancel,enhance=None):
 
 
 def generate_temporal(client, folder, prompt, negative, seed, count, fps, emit, cancel,
-                      reference=None, checkpoint='', steps=20,lora='',lora_strength=.8,quality_mode='off'):
+                      reference=None, checkpoint='', steps=20,lora='',lora_strength=.8,quality_mode='off',preserve_reference=True):
     folder = Path(folder)
     if count not in (8,16) or not 1 <= fps <= 30: raise ValueError('请选 8 / 16 帧，帧率 1–30。')
+    preserve_reference=bool(reference) and preserve_reference
+    if preserve_reference: quality_mode='off'
     intent = walk_intent(prompt)
     intent_data=intent.to_dict()
-    if not intent.direction_explicit: intent_data['direction']='reference'
+    if not intent.direction_explicit or preserve_reference: intent_data['direction']='reference'
     manifest = {'schema_version':3,'kind':'walk','status':'preparing','fps':fps,'frame_count':count,
         'canvas':list(SIZE),'ground_y':978,'seed':seed,'user_prompt':prompt,'negative':negative,
         'intent':intent_data,'reference':str(reference) if reference else None,
-        'method':'wan22_14b_temporal_generation','frames':[],
+        'method':'wan22_14b_temporal_generation','frames':[],'preserve_reference':preserve_reference,
         'notes':'整段连续 AI 推理，不使用人体分层或逐帧复制肢体。透明遮罩由本地分割模型计算。'}
     from .lora_catalog import entry_for
     manifest.update(character_lora=lora if not reference else '',quality_mode=quality_mode,
@@ -258,6 +256,7 @@ def generate_temporal(client, folder, prompt, negative, seed, count, fps, emit, 
     try:
         checked()
         release_session()
+        manifest['initial_cache_release']=release_idle_models(client)
         if not reference:
             emit('reference_stage',{'message':'先按文字描述生成角色参考图…'})
             graph = initial_character_workflow(prompt,negative,checkpoint,seed,steps,lora,lora_strength,quality_mode)
@@ -269,14 +268,18 @@ def generate_temporal(client, folder, prompt, negative, seed, count, fps, emit, 
             reference = result['images'][0]; manifest['character_prompt_id']=result['prompt_id']
         checked(); emit('reference_stage',{'message':'准备参考主体；人物、卡通双足角色均不依赖人体关节识别…'})
         source = folder/'reference_rgb.png'
-        manifest['reference_analysis'] = prepare_subject(reference,source,cancel)
+        manifest['reference_analysis'] = prepare_subject(reference,source,cancel,preserve_reference)
         manifest['reference_sha256'] = digest(reference)
         manifest['reference'] = str(reference)
         name = client.upload_image(source)
         release_session()
         # Two seconds at the model's native 16 FPS gives enough motion to select a loop.
         length = max(33, min(65, math.ceil(count / fps * 16 / 4) * 4 + 1))
-        graph = video_workflow(name,animation_prompt(prompt),negative,seed,steps,length)
+        actual_negative=negative
+        if preserve_reference:
+            actual_negative+='，改变物种，改变身份，改变五官，改变发型，改变服装，改变纹样，改变配饰，改变配色，细节丢失，重新设计角色'
+        manifest['effective_negative']=actual_negative
+        graph = video_workflow(name,animation_prompt(prompt,preserve_reference),actual_negative,seed,steps,length)
         video = folder/'video'; video.mkdir(exist_ok=True); write_json(video/'workflow.json',graph)
         manifest['status']='running'; manifest['source_frame_count']=length; save()
         emit('reference_stage',{'message':'Wan2.2 14B 整段连续推理，首次加载可能较慢…'})

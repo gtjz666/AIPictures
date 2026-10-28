@@ -10,7 +10,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QUrl
 from PySide6.QtGui import QPixmap, QImageReader
 from PySide6.QtWidgets import QApplication, QMainWindow, QSpinBox, QListWidgetItem, QFileDialog, QMessageBox
-from .engine import ComfyClient, Cancelled
+from .engine import ComfyClient, Cancelled, is_engine_unavailable
 from .workflow import ImageRequest, build_workflow
 from .storage import DATA, write_json, new_job
 from .workflow_editor import WorkflowEditor
@@ -63,6 +63,8 @@ class Window(QMainWindow):
         self.chat_messages = []
         self.template_restored = False
         self.connected = False
+        self.connecting = False
+        self.engine_starting = False
         self.character_profile = None
         self.character_loading = False
         self.cache_store=ResultCache(); self.cache_busy=False
@@ -108,11 +110,13 @@ class Window(QMainWindow):
     def update_lora_state(self):
         if not hasattr(self,'lora_details'): return
         walking=self.generation_type.currentData()=='walk'
-        enabled=not walking or (self.animation_engine.currentData()=='wan' and self.animation_source.currentData()=='text')
+        preserving=self.preserving_reference()
+        enabled=(not walking or (self.animation_engine.currentData()=='wan' and self.animation_source.currentData()=='text')) and not preserving
         self.lora.setEnabled(enabled); self.lora_category.setEnabled(enabled)
         self.strength.setEnabled(enabled and bool(self.lora.currentData()))
         if not enabled:
-            self.lora_details.setText('当前模式不使用 SDXL 风格 LoRA。文字动画可用于角色图；参考图动画沿用参考外观。\n如需改变参考画风，可先用单张 + LoRA 生成，再作为动画参考。')
+            self.lora_details.setText('优先保留参考图细节：不叠加风格 LoRA。已有选择保留，移除参考图或改为允许重绘后可继续使用。' if preserving else
+                '当前模式不使用 SDXL 风格 LoRA。文字动画可用于角色图；参考图动画沿用参考外观。\n如需改变参考画风，可先用单张 + LoRA 生成，再作为动画参考。')
             return
         entry=entry_for(self.lora.currentData())
         scope='文字动画：仅角色图生效，Wan 沿用角色外观。' if walking else '本次单图生效，自动接入当前工作流。'
@@ -126,18 +130,49 @@ class Window(QMainWindow):
         if self.custom_graph and any(n['class_type']=='LoraLoader' and not n.get('_meta',{}).get('aipictures_lora') for n in self.custom_graph.values()):
             self.lora_details.setText(self.lora_details.text()+'\n原工作流另有 LoRA，当前选择会叠加；可在高级编辑器调整原配置。')
 
+    def disconnect_engine(self, message):
+        self.connected=False
+        self.generate_button.setEnabled(False); self.workflow_selector.setEnabled(False)
+        self.connect_button.setEnabled(True)
+        self.gpu.setText('引擎未连接 · 可启动本地引擎后重试')
+        self.status.setText(message)
+        self.status.setToolTip(message)
+        for _,_,folder,item in self.pending: item.setText(folder.name+' · 等待重新连接')
+
+    def start_engine(self):
+        if self.current or self.preparing or self.connecting or self.engine_starting:
+            self.status.setText('请等待当前后台操作结束，再启动或重连。'); return
+        self.engine_starting=True
+        self.start_engine_button.setEnabled(False); self.reconnect_button.setEnabled(False)
+        self.connect_button.setEnabled(False)
+        from .engine_service import start_local_engine
+        def done(kind,data):
+            if kind=='starting': self.status.setText(data); return
+            self.engine_starting=False
+            self.start_engine_button.setEnabled(True); self.reconnect_button.setEnabled(True)
+            self.connect_button.setEnabled(True)
+            if kind=='error':
+                self.disconnect_engine(str(data)); self.log.append(str(data)); return
+            if kind=='result': self.connect_engine()
+        url=self.url.text().strip()
+        self.launch(lambda emit:start_local_engine(url,emit),done)
+
     def connect_engine(self):
-        if self.current or self.pending or self.preparing:
+        if self.current or self.preparing or self.connecting or self.engine_starting:
             self.log.append('请等待任务结束后更换连接。'); return
+        if self.pending and getattr(self,'client',None) and self.url.text().rstrip('/')!=self.client.url:
+            self.status.setText('队列尚有任务，请先清空队列再更换地址。'); return
         self.connected = False; self.generate_button.setEnabled(False); self.connect_button.setEnabled(False); self.workflow_selector.setEnabled(False)
         try: client = ComfyClient(self.url.text())
         except Exception as exc:
-            self.connect_button.setEnabled(True); self.log.append(str(exc)); return
+            self.disconnect_engine(str(exc)); self.log.append(str(exc)); return
+        self.connecting=True
         self.status.setText('正在检测 ComfyUI 和模型…')
         def done(kind, data):
+            self.connecting=False
             self.connect_button.setEnabled(True)
             if kind == 'error':
-                self.status.setText('连接失败：请启动 ComfyUI 后重试'); self.log.append(data); return
+                self.disconnect_engine('引擎未连接：请点击“启动 / 重连”。'); self.log.append(data); return
             if kind != 'result': return
             self.client = client; self.info = data; self.connected = True
             self.editor.set_node_info(data['object_info'])
@@ -168,8 +203,10 @@ class Window(QMainWindow):
                             self.activate_template(preset['graph'], preset['title'], preset.get('entry_id'),preserve_prompts=True)
                 except (OSError, ValueError, KeyError) as exc: self.log.append('未恢复上次工作流：' + str(exc))
             self.status.setText(f'已连接 · {len(data["checkpoints"])} 个 checkpoint · {len(data["loras"])} 个 LoRA')
+            self.status.setToolTip(self.status.text())
             write_json(DATA / 'settings.json', {'url': client.url}); self.refresh_stats()
             if self.tabs.currentIndex() == 1: self.editor.connect_url(client.url)
+            QTimer.singleShot(0,self.start_next)
         self.launch(lambda _: client.discover(), done)
 
     def refresh_stats(self):
@@ -177,6 +214,8 @@ class Window(QMainWindow):
         self.stats_busy = True
         def done(kind, data):
             self.stats_busy = False
+            if kind=='error' and is_engine_unavailable(data):
+                self.disconnect_engine('本地引擎已断开：请点击“启动 / 重连”。'); self.log.append(data); return
             if kind == 'result':
                 devices = data.get('devices', [])
                 if devices:
@@ -311,7 +350,7 @@ class Window(QMainWindow):
         self.steps.setEnabled(not temporal)
         self.sampler.setEnabled(not walking); self.scheduler.setEnabled(not walking)
         self.workflow_selector.setEnabled(not walking and self.connected and not self.preparing)
-        self.update_lora_state()
+        self.reference_policy_changed()
         title=(self.reference_display_name or Path(self.reference_path).name) if self.reference_path else (
             self.character_profile['title'] if self.character_profile else '导入参考图')
         if walking and self.animation_source.currentData()=='text': title='文字创建角色'
@@ -326,6 +365,28 @@ class Window(QMainWindow):
         self.update_prompt_defaults()
         self.update_intent_hint()
         self.update_sidebar_summary()
+
+    def preserving_reference(self):
+        walking=self.generation_type.currentData()=='walk'
+        return bool(self.reference_path) and (not walking or (self.animation_engine.currentData()=='wan' and self.animation_source.currentData()=='reference')) and self.reference_policy.currentData()=='preserve'
+
+    def reference_policy_changed(self,_index=None):
+        from .reference_fidelity import effective_denoise
+        preserving=self.preserving_reference()
+        walking=self.generation_type.currentData()=='walk'
+        legacy=walking and self.animation_engine.currentData()=='rig'
+        self.reference_policy.setEnabled(not legacy)
+        self.denoise.setMaximum(.25 if preserving else 1.)
+        if preserving: self.denoise.setValue(effective_denoise(self.denoise.value(),True))
+        self.denoise.setEnabled(not walking)
+        self.quality_mode.setEnabled(not preserving)
+        self.reference_note.setText(('外观以参考图为准；不叠加 LoRA 或高清重画。'+
+            ('只生成走路动作，细节仍可能变化。' if walking else '重绘最高 0.25；大幅改姿势请切换允许重绘。')) if preserving else
+            ('旧版骨骼使用网格变形；参考保真策略用于单图与 AI 连续动画。' if legacy else
+             ('允许按描述改变外观，可手动使用风格 LoRA 和高清修复。' if self.reference_path and (not walking or self.animation_source.currentData()=='reference') else
+              '添加参考图后生效；当前按文字描述生成。')))
+        self.update_lora_state()
+        self.update_intent_hint()
 
     def update_prompt_defaults(self,force=False):
         from .prompt_defaults import default_prompts
@@ -347,7 +408,7 @@ class Window(QMainWindow):
         labels = {'walk':'行走','reach':'向前伸手','stand':'站立','run':'奔跑','jump':'跳跃'}
         title = labels.get(intent.action,'未指定动作')
         text = ('已选择动画 · ' if walking else '动作识别 · ') + title
-        if walking and self.animation_engine.currentData()=='wan' and not intent.direction_explicit:
+        if walking and self.animation_engine.currentData()=='wan' and (not intent.direction_explicit or self.preserving_reference()):
             text += ' · 朝向沿用参考图'
         elif not walking and not intent.direction_explicit and not self.character_profile:
             text += ' · 朝向未指定'
@@ -355,7 +416,7 @@ class Window(QMainWindow):
         if intent.action in ('run','jump'): text += '\n此动作暂未提供骨骼周期。'
         elif intent.action == 'walk' and not walking: text += '\n当前只生成单张；连续动作请选人物行走动画帧。'
         if walking and self.animation_engine.currentData()=='wan':
-            text += ' · 中文描述直接送入动画工作流'
+            text += ' · 外观以参考图为准，文字仅补充步速' if self.preserving_reference() else ' · 中文描述直接送入动画工作流'
         elif intent.unmatched: text += '\n暂未识别：' + intent.unmatched
         self.intent_hint.setText(text)
 
@@ -492,6 +553,8 @@ class Window(QMainWindow):
                 self.editor.sync_inputs(graph)
 
     def graph_snapshot(self, reference_name=''):
+        from .reference_fidelity import reference_positive,PRESERVE_NEGATIVE,effective_denoise
+        preserving=bool(reference_name) and self.reference_policy.currentData()=='preserve'
         seed = int(self.seed.text())
         if seed == -1: seed = secrets.randbelow(2**53)
         if not 0 <= seed < 2**64: raise ValueError('种子范围为 0–2^64-1，或 -1 随机')
@@ -511,10 +574,14 @@ class Window(QMainWindow):
         pose_choices=object_info.get('ControlNetLoader',{}).get('input',{}).get('required',{}).get('control_net_name',[[]])[0]
         pose_model=(self.character_profile or {}).get('pose_requires','controlnet-openpose-sdxl-1.0-xinsir.safetensors')
         pose_available=pose_model in pose_choices
-        if self.character_profile and route=='pose' and not pose_available:
+        if self.character_profile and route=='pose' and not pose_available and not preserving:
             raise ValueError('骨骼约束需要模型：'+pose_model+'。可切换为参考重绘或 AI 连续动画。')
         adaptive_reference=bool(reference_name and (self.reference_character or (self.character_profile and self.character_profile.get('adaptive'))))
-        if adaptive_reference:
+        if preserving:
+            # Keep authored workflows intact on disk; constrain only this invocation.
+            r.positive=reference_positive(intent); r.negative+=', '+PRESERVE_NEGATIVE
+            r.lora=''; route='baseline'
+        elif adaptive_reference:
             from .reference_analysis import REFERENCE_POSITIVE
             r.positive=REFERENCE_POSITIVE+(', '+intent.english if intent.english else '')
             if intent.action in ('stand','reach','walk') and pose_available and 'DWPreprocessor' in getattr(self,'info',{}).get('nodes',[]):
@@ -556,23 +623,25 @@ class Window(QMainWindow):
         r.positive,lora_info=style_prompt(r.positive,r.lora)
         if any(v % 8 for v in (r.width, r.height)): raise ValueError('宽高需为 8 的倍数')
         graph = source_graph if source_graph is not None else build_workflow(r)
-        graph, mapping = bind_request(graph, r, reference_name, self.denoise.value())
+        denoise=effective_denoise(self.denoise.value(),preserving)
+        graph, mapping = bind_request(graph, r, reference_name, denoise, preserve_reference=preserving)
         from .image_quality import append_quality
-        quality=self.quality_mode.currentData()
+        quality='off' if preserving else self.quality_mode.currentData()
         append_quality(graph,quality,r.width,r.height)
         params = asdict(r)
-        params.update(mode='chat', user_prompt=user_prompt, template=self.active_title, bindings=mapping, denoise=self.denoise.value())
+        params.update(mode='chat', user_prompt=user_prompt, template=self.active_title, bindings=mapping, denoise=denoise,
+            reference_policy='preserve' if preserving else 'redraw')
         params['intent'] = intent.to_dict()
         params['lora_style']=lora_info
         params.update(quality_mode=quality,edge_smoothing=(entry_for(r.lora) or {}).get('quality')!='pixel')
         params.update(user_negative=raw_negative, negative_unmatched=negative_unmatched)
         if pose_unavailable: params['pose_fallback']='optional_pose_model_unavailable'
         if adaptive_action: params['adaptive_action']=adaptive_action
-        if self.character_profile and not adaptive_reference and intent.action in ('stand','reach','walk') and not pose_unavailable:
+        if self.character_profile and not adaptive_reference and intent.action in ('stand','reach','walk') and not pose_unavailable and not preserving:
             params['pose_upload'] = str(pose_path)
-        if self.character_profile and self.character_profile.get('adaptive'):
+        if self.character_profile and self.character_profile.get('adaptive') and not preserving:
             params['prepared_reference']=self.character_profile['analysis']['opaque']
-        if self.character_profile and intent.direction == 'left':
+        if self.character_profile and intent.direction == 'left' and not preserving:
             params['mirror_output'] = True
         if self.character_profile:
             params.update(character_id=self.character_profile['id'], rig_id='blue_side_right_v3',
@@ -611,7 +680,7 @@ class Window(QMainWindow):
             params['reference'] = str(reference) if reference else None
             fallback = '按角色基准生成' if self.character_profile else '使用这张参考图生成'
             self.add_chat('你', params['user_prompt'].strip() or fallback, str(reference) if reference else None)
-            if params['intent']['unmatched']:
+            if params['intent']['unmatched'] and params['reference_policy']!='preserve':
                 self.add_chat('软件','未识别的中文暂未写入模型提示词：'+params['intent']['unmatched'])
             if params['negative_unmatched']:
                 self.add_chat('软件','部分反向中文没有词表映射，已保留原文：'+params['negative_unmatched'])
@@ -631,6 +700,7 @@ class Window(QMainWindow):
                     if self.prepare_cancel.is_set():
                         self.status.setText('生成准备已取消'); self.add_chat('软件', '本次生成准备已取消。'); return
                     if kind == 'error':
+                        if is_engine_unavailable(data): self.disconnect_engine(str(data))
                         self.status.setText('参考图准备失败'); self.add_chat('软件', '参考图识别或上传失败：' + str(data)); return
                     if kind != 'result': return
                     if data.get('fallback_graph'):
@@ -713,7 +783,7 @@ class Window(QMainWindow):
         return folder
 
     def start_next(self):
-        if self.current or not self.pending: return
+        if self.current or not self.pending or not self.connected: return
         graph, params, folder, item = self.pending.pop(0)
         if params.get('mode') == 'walk':
             self.start_walk(params,folder,item); return
@@ -750,11 +820,15 @@ class Window(QMainWindow):
                 self.log.append(f'{folder.name} · {kind}' + (f'：{data}' if kind != 'result' else ' · 已自动保存'))
                 item.setText(folder.name + ' · ' + {'result':'完成','error':'失败','cancelled':'取消'}[kind])
                 self.status.setText({'result':'生成完成，已保存','error':'任务失败，详见日志','cancelled':'任务已取消'}[kind])
+                if kind=='error' and is_engine_unavailable(data): self.disconnect_engine(str(data))
                 self.progress.setRange(0, 100); self.progress.setValue(100 if kind == 'result' else 0)
                 self.current = None; self.connect_button.setEnabled(True); QTimer.singleShot(0, self.start_next)
         def generate(emit):
             from .background import process_result
+            from .engine_service import release_idle_models
             result=self.client.generate(graph,folder,emit,cancel)
+            result['inference_cache_release']=release_idle_models(self.client)
+            emit('postprocess',{'index':0,'count':len(result['images'])})
             return process_result(result,folder,emit,cancel,params.get('edge_smoothing',True))
         self.launch(generate, event)
 
@@ -774,7 +848,7 @@ class Window(QMainWindow):
             from .background import model_file
             from .image_quality import check_quality_models
             check_video_models(self.info['object_info'])
-            check_quality_models(self.info['object_info'],self.quality_mode.currentData())
+            check_quality_models(self.info['object_info'],'off' if self.preserving_reference() else self.quality_mode.currentData())
             if reference is None: validate_selection(self.lora.currentData() or '',self.model.currentText())
             if not model_file().is_file(): raise ValueError('透明动画需要本地去背景模型，请先运行 setup.bat。')
         else:
@@ -791,7 +865,8 @@ class Window(QMainWindow):
                   'fps':self.walk_fps.value(),'steps':self.animation_steps.value() if engine=='wan' else self.steps.value(),
                   'negative':self.negative.toPlainText(),
                   'lora':(self.lora.currentData() or '') if engine=='wan' and reference is None else '',
-                  'lora_strength':self.strength.value(),'quality_mode':self.quality_mode.currentData()}
+                  'lora_strength':self.strength.value(),'quality_mode':'off' if self.preserving_reference() else self.quality_mode.currentData(),
+                  'preserve_reference':self.preserving_reference()}
         write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'queued','params':params})
         item = QListWidgetItem(folder.name+' · 行走动画 · 等待'); self.queue_list.addItem(item)
         self.pending.append((None,params,folder,item))
@@ -815,7 +890,9 @@ class Window(QMainWindow):
                 self.status.setText('正在进行手动选择的高清修复…')
             elif kind in ('video_event','character_event'):
                 stage='连续动画' if kind=='video_event' else '角色图片'
-                if data['event']=='progress':
+                if data['event']=='monitor_waiting':
+                    self.status.setText(stage+' · 进度连接暂时中断，继续检查同一任务…')
+                elif data['event']=='progress':
                     if kind=='video_event': stage='细节完善' if self.current.get('video_expert',0) else '动作生成'
                     step=data['data']; self.status.setText(f'{stage}推理 {step["value"]}/{step["max"]}')
                     fraction=step['value']/max(1,step['max'])
@@ -853,16 +930,17 @@ class Window(QMainWindow):
                     last=Path(data.get('workflow') or folder/f'frame_{params["count"]-1:03d}'/'workflow.json')
                     self.last_chat_graph=json.loads(last.read_text('utf-8')); self.editor_needs_sync=True; self.sync_editor_if_needed()
                     message='行走序列已完成，可循环播放、逐帧查看或导出 PNG / Sprite Sheet / GIF。'
-                else: message=('行走任务已取消。' if kind=='cancelled' else '行走生成失败：'+str(data))+' 已完成的帧保留在本地。'
+                else: message=('行走任务已取消。' if kind=='cancelled' else '行走生成失败：'+str(data))+' 已接收的结果与任务记录保留在缓存。'
                 self.add_chat('软件',message,job=str(folder)); self.log.append(folder.name+' · '+status)
                 if kind=='result': self.progress.setValue(100)
                 item.setText(folder.name+' · 行走动画 · '+status); self.status.setText(message)
+                if kind=='error' and is_engine_unavailable(data): self.disconnect_engine(str(data))
                 self.current=None; self.connect_button.setEnabled(True); QTimer.singleShot(0,self.start_next)
         if params.get('engine')=='wan':
             from .temporal_animation import generate_temporal
             self.launch(lambda emit:generate_temporal(self.client,folder,params['prompt'],params['negative'],
                 params['seed'],params['count'],params['fps'],emit,cancel,params['reference'],params['checkpoint'],params['steps'],
-                params.get('lora',''),params.get('lora_strength',.8),params.get('quality_mode','off')),event)
+                params.get('lora',''),params.get('lora_strength',.8),params.get('quality_mode','off'),params.get('preserve_reference',True)),event)
         else:
             self.launch(lambda emit:generate_walk(self.client,folder,params['profile'],params['prompt'],params['checkpoint'],
                 params['seed'],params['count'],params['fps'],emit,cancel,params['steps'],params['negative'],params['reference']),event)

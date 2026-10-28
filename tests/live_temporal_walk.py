@@ -52,7 +52,8 @@ def main():
             assert state['progress']>0 and state['ready']==8
             assert len({digest(folder/item['image']) for item in manifest['frames']})==8
             graph=json.loads((folder/'video'/'workflow.json').read_text('utf-8'))
-            assert graph['6']['inputs']['text']==window.negative.toPlainText()
+            assert graph['6']['inputs']['text']==manifest['effective_negative']
+            assert graph['6']['inputs']['text'].startswith(window.negative.toPlainText())
             assert '走路' in graph['5']['inputs']['text']
             assert not any(node['class_type']=='DWPreprocessor' for node in graph.values())
             for item in manifest['frames']:

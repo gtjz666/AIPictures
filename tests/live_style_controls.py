@@ -74,6 +74,7 @@ def main():
             window.activate_template(character_workflow('placeholder.png'),'restored workflow',preserve_prompts=True)
             assert window.negative.toPlainText()==default_prompts(False,True)[1]
             window.activate_template(character_workflow('placeholder.png'),'reference workflow')
+            window.reference_policy.setCurrentIndex(window.reference_policy.findData('redraw'))
             graph,params=window.graph_snapshot('__chosen_reference__')
             key='aipictures_style_lora'
             assert graph[key]['inputs']['lora_name']==chosen
