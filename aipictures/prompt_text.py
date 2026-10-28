@@ -22,7 +22,7 @@ NEGATIVE = {
 
 APPEARANCE = {
     '参考图中的同一人物':'same character as the reference', '参考图中的同一角色':'same character as the reference',
-    '同一人物':'same character', '单个人物':'one single character', '面朝右方':'facing right',
+    '同一人物':'same character', '单个人物':'one single character', '单个角色':'one single character', '面朝右方':'facing right',
     '面朝左方':'facing left', '右侧视图':'strict right-facing side profile', '左侧视图':'strict left-facing side profile',
     '头部与双脚完整入镜':'entire head and both feet in frame', '头部、手部与双脚完整入镜':'entire head, hands and feet in frame',
     '人物居中':'centered character', '轮廓清晰':'clean outlines', '背景简洁':'plain background',

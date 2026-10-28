@@ -165,7 +165,7 @@ class Window(QMainWindow):
                         # References are session choices: never restore a bundled image implicitly.
                         if preset.get('graph') and not preset.get('character_id') and not any(
                             node['class_type']=='LoadImage' for node in preset['graph'].values()):
-                            self.activate_template(preset['graph'], preset['title'], preset.get('entry_id'))
+                            self.activate_template(preset['graph'], preset['title'], preset.get('entry_id'),preserve_prompts=True)
                 except (OSError, ValueError, KeyError) as exc: self.log.append('未恢复上次工作流：' + str(exc))
             self.status.setText(f'已连接 · {len(data["checkpoints"])} 个 checkpoint · {len(data["loras"])} 个 LoRA')
             write_json(DATA / 'settings.json', {'url': client.url}); self.refresh_stats()
@@ -229,7 +229,7 @@ class Window(QMainWindow):
         except Exception as exc:
             self.editor.report_error({'error': str(exc)})
 
-    def activate_template(self, graph, title, entry_id=None):
+    def activate_template(self, graph, title, entry_id=None,preserve_prompts=False):
         mapping = bindings(graph)
         self.character_profile = None
         self.reference_character=False
@@ -242,7 +242,8 @@ class Window(QMainWindow):
         self.last_chat_graph = None
         self.active_title = title
         sampler = graph[mapping['sampler']]['inputs']
-        self.negative.setPlainText(str(graph[mapping['negative'][0][0]]['inputs'][mapping['negative'][0][1]]))
+        if not preserve_prompts:
+            self.negative.setPlainText(str(graph[mapping['negative'][0][0]]['inputs'][mapping['negative'][0][1]]))
         self.steps.setValue(int(sampler['steps'])); self.cfg.setValue(float(sampler['cfg']))
         self.sampler.setCurrentText(sampler['sampler_name']); self.scheduler.setCurrentText(sampler['scheduler'])
         for node in graph.values():
@@ -322,8 +323,23 @@ class Window(QMainWindow):
             self.reference_label.setText('使用角色基准：'+self.character_profile['title'])
         else: self.reference_label.setText('可添加参考图')
         self.context_label.setText('走路动画 · '+title if walking else self.active_title)
+        self.update_prompt_defaults()
         self.update_intent_hint()
         self.update_sidebar_summary()
+
+    def update_prompt_defaults(self,force=False):
+        from .prompt_defaults import default_prompts
+        walking=self.generation_type.currentData()=='walk'
+        reference=bool(self.reference_path) and (not walking or self.animation_source.currentData()=='reference')
+        defaults=default_prompts(walking,reference)
+        for field,old,new in zip((self.positive,self.negative),self.current_prompt_defaults,defaults):
+            text=field.toPlainText()
+            if (force or text==old) and text!=new: field.setPlainText(new)
+        self.current_prompt_defaults=defaults
+
+    def reset_prompt_defaults(self,_checked=False):
+        self.update_prompt_defaults(force=True)
+        self.status.setText('已恢复中文通用正反提示词；文字模式可在开头补充角色外观。')
 
     def update_intent_hint(self):
         walking = self.generation_type.currentData() == 'walk'
@@ -358,7 +374,7 @@ class Window(QMainWindow):
             path = profile['baseline_graph'] if mode == 'baseline' else profile['poses'][pose_key]['graph']
             graph = json.loads(Path(path).read_text('utf-8'))
             title = profile['title'] + (' / 参考重绘' if mode == 'baseline' else ' / 骨骼约束')
-            self.activate_template(graph, title)
+            self.activate_template(graph, title,preserve_prompts=True)
             self.character_profile = profile
             self.set_reference(profile['reference'])
             self.width.setValue(768); self.height.setValue(1024)
@@ -431,7 +447,7 @@ class Window(QMainWindow):
             from .reference_analysis import REFERENCE_POSITIVE,REFERENCE_NEGATIVE
             graph=character_workflow('__reference__')
             graph['2']['inputs']['text']=REFERENCE_POSITIVE; graph['3']['inputs']['text']=REFERENCE_NEGATIVE
-            self.activate_template(graph,'导入参考图 · 自动适配')
+            self.activate_template(graph,'导入参考图 · 自动适配',preserve_prompts=True)
             self.reference_character=True
             self.character_summary.setText('使用新导入的参考图。AI 连续动画按完整主体生成；旧版骨骼方式仅适用于人物。')
         elif self.character_loading:

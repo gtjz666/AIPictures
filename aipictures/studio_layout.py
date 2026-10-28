@@ -136,9 +136,11 @@ def build_studio(w):
     w.reference_label = QLabel('可添加参考图'); w.reference_label.setWordWrap(True); cv.addWidget(w.reference_label)
     w.reference_label.setObjectName('muted'); w.intent_hint.setObjectName('muted')
     prompts=QWidget(); prompt_row=QHBoxLayout(prompts); prompt_row.setContentsMargins(0,0,0,0)
-    w.positive = QTextEdit(); w.positive.setPlaceholderText('想生成什么？例如：人物原地向右走路，侧视，全身'); w.positive.setMinimumHeight(80); w.positive.setMaximumHeight(105)
-    w.negative = QTextEdit('blurry, watermark, text, low quality'); w.negative.setPlaceholderText('不希望出现的内容，如 watermark, extra limbs'); w.negative.setMinimumHeight(80); w.negative.setMaximumHeight(105)
-    for label,control,stretch in [('正向提示词 · 想要的画面',w.positive,3),('反向提示词 · 不想出现的内容',w.negative,2)]:
+    from .prompt_defaults import default_prompts
+    w.current_prompt_defaults=default_prompts()
+    w.positive = QTextEdit(w.current_prompt_defaults[0]); w.positive.setPlaceholderText('在开头补充角色外观，按需修改动作与朝向'); w.positive.setMinimumHeight(95); w.positive.setMaximumHeight(130)
+    w.negative = QTextEdit(w.current_prompt_defaults[1]); w.negative.setPlaceholderText('删除不适用的限制，或补充不想出现的内容'); w.negative.setMinimumHeight(95); w.negative.setMaximumHeight(130)
+    for label,control,stretch in [('正向提示词 · 在开头补充角色外观',w.positive,3),('反向提示词 · 通常保留，按需增删',w.negative,2)]:
         column=QWidget(); column_layout=QVBoxLayout(column); column_layout.setContentsMargins(0,0,0,0)
         column_layout.addWidget(QLabel(label)); column_layout.addWidget(control); prompt_row.addWidget(column,stretch)
     cv.addWidget(prompts); cv.addWidget(w.intent_hint)
@@ -146,6 +148,9 @@ def build_studio(w):
     compose = QHBoxLayout()
     attach = QPushButton('＋ 参考图'); attach.clicked.connect(w.choose_reference); compose.addWidget(attach)
     remove = QPushButton('移除'); remove.clicked.connect(w.clear_reference); compose.addWidget(remove)
+    w.reset_prompts_button=QPushButton('恢复默认提示词')
+    w.reset_prompts_button.setToolTip('按当前生成类型和参考图恢复中文通用正反词；文字模式请补充角色外观。LoRA 仍由你手选。')
+    w.reset_prompts_button.clicked.connect(w.reset_prompt_defaults); compose.addWidget(w.reset_prompts_button)
     compose.addStretch()
     w.cancel_button = QPushButton('取消任务'); w.cancel_button.clicked.connect(w.cancel_current); compose.addWidget(w.cancel_button)
     w.generate_button = QPushButton('发送并生成'); w.generate_button.setObjectName('primary'); w.generate_button.setMinimumWidth(150); w.generate_button.setEnabled(False); w.generate_button.clicked.connect(w.enqueue)
@@ -189,3 +194,4 @@ def build_studio(w):
         signal.connect(lambda _:w.update_sidebar_summary())
     w.animation_engine.currentIndexChanged.connect(w.generation_type_changed)
     w.animation_source.currentIndexChanged.connect(w.generation_type_changed)
+    w.update_intent_hint()
