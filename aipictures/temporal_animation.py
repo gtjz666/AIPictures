@@ -210,7 +210,7 @@ def finish_sequence(folder,result,manifest,emit,cancel,enhance=None):
         for i,path in enumerate(selected):
             checked(); emit('reference_stage',{'message':f'处理动画帧透明背景 {i+1}/{count}…'})
             with Image.open(path) as image: matte=foreground_rgba(image,cancel,manifest.get('edge_smoothing',True))
-            mattes.append(clean_foreground(matte))
+            mattes.append(clean_foreground(matte,repair_interior=False))
             emit('matte_progress',{'value':i+1,'max':count})
             if (i+1)%4==0: release_session()
     finally: release_session()

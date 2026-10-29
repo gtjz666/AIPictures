@@ -44,5 +44,14 @@ class HandConditionTests(unittest.TestCase):
         self.assertEqual(rendered.size,(480,640))
         self.assertEqual(rendered.getpixel((round(500*480/768),round(400*640/1024))),(0,0,255))
 
+    def test_inferred_far_wrist_does_not_create_a_second_measured_finger_cluster(self):
+        self.base['joints']['left_wrist'][2]=.35
+        image=np.asarray(render_condition(self.base,self.base))
+        x,y=round(435*480/768),round(545*640/1024)
+        self.assertFalse(image[y-6:y+6,x-10:x+10].any())
+        # Body wrist/arm is retained, but measured finger dots remain fine at native size.
+        x,y=round(400*480/768),round(500*640/1024)
+        self.assertTrue(image[y-1:y+2,x-1:x+2].any())
+
 
 if __name__=='__main__': unittest.main()

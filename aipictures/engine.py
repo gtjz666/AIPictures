@@ -31,11 +31,11 @@ class ComfyClient:
             raise ValueError('本地模式只允许 localhost / 127.0.0.1 / ::1 的 HTTP 地址')
         self.http = build_opener(ProxyHandler({}))
 
-    def request(self, path, body=None, raw=False):
+    def request(self, path, body=None, raw=False, timeout=20):
         req = Request(self.url + path, data=None if body is None else json.dumps(body).encode(),
                       headers={'Content-Type': 'application/json'})
         try:
-            with self.http.open(req, timeout=20) as response:
+            with self.http.open(req, timeout=timeout) as response:
                 result = response.read()
         except HTTPError as error:
             raise RuntimeError(error.read().decode('utf-8', 'replace')) from error

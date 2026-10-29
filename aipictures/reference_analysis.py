@@ -29,7 +29,7 @@ class PoseNotApplicable(ValueError):
     """The image may be a valid reference without being an OpenPose-compatible person."""
 
 
-def clean_foreground(image):
+def clean_foreground(image,repair_interior=True):
     """Ignore isolated near-transparent specks without cutting holes into colored clothing."""
     rgba=np.array(image.convert('RGBA'))
     labels,count=ndimage.label(rgba[:,:,3]>24)
@@ -39,7 +39,7 @@ def clean_foreground(image):
     nearby=ndimage.binary_dilation(main,iterations=2)
     rgba[:,:,3]=np.where(nearby,rgba[:,:,3],0)
     # Tiny matte pinholes inside a solid region are repaired using neighboring source colors.
-    holes=ndimage.binary_fill_holes(main)&~main
+    holes=ndimage.binary_fill_holes(main)&~main if repair_interior else np.zeros_like(main)
     hole_labels,hole_count=ndimage.label(holes)
     if hole_count:
         hole_sizes=np.bincount(hole_labels.ravel())
@@ -48,8 +48,9 @@ def clean_foreground(image):
             indices=ndimage.distance_transform_edt(~main,return_distances=False,return_indices=True)
             rgba[tiny,:3]=rgba[indices[0][tiny],indices[1][tiny],:3]
             rgba[tiny,3]=255
-    inside=ndimage.distance_transform_edt(main)>2
-    rgba[inside,3]=255
+    if repair_interior:
+        inside=ndimage.distance_transform_edt(main)>2
+        rgba[inside,3]=255
     return Image.fromarray(rgba)
 
 

@@ -119,6 +119,8 @@ def build_studio(w):
     settings_button('sampling','采样与 LoRA',advanced,600)
     connection, nf = form()
     w.url = QLineEdit('http://127.0.0.1:8188'); nf.addRow('地址', w.url)
+    connection_note=QLabel('优先复用已打开的 ComfyUI；生成与高级工作流使用同一地址。自定义端口按你填写的连接。')
+    connection_note.setWordWrap(True); connection_note.setObjectName('muted'); nf.addRow(connection_note)
     w.connect_button = QPushButton('连接 / 刷新模型'); w.connect_button.clicked.connect(w.connect_engine); nf.addRow(w.connect_button)
     w.start_engine_button=QPushButton('启动本地引擎'); w.start_engine_button.clicked.connect(w.start_engine); nf.addRow(w.start_engine_button)
     w.gpu = QLabel('GPU：等待连接'); w.gpu.setWordWrap(True); nf.addRow(w.gpu)

@@ -135,6 +135,8 @@ class Window(QMainWindow):
 
     def disconnect_engine(self, message):
         self.connected=False
+        self.editor.set_ready(False)
+        self.editor.connection_label.setText('引擎已断开 · 重新连接后生成与工作流共用同一服务')
         self.generate_button.setEnabled(False); self.workflow_selector.setEnabled(False)
         self.connect_button.setEnabled(True)
         self.gpu.setText('引擎未连接 · 可启动本地引擎后重试')
@@ -156,7 +158,9 @@ class Window(QMainWindow):
             self.connect_button.setEnabled(True)
             if kind=='error':
                 self.disconnect_engine(str(data)); self.log.append(str(data)); return
-            if kind=='result': self.connect_engine()
+            if kind=='result':
+                self.url.setText(data)
+                self.connect_engine()
         url=self.url.text().strip()
         self.launch(lambda emit:start_local_engine(url,emit),done)
 
@@ -166,7 +170,7 @@ class Window(QMainWindow):
         if self.pending and getattr(self,'client',None) and self.url.text().rstrip('/')!=self.client.url:
             self.status.setText('队列尚有任务，请先清空队列再更换地址。'); return
         self.connected = False; self.generate_button.setEnabled(False); self.connect_button.setEnabled(False); self.workflow_selector.setEnabled(False)
-        try: client = ComfyClient(self.url.text())
+        try: requested = ComfyClient(self.url.text()).url
         except Exception as exc:
             self.disconnect_engine(str(exc)); self.log.append(str(exc)); return
         self.connecting=True
@@ -177,7 +181,9 @@ class Window(QMainWindow):
             if kind == 'error':
                 self.disconnect_engine('引擎未连接：请点击“启动 / 重连”。'); self.log.append(data); return
             if kind != 'result': return
+            client,data=data
             self.client = client; self.info = data; self.connected = True
+            self.url.setText(client.url)
             self.editor.set_node_info(data['object_info'])
             profile = load_profile()
             required_pose = profile['pose_requires'] if profile else 'controlnet-openpose-sdxl-1.0-xinsir.safetensors'
@@ -205,12 +211,18 @@ class Window(QMainWindow):
                             node['class_type']=='LoadImage' for node in preset['graph'].values()):
                             self.activate_template(preset['graph'], preset['title'], preset.get('entry_id'),preserve_prompts=True)
                 except (OSError, ValueError, KeyError) as exc: self.log.append('未恢复上次工作流：' + str(exc))
-            self.status.setText(f'已连接 · {len(data["checkpoints"])} 个 checkpoint · {len(data["loras"])} 个 LoRA')
+            self.status.setText(f'已连接 {client.url} · 生成与工作流共用此引擎')
             self.status.setToolTip(self.status.text())
             write_json(DATA / 'settings.json', {'url': client.url}); self.refresh_stats()
-            if self.tabs.currentIndex() == 1: self.editor.connect_url(client.url)
+            self.editor.connect_url(client.url,load=self.tabs.currentIndex()==1)
             QTimer.singleShot(0,self.start_next)
-        self.launch(lambda _: client.discover(), done)
+        def discover(_):
+            from .backend_connection import shared_backend_url
+            # Never move previously queued tasks to a different server.
+            target=requested if self.pending else shared_backend_url(requested)
+            client=ComfyClient(target)
+            return client,client.discover()
+        self.launch(discover, done)
 
     def refresh_stats(self):
         if not self.connected or self.stats_busy or self.current or self.preparing: return
@@ -950,6 +962,11 @@ class Window(QMainWindow):
         write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'running','params':params})
         def event(kind,data):
             if kind == 'reference_stage': self.status.setText(data['message'])
+            elif kind=='workflow_ready':
+                if data['url']!=self.client.url:
+                    raise RuntimeError('动作工作流与当前引擎地址不一致。')
+                self.last_chat_graph=json.loads(json.dumps(data['graph']))
+                self.editor_needs_sync=True; self.sync_editor_if_needed()
             elif kind=='pose_video_event':
                 if data['event']=='queued': self.current['prompt_id']=data['data']['prompt_id']
                 elif data['event']=='progress':

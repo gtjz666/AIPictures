@@ -32,6 +32,8 @@ def animation_prompt(text,action='walk',preserve=True,negative=''):
         '脚部遵循所选动作与每帧骨骼，鞋面和鞋底轮廓清晰，不出现叠加鞋尖、分叉鞋底或额外脚掌。'
         '保持参考图的物种、五官、发型、发色、服装纹样、配饰、鞋型、身体比例与绘画风格。')
     result+='躯干随承重自然起伏，肩胯与摆臂协调，头部轻微缓冲，保持整段曝光、色温和配色一致。不添加参考图中没有的物品，不将姿态图彩色线条画成肤色或衣服。'
+    result+='游戏逐帧动画，每帧都是清晰的瞬间定格；每只手和每条手臂只有一个明确轮廓，手臂运动连续但单帧边缘清晰，保留正常遮挡。'
+    result+=' Crisp game sprite animation, sharp instantaneous poses, clean single contours on each limb and hand, fast shutter, consistent solid colors.'
     if not preserve:
         extra=appearance_description(text)
         if extra: result+='外观补充：'+extra
@@ -140,7 +142,9 @@ def export_frames(folder,result,manifest,clip,emit,cancel):
             emit('reference_stage',{'message':f'处理{ACTIONS[clip["action"]][0]}透明帧 {i+1}/{count}'})
             frame_started=time.monotonic()
             with Image.open(result['images'][index]) as raw: image=foreground_rgba(raw,cancel)
-            image=clean_foreground(image).resize(SIZE,Image.Resampling.LANCZOS)
+            # A generated frame's fractional matte can contain motion trails.
+            # Reference pinhole repair must not turn those trails into solid limbs.
+            image=clean_foreground(image,repair_interior=False).resize(SIZE,Image.Resampling.LANCZOS)
             frame_pose=sample_clip(clip,i/count)
             key=folder/f'frame_{i:03d}'; key.mkdir(exist_ok=True)
             matte_path=key/'matte.png'; image.save(matte_path); matte_paths.append(matte_path); poses.append(frame_pose)
@@ -293,8 +297,9 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
         bind_model_names(graph,client.discover()['object_info'])
         write_json(video/'workflow.json',graph)
         manifest.update(status='running',source_frame_count=length,effective_negative=effective_negative,
-            pose_format='dwpose_body18_with_reference_hands_and_foot_derived_ankles',
+            pose_format='wan_v2_body18_with_observed_hands_and_foot_derived_ankles',
             negative_policy='positive_constraints_with_cfg1_negative_recorded'); save()
+        emit('workflow_ready',{'graph':graph,'url':client.url})
         inference_started=time.monotonic()
         result=client.generate(graph,video,lambda k,d:emit('pose_video_event',{'event':k,'data':d}),cancel,timeout=7200,
             submitted=lambda pid:write_json(video/'submitted.json',{'prompt_id':pid}))
@@ -309,4 +314,9 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
         return exports
     except Exception as exc:
         manifest.update(status='cancelled' if isinstance(exc,Cancelled) else 'failed',error=str(exc)); save(); raise
-    finally: release_session()
+    finally:
+        release_session()
+        # Cancellation/errors must also yield the large inference cache once idle.
+        manifest['final_cache_release']=release_idle_models(client)
+        try: save()
+        except OSError: pass

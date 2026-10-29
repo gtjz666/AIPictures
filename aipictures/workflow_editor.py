@@ -68,6 +68,9 @@ class WorkflowEditor(QWidget):
         refresh.clicked.connect(self.refresh_library)
         library_bar.addWidget(refresh)
         layout.addLayout(library_bar)
+        self.connection_label = QLabel('生成与工作流共用同一引擎 · 尚未连接')
+        self.connection_label.setWordWrap(True)
+        layout.addWidget(self.connection_label)
         self.library_info = QLabel()
         self.library_info.setWordWrap(True)
         layout.addWidget(self.library_info)
@@ -166,9 +169,13 @@ class WorkflowEditor(QWidget):
             return {};
         ''', lambda result: self.report_error(result) if not result['ok'] else None)
 
-    def connect_url(self, url):
+    def connect_url(self, url,load=True):
+        url=url.rstrip('/')
+        self.connection_label.setText('当前引擎：'+url+' · 生成与工作流共用')
         if self.url != url:
             self.url = url
+            self.set_ready(False)
+        if load and self.web.url()!=QUrl(url):
             self.web.setUrl(QUrl(url))
 
     def reload(self):
@@ -340,7 +347,11 @@ class WorkflowEditor(QWidget):
     def sync_inputs(self, graph):
         script = 'const graph = ' + json.dumps(graph, ensure_ascii=True) + ';'
         script += '''
-            const matches = Object.entries(graph).every(([id, node]) => app.rootGraph.getNodeById(id)?.type === node.class_type)
+            const current = (await app.graphToPrompt()).output;
+            const matches = Object.entries(graph).every(([id, node]) =>
+                app.rootGraph.getNodeById(id)?.type === node.class_type &&
+                Object.entries(node.inputs).every(([field, value]) => !Array.isArray(value) ||
+                    JSON.stringify(current[id]?.inputs[field]) === JSON.stringify(value)))
                 && app.rootGraph._nodes.length === Object.keys(graph).length;
             if (!matches) {
                 await app.loadApiJson(graph, 'AIPictures-chat');

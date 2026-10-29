@@ -16,6 +16,15 @@ from aipictures.skin_warp import refine_preserving_color
 
 
 class ReferenceAnalysisTests(unittest.TestCase):
+    def test_generated_frame_cleanup_does_not_solidify_translucent_trails(self):
+        image=Image.new('RGBA',(80,80),(0,0,0,0))
+        image.paste((220,190,170,255),(25,5,50,75))
+        image.paste((220,190,170,80),(10,25,30,65))
+        result=clean_foreground(image,repair_interior=False)
+        self.assertEqual(result.getpixel((15,45))[3],80)
+        self.assertEqual(result.getpixel((40,45))[3],255)
+        self.assertEqual(result.tobytes(),image.tobytes())
+
     def test_existing_transparent_colors_and_alpha_survive_without_resegmentation(self):
         image=Image.new('RGBA',(64,64),(0,0,0,0))
         image.paste((39,23,60,255),(10,10,54,54)); image.putpixel((10,20),(180,70,90,128))

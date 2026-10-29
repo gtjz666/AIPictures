@@ -2,6 +2,8 @@
 
 项目独立于 AIGAMING、Godot 和 ComfyUI 源码。界面只依赖轻量客户端环境，不在其中安装 Torch、训练框架或 ComfyUI 自定义节点。
 
+`backend_connection.py` 识别 Comfy Desktop 真实进程对应的本地服务，常规连接优先复用，显式其他端口保持；任务队列固定执行时的客户端。`engine_service.py` 启动后返回实际 URL。高级工作流与生成共用连接，网页按需加载，API 图的连线与参数一同同步。未来 API 路线仅为已调研方案，独立远程适配与能力声明见 [API 方案](API_AND_FRAMERONIN_RESEARCH.md)，当前本地客户端的网络范围限制保持。
+
 ## 当前完整骨骼动画模块
 
 标准界面只提供完整姿态序列条件；历史自由 I2V / 网格后端保留作旧缓存及诊断。动画类型和风格 LoRA 都由用户明确选择，动作宏自动写入实际条件，不调用 LLM 分类。
