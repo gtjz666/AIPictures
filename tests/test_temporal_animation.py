@@ -72,7 +72,8 @@ class TemporalTests(unittest.TestCase):
             draw.ellipse((30,10,150,220),fill=(250,190,40,255)); image.save(path)
             with patch('aipictures.background.session',side_effect=AssertionError('already transparent')):
                 result=prepare_subject(path,root/'input.png',threading.Event())
-            self.assertEqual(result['method'],'foreground_only_no_human_pose')
+            self.assertEqual(result['method'],'source_pixels_no_human_pose')
+            self.assertFalse(result['generation_reference']['segmentation_applied'])
             with Image.open(root/'reference_rgba.png') as foreground:
                 self.assertEqual(foreground.getpixel((384,700)),(250,190,40,255))
                 self.assertEqual(foreground.getpixel((0,0))[3],0)

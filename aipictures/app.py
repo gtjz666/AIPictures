@@ -743,13 +743,15 @@ class Window(QMainWindow):
                         base=json.loads(Path(analysis['rig']).read_text('utf-8'))
                         rig=action_rig(base,params['adaptive_action'])
                         staging=DATA/'references'/(uuid4().hex+'_pose'); staging.mkdir()
+                        from .generation_reference import prepare_generation_reference
+                        preparation=prepare_generation_reference(reference,staging/'reference_rgb.png',analysis)
                         paint_pose(rig).save(str(staging/'pose.png'))
                         if params['adaptive_action']=='stand':
-                            shutil.copy2(analysis['opaque'],staging/'guide.png')
+                            shutil.copy2(staging/'reference_rgb.png',staging/'guide.png')
                         else:
                             guide,_,_=AdaptiveCutout(analysis).render(rig); guide.save(staging/'guide.png')
-                        result.update(reference=client.upload_image(analysis['opaque']),pose=client.upload_image(staging/'pose.png'),
-                                      guide=client.upload_image(staging/'guide.png'),analysis=analysis)
+                        result.update(reference=client.upload_image(staging/'reference_rgb.png'),pose=client.upload_image(staging/'pose.png'),
+                                      guide=client.upload_image(staging/'guide.png'),analysis=dict(analysis,generation_reference=preparation))
                     else:
                         selected=params.get('prepared_reference') or reference
                         with Image.open(selected) as image:

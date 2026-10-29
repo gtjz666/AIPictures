@@ -30,7 +30,7 @@ def silhouette_rig(rgba):
 def prepare_motion_reference(reference,client,emit=lambda *_:None,cancel=None):
     import threading
     cancel=cancel or threading.Event(); checksum=digest(reference)
-    root=DATA/'motion-analysis'/('v1_'+checksum[:20]); metadata=root/'analysis.json'
+    root=DATA/'motion-analysis'/('v2_'+checksum[:20]); metadata=root/'analysis.json'
     if metadata.is_file():
         result=json.loads(metadata.read_text('utf-8'))
         if all(Path(result[name]).is_file() for name in ('rgba','opaque','rig')): return result
@@ -45,7 +45,10 @@ def prepare_motion_reference(reference,client,emit=lambda *_:None,cancel=None):
         if box is None: raise ValueError('参考图主体为空。')
         subject=rgba.crop(box); scale=min(900/subject.height,500/subject.width)
         subject=subject.resize((round(subject.width*scale),round(subject.height*scale)),Image.Resampling.LANCZOS)
-        canvas=Image.new('RGBA',(768,1024)); canvas.paste(subject,((768-subject.width)//2,978-subject.height))
+        offset=((768-subject.width)//2,978-subject.height)
+        geometry={'source_bbox':list(box),'scale':scale,'offset':list(offset),
+            'subject_bbox':[offset[0],offset[1],offset[0]+subject.width,978]}
+        canvas=Image.new('RGBA',(768,1024)); canvas.paste(subject,offset)
         alpha=np.asarray(canvas.getchannel('A')); ys,xs=np.nonzero(alpha>24)
         top,bottom=int(ys.min()),int(ys.max()); height=max(1,bottom-top)
         head=xs[ys<top+height*.30]; body=xs[(ys>top+height*.42)&(ys<top+height*.72)]
@@ -54,6 +57,7 @@ def prepare_motion_reference(reference,client,emit=lambda *_:None,cancel=None):
         canvas.save(root/'reference_rgba.png'); opaque_reference(canvas).save(root/'reference_rgb.png')
         rig=silhouette_rig(canvas); rig['source_direction']=direction; write_json(root/'rig.json',rig)
         result={'source':str(reference),'source_sha256':checksum,'rgba':str(root/'reference_rgba.png'),
-            'opaque':str(root/'reference_rgb.png'),'rig':str(root/'rig.json'),'direction':direction,'direction_estimated':True,
+            'opaque':str(root/'reference_rgb.png'),'rig':str(root/'rig.json'),'geometry':geometry,
+            'direction':direction,'direction_estimated':True,
             'layout':'estimated_compact_biped','layout_note':rig['notes']}
     release_session(); write_json(metadata,result); return result

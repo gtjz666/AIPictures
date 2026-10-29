@@ -131,7 +131,7 @@ def export_frames(folder,result,manifest,clip,emit,cancel):
     count=clip['frame_count']; length=manifest['source_frame_count']
     if len(result['images'])!=length: raise ValueError('生成帧数与骨骼序列不一致，原始结果已保留。')
     indices=[round(i*(length-1)/count) for i in range(count)]
-    frames=[]; matte_paths=[]; poses=[]; matting_seconds=[]; started=time.monotonic()
+    frames=[]; matte_paths=[]; poses=[]; matting_seconds=[]; matting_rgb=[]; started=time.monotonic()
     reference_rgba=None
     if manifest.get('preserve_reference',True) and (folder/'reference_analysis.json').is_file():
         analysis=json.loads((folder/'reference_analysis.json').read_text('utf-8'))
@@ -141,7 +141,9 @@ def export_frames(folder,result,manifest,clip,emit,cancel):
             if cancel.is_set(): raise Cancelled('动作透明处理已取消，原始帧已保留。')
             emit('reference_stage',{'message':f'处理{ACTIONS[clip["action"]][0]}透明帧 {i+1}/{count}'})
             frame_started=time.monotonic()
-            with Image.open(result['images'][index]) as raw: image=foreground_rgba(raw,cancel,anti_alias=False)
+            with Image.open(result['images'][index]) as raw:
+                image=foreground_rgba(raw,cancel,anti_alias=False)
+                matting_rgb.append(raw.convert('RGB').tobytes()==image.convert('RGB').tobytes())
             key=folder/f'frame_{i:03d}'; key.mkdir(exist_ok=True)
             # Separate pixel-asset source: no enlargement, palette repair or edge
             # smoothing. This route is consumed only on explicit pixel export.
@@ -157,6 +159,12 @@ def export_frames(folder,result,manifest,clip,emit,cancel):
             if (i+1)%4==0: release_session()
     finally: release_session()
     manifest.setdefault('timings',{}).update(matting_seconds=round(time.monotonic()-started,3),per_frame_matting_seconds=matting_seconds)
+    manifest['transparency']={
+        'stage':'after_animation_generation',
+        'analysis_mask_used_as_model_input':manifest.get('generation_reference',{}).get('segmentation_applied'),
+        'raw_images_retained':result['images'],'native_matte_rgb_preserved':matting_rgb,
+        'all_native_matte_rgb_preserved':all(matting_rgb),
+        'note':'逐帧透明处理只改变 alpha；后续校色与显示尺寸处理另行记录。'}
     emit('reference_stage',{'message':'检查并统一整段动画的亮度与偏色…'})
     from .sequence_color import plan_files,apply_correction
     color_started=time.monotonic(); color_plan=plan_files(matte_paths,poses)
@@ -277,13 +285,14 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
         if cancel.is_set(): raise Cancelled('已取消动作生成。')
         release_session(); manifest['initial_cache_release']=release_idle_models(client)
         if reference is None:
-            from .background import process_result
             base=folder/'character'; base.mkdir()
             graph=initial_character_workflow(prompt,negative,checkpoint,seed,20,lora,lora_strength)
             write_json(base/'workflow.json',graph)
             result=client.generate(graph,base,lambda k,d:emit('character_event',{'event':k,'data':d}),cancel)
             manifest['character_cache_release']=release_idle_models(client)
-            result=process_result(result,base,emit,cancel); write_json(base/'result.json',result)
+            # This RGB image becomes the appearance reference. Matting the
+            # analysis copy must not erase its detail before Wan reads it.
+            write_json(base/'result.json',result)
             reference=result['images'][0]
         emit('reference_stage',{'message':'自动适配角色骨骼与脚部位置…'})
         analysis_started=time.monotonic()
@@ -300,14 +309,18 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
         write_json(folder/'motion.json',clip); write_json(folder/'reference_analysis.json',analysis)
         manifest.update(reference=str(reference),reference_sha256=sha,intent={'action':action,'direction':analysis['direction']},
             control='static_pose_test' if static_test else 'full_pose_sequence',source_direction=analysis['direction'])
-        reference_name=client.upload_image(analysis['opaque'])
+        from .generation_reference import prepare_generation_reference
+        manifest['generation_reference']=prepare_generation_reference(
+            reference,folder/'generation-reference.png',analysis)
+        emit('reference_stage',{'message':'保留原图颜色与细节生成，完成后再处理透明背景…'})
+        reference_name=client.upload_image(manifest['generation_reference']['path'])
         face_name=None
         # Experimental diagnostic only: repeated-face conditioning has not passed
         # this machine's latency/visual acceptance and is not enabled by the UI.
         manifest['face_reference']={'used':False,'reason':'experimental_branch_disabled'}
         if face_condition and manifest['preserve_reference']:
             from .face_reference import reference_face
-            with Image.open(analysis['opaque']) as source: face,face_report=reference_face(source,clip['base_rig'])
+            with Image.open(manifest['generation_reference']['path']) as source: face,face_report=reference_face(source,clip['base_rig'])
             manifest['face_reference']=face_report
             if face is not None:
                 face_path=folder/'reference-face.png';face.save(face_path)
@@ -336,7 +349,7 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
             negative_policy='positive_constraints_with_cfg1_negative_recorded'); save()
         emit('workflow_ready',{'graph':graph,'url':client.url})
         inference_started=time.monotonic()
-        result=client.generate(graph,video,lambda k,d:emit('pose_video_event',{'event':k,'data':d}),cancel,timeout=7200,
+        result=client.generate(graph,video,lambda k,d:emit('pose_video_event',{'event':k,'data':d}),cancel,timeout=float('inf'),
             submitted=lambda pid:write_json(video/'submitted.json',{'prompt_id':pid}))
         manifest['timings']['inference_wait_and_download_seconds']=round(time.monotonic()-inference_started,3)
         write_json(video/'result.json',result); manifest['video_cache_release']=release_idle_models(client)

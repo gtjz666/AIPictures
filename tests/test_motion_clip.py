@@ -86,6 +86,9 @@ class MotionClipTests(unittest.TestCase):
                 result=export_frames(root,{'images':paths,'prompt_id':'owned'},manifest,clip,lambda *args:None,threading.Event())
                 self.assertTrue(all(call.kwargs.get('anti_alias') is False for call in matte.call_args_list))
             self.assertEqual(manifest['pose_selection']['source_indices'],list(range(0,16,2)))
+            self.assertTrue(manifest['transparency']['all_native_matte_rgb_preserved'])
+            self.assertEqual(len(manifest['transparency']['native_matte_rgb_preserved']),8)
+            self.assertIsNone(manifest['transparency']['analysis_mask_used_as_model_input'])
             self.assertTrue(Path(result['gif']).name=='jump.gif' and Path(result['gif']).is_file())
             boxes=[]
             for name in result['frames']:

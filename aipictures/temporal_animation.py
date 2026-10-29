@@ -7,10 +7,10 @@ import numpy as np
 from PIL import Image
 
 from .action_intent import walk_intent, parse_intent, appearance_description
-from .background import foreground_rgba, process_result, release_session, MODEL as MATTE_MODEL
+from .background import foreground_rgba, release_session, MODEL as MATTE_MODEL
 from .engine import Cancelled
 from .engine_service import release_idle_models
-from .reference_analysis import clean_foreground, opaque_reference
+from .reference_analysis import clean_foreground
 from .storage import write_json
 from .walk_cycle import SIZE, export_sequence
 from .workflow import ImageRequest, build_workflow
@@ -120,19 +120,25 @@ def check_video_models(info):
 
 
 def prepare_subject(reference, target, cancel, preserve_reference=False):
-    """Single subject matte; no assumptions about human joints, sleeves, hair, or species."""
+    """Use a mask for placement only; feed original colors/background to the model."""
     with Image.open(reference) as image: rgba = foreground_rgba(image, cancel)
     if not preserve_reference: rgba=clean_foreground(rgba)
     box = rgba.getchannel('A').point(lambda value: 255 if value > 24 else 0).getbbox()
     subject = rgba.crop(box)
     scale = min(900 / subject.height, 600 / subject.width)
     subject = subject.resize((max(1, round(subject.width * scale)), max(1, round(subject.height * scale))), Image.Resampling.LANCZOS)
+    offset=((SIZE[0] - subject.width) // 2, 978 - subject.height)
     canvas = Image.new('RGBA', SIZE)
-    canvas.paste(subject, ((SIZE[0] - subject.width) // 2, 978 - subject.height))
+    canvas.paste(subject, offset)
     canvas.save(target.parent / 'reference_rgba.png')
-    opaque_reference(canvas).resize(VIDEO_SIZE, Image.Resampling.LANCZOS).save(target)
+    from .generation_reference import prepare_generation_reference
+    geometry={'source_bbox':list(box),'scale':scale,'offset':list(offset),
+        'subject_bbox':[offset[0],offset[1],offset[0]+subject.width,978]}
+    preparation=prepare_generation_reference(reference,target,{'geometry':geometry,'direction':'right'})
+    with Image.open(target) as image: conditioning=image.resize(VIDEO_SIZE,Image.Resampling.LANCZOS)
+    conditioning.save(target)
     return {'source_bbox':list(box),'source_size':list(rgba.size),'scale':scale,
-        'method':'foreground_only_no_human_pose','source_sha256':digest(reference),
+        'method':'source_pixels_no_human_pose','source_sha256':digest(reference),'generation_reference':preparation,
         'preserve_source_colors':True,'preserve_imported_alpha':preserve_reference,
         'conditioning_size':list(VIDEO_SIZE)}
 
@@ -264,7 +270,7 @@ def generate_temporal(client, folder, prompt, negative, seed, count, fps, emit, 
             write_json(base/'workflow.json',graph)
             result = client.generate(graph,base,lambda k,d:emit('character_event',{'event':k,'data':d}),cancel)
             manifest['character_cache_release']=release_idle_models(client)
-            result = process_result(result,base,emit,cancel,manifest['edge_smoothing']); write_json(base/'result.json',result)
+            write_json(base/'result.json',result)
             reference = result['images'][0]; manifest['character_prompt_id']=result['prompt_id']
         checked(); emit('reference_stage',{'message':'准备参考主体；人物、卡通双足角色均不依赖人体关节识别…'})
         source = folder/'reference_rgb.png'
