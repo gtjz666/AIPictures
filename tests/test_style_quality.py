@@ -14,7 +14,7 @@ from aipictures.temporal_animation import initial_character_workflow,video_workf
 class StyleQualityTests(unittest.TestCase):
     def test_catalog_files_are_unique_and_use_verified_sdxl_sources(self):
         entries=catalog()
-        self.assertEqual(len(entries),10); self.assertEqual(len({v['filename'] for v in entries}),10)
+        self.assertEqual(len(entries),12); self.assertEqual(len({v['filename'] for v in entries}),12)
         self.assertTrue({'动漫','写实','卡通','插画','像素'}<={v['category'] for v in entries})
         for entry in entries:
             self.assertEqual(len(entry['download']['sha256']),64)

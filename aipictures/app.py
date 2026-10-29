@@ -69,6 +69,8 @@ class Window(QMainWindow):
         self.engine_starting = False
         self.character_profile = None
         self.character_loading = False
+        self.reference_modes={'image':'redraw','walk':'preserve'}
+        self.reference_mode='image'
         self.cache_store=ResultCache(); self.cache_busy=False
         from .studio_layout import build_studio
         build_studio(self)
@@ -117,6 +119,10 @@ class Window(QMainWindow):
         enabled=(not walking or (self.animation_engine.currentData() in ('wan','animate') and self.animation_source.currentData()=='text')) and not preserving
         self.lora.setEnabled(enabled); self.lora_category.setEnabled(enabled)
         self.strength.setEnabled(enabled and bool(self.lora.currentData()))
+        if hasattr(self,'style_status'):
+            name=self.lora.currentData()
+            scope=('仅文字角色图生效' if walking else '本次单张生效') if enabled else ('原图小幅修改时停用' if preserving else '当前动画不使用 SDXL 风格')
+            self.style_status.setText(('风格：'+display_name(name)+' · '+scope) if name else '风格：未使用 LoRA（可在“采样与 LoRA”中手动选择）')
         if not enabled:
             self.lora_details.setText('优先保留参考图细节：不叠加风格 LoRA。已有选择保留，移除参考图或改为允许重绘后可继续使用。' if preserving else
                 '当前模式不使用 SDXL 风格 LoRA。文字动画可用于角色图；参考图动画沿用参考外观。\n如需改变参考画风，可先用单张 + LoRA 生成，再作为动画参考。')
@@ -335,7 +341,8 @@ class Window(QMainWindow):
         if walking:
             text+=({'wan':'AI 自由动画','animate':'完整骨骼 · '+('自动适配' if self.motion_mode.currentData()=='auto' else '手动调整'),'rig':'旧版人体骨骼'}[self.animation_engine.currentData()])+'\n'
             text+=f'{self.walk_count.currentData()} 帧 · {self.walk_fps.value()} FPS\n'
-        text+=f'{self.width.value()} × {self.height.value()} · 透明输出'
+        background='透明主体' if walking or self.output_background.currentData()=='transparent' else '完整画面'
+        text+=f'{self.width.value()} × {self.height.value()} · '+background
         self.creation_summary.setText(text)
 
     def open_skeleton(self):
@@ -385,6 +392,15 @@ class Window(QMainWindow):
 
     def generation_type_changed(self, _index=None):
         walking = self.generation_type.currentData() == 'walk'
+        mode='walk' if walking else 'image'
+        if mode!=self.reference_mode:
+            self.reference_modes[self.reference_mode]=self.reference_policy.currentData()
+            self.reference_mode=mode
+            self.reference_policy.blockSignals(True)
+            self.reference_policy.setCurrentIndex(self.reference_policy.findData(self.reference_modes[mode]))
+            self.reference_policy.blockSignals(False)
+        self.output_background.setEnabled(not walking)
+        self.reference_strength.setEnabled(not walking and bool(self.reference_path) and self.custom_graph is None)
         self.walk_settings.setVisible(walking)
         action_title=ACTIONS[self.animation_action.currentData()][0]
         self.generate_button.setText('生成'+action_title+'动画' if walking else '发送并生成')
@@ -413,13 +429,13 @@ class Window(QMainWindow):
             self.reference_label.setText('使用角色基准：'+self.character_profile['title'])
         else: self.reference_label.setText('可添加参考图')
         self.context_label.setText(action_title+'动画' if walking else self.active_title)
-        self.update_prompt_defaults()
         self.update_intent_hint()
         self.update_sidebar_summary()
 
     def preserving_reference(self):
         walking=self.generation_type.currentData()=='walk'
-        return bool(self.reference_path) and (not walking or (self.animation_engine.currentData() in ('wan','animate') and self.animation_source.currentData()=='reference')) and self.reference_policy.currentData()=='preserve'
+        weighted=walking or self.custom_graph is not None or self.reference_strength.value()>0
+        return weighted and bool(self.reference_path) and (not walking or (self.animation_engine.currentData() in ('wan','animate') and self.animation_source.currentData()=='reference')) and self.reference_policy.currentData()=='preserve'
 
     def reference_policy_changed(self,_index=None):
         from .reference_fidelity import effective_denoise
@@ -442,22 +458,12 @@ class Window(QMainWindow):
         self.update_lora_state()
         self.update_intent_hint()
 
-    def update_prompt_defaults(self,force=False):
-        from .prompt_defaults import default_prompts
-        walking=self.generation_type.currentData()=='walk'
-        reference=bool(self.reference_path) and (not walking or self.animation_source.currentData()=='reference')
-        defaults=default_prompts(walking,reference,self.animation_action.currentData())
-        for field,old,new in zip((self.positive,self.negative),self.current_prompt_defaults,defaults):
-            text=field.toPlainText()
-            if (force or text==old) and text!=new: field.setPlainText(new)
-        self.current_prompt_defaults=defaults
-
-    def reset_prompt_defaults(self,_checked=False):
-        self.update_prompt_defaults(force=True)
-        self.status.setText('已恢复中文通用正反提示词；文字模式可在开头补充角色外观。')
-
     def update_intent_hint(self):
         walking = self.generation_type.currentData() == 'walk'
+        if not walking:
+            self.intent_hint.setText('单张通用创作 · 视角、主体与背景由你的描述决定。'+
+                ('当前是原图小幅修改；更换视角请切换“按描述创作”。' if self.preserving_reference() else ''))
+            return
         intent = walk_intent(self.positive.toPlainText()) if walking else parse_intent(self.positive.toPlainText())
         if walking and self.animation_engine.currentData()=='animate': intent.action=self.animation_action.currentData()
         labels = {'walk':'行走','reach':'向前伸手','stand':'站立','run':'奔跑','jump':'跳跃','idle':'待机'}
@@ -561,13 +567,8 @@ class Window(QMainWindow):
         self.reference_display_name = source.name
         self.animation_source.setCurrentIndex(0)
         if not self.character_loading and self.character_profile and digest(target)!=self.character_profile['source_sha256']:
-            from .character_profile import character_workflow
-            from .reference_analysis import REFERENCE_POSITIVE,REFERENCE_NEGATIVE
-            graph=character_workflow('__reference__')
-            graph['2']['inputs']['text']=REFERENCE_POSITIVE; graph['3']['inputs']['text']=REFERENCE_NEGATIVE
-            self.activate_template(graph,'导入参考图 · 自动适配',preserve_prompts=True)
-            self.reference_character=True
-            self.character_summary.setText('使用新导入的参考图。AI 连续动画按完整主体生成；旧版骨骼方式仅适用于人物。')
+            self.reset_graph()
+            self.character_summary.setText('使用新导入的参考图；单张图片可生成任意主体或场景。')
         elif self.character_loading:
             self.reference_character=bool(self.character_profile and self.character_profile.get('adaptive'))
         size = reader.size()
@@ -610,100 +611,48 @@ class Window(QMainWindow):
                 self.editor.sync_inputs(graph)
 
     def graph_snapshot(self, reference_name=''):
-        from .reference_fidelity import reference_positive,PRESERVE_NEGATIVE,effective_denoise
-        preserving=bool(reference_name) and self.reference_policy.currentData()=='preserve'
-        seed = int(self.seed.text())
-        if seed == -1: seed = secrets.randbelow(2**53)
-        if not 0 <= seed < 2**64: raise ValueError('种子范围为 0–2^64-1，或 -1 随机')
-        r = ImageRequest(self.model.currentText(), self.positive.toPlainText(), self.negative.toPlainText(),
-            self.width.value(), self.height.value(), self.steps.value(), self.cfg.value(), seed,
-            self.sampler.currentText(), self.scheduler.currentText(), self.lora.currentData() or '', self.strength.value())
-        user_prompt = r.positive
-        raw_negative = r.negative
-        r.negative, negative_unmatched = negative_text(raw_negative)
-        intent = parse_intent(user_prompt)
-        source_graph = self.custom_graph
-        pose_key = self.pose_choice.currentData()
-        route = self.character_route.currentData()
-        adaptive_action=None
-        pose_unavailable=False
-        object_info=getattr(self,'info',{}).get('object_info',{})
-        pose_choices=object_info.get('ControlNetLoader',{}).get('input',{}).get('required',{}).get('control_net_name',[[]])[0]
-        pose_model=(self.character_profile or {}).get('pose_requires','controlnet-openpose-sdxl-1.0-xinsir.safetensors')
-        pose_available=pose_model in pose_choices
-        if self.character_profile and route=='pose' and not pose_available and not preserving:
-            raise ValueError('骨骼约束需要模型：'+pose_model+'。可切换为参考重绘或 AI 连续动画。')
-        adaptive_reference=bool(reference_name and (self.reference_character or (self.character_profile and self.character_profile.get('adaptive'))))
-        if preserving:
-            # Keep authored workflows intact on disk; constrain only this invocation.
-            r.positive=reference_positive(intent); r.negative+=', '+PRESERVE_NEGATIVE
-            r.lora=''; route='baseline'
-        elif adaptive_reference:
-            from .reference_analysis import REFERENCE_POSITIVE
-            r.positive=REFERENCE_POSITIVE+(', '+intent.english if intent.english else '')
-            if intent.action in ('stand','reach','walk') and pose_available and 'DWPreprocessor' in getattr(self,'info',{}).get('nodes',[]):
-                from .walk_cycle import frame_workflow
-                adaptive_action=intent.action
-                pose_key='reach' if intent.action=='reach' else 'stand'; route='pose'
-                r.width=768; r.height=1024
-                self.width.setValue(768); self.height.setValue(1024)
-                source_graph=frame_workflow(reference_name,'__adaptive_pose__','__adaptive_guide__',seed,r.positive,r.checkpoint,r.steps,r.negative)
-            else:
-                from .character_profile import character_workflow
-                source_graph=character_workflow(reference_name); route='baseline'
-                pose_unavailable=intent.action in ('stand','reach','walk')
-        elif self.character_profile:
-            if intent.action in ('stand','reach','walk') and pose_available:
-                pose_key = 'reach' if intent.action == 'reach' else 'stand'
-                route = 'pose'
-                if intent.action == 'walk':
-                    from .walk_cycle import walk_rig
-                    from .character_profile import paint_pose
-                    pose_path = DATA/'characters'/'blue_side_v3'/'poses'/'walk_contact.png'
-                    paint_pose(walk_rig(0)).save(str(pose_path))
-                else: pose_path = Path(self.character_profile['poses'][pose_key]['image'])
-                source_graph = json.loads(Path(self.character_profile['poses'][pose_key]['graph']).read_text('utf-8'))
-                # Uploaded during preparation along with the identity reference.
-                source_graph['21']['inputs']['image'] = '__aipictures_pose__'
-            elif intent.action in ('stand','reach','walk') and route=='baseline':
-                pose_unavailable=True
-                source_graph=json.loads(Path(self.character_profile['baseline_graph']).read_text('utf-8'))
-            key = 'positive' if route == 'baseline' else 'pose_positive'
-            r.positive = self.character_profile[key] + ('\nAdditional target: ' + intent.english if intent.english else '')
-        elif intent.english:
-            r.positive = intent.english
-        elif intent.unmatched:
-            raise ValueError('这些中文暂未识别：'+intent.unmatched+'。当前支持站立、伸手、走路及侧视等动作词；其他画面描述请补充英文。')
-        if not r.positive.strip():
-            if reference_name: r.positive = 'high quality, detailed image'
+        from .general_image import positive_text,reference_workflow,bind_reference_weight
+        from .reference_fidelity import effective_denoise
+        seed=int(self.seed.text())
+        if seed==-1: seed=secrets.randbelow(2**53)
+        if not 0<=seed<2**64: raise ValueError('种子范围为 0–2^64-1，或 -1 随机')
+        user_prompt=self.positive.toPlainText()
+        raw_negative=self.negative.toPlainText()
+        positive,unknown=positive_text(user_prompt)
+        negative,negative_unmatched=negative_text(raw_negative)
+        if not positive.strip():
+            if reference_name: positive='create an image based on the reference'
             else: raise ValueError('请先输入画面描述，或添加一张参考图。')
+        weight=self.reference_strength.value()
+        preserving=bool(reference_name) and self.reference_policy.currentData()=='preserve' and (self.custom_graph is not None or weight>0)
+        if preserving:
+            positive+=', preserve reference details except for changes explicitly requested'
+        r=ImageRequest(self.model.currentText(),positive,negative,self.width.value(),self.height.value(),
+            self.steps.value(),self.cfg.value(),seed,self.sampler.currentText(),self.scheduler.currentText(),
+            '' if preserving else (self.lora.currentData() or ''),self.strength.value())
         r.positive,lora_info=style_prompt(r.positive,r.lora)
-        if any(v % 8 for v in (r.width, r.height)): raise ValueError('宽高需为 8 的倍数')
-        graph = source_graph if source_graph is not None else build_workflow(r)
+        if self.custom_graph is None:
+            graph=reference_workflow(r,reference_name,weight)
+        else:
+            graph=self.custom_graph
+        # Weight zero is text-only for the automatic route, including small-edit mode.
+        applied_reference=reference_name if self.custom_graph is not None or weight>0 else ''
+        preserving=preserving and bool(applied_reference)
         denoise=effective_denoise(self.denoise.value(),preserving)
-        graph, mapping = bind_request(graph, r, reference_name, denoise, preserve_reference=preserving)
+        graph,mapping=bind_request(graph,r,applied_reference,denoise,preserve_reference=preserving)
+        bind_reference_weight(graph,weight)
         from .image_quality import append_quality
         quality='off' if preserving else self.quality_mode.currentData()
         append_quality(graph,quality,r.width,r.height)
-        params = asdict(r)
-        params.update(mode='chat', user_prompt=user_prompt, template=self.active_title, bindings=mapping, denoise=denoise,
-            reference_policy='preserve' if preserving else 'redraw')
-        params['intent'] = intent.to_dict()
-        params['lora_style']=lora_info
-        params.update(quality_mode=quality,edge_smoothing=(entry_for(r.lora) or {}).get('quality')!='pixel')
-        params.update(user_negative=raw_negative, negative_unmatched=negative_unmatched)
-        if pose_unavailable: params['pose_fallback']='optional_pose_model_unavailable'
-        if adaptive_action: params['adaptive_action']=adaptive_action
-        if self.character_profile and not adaptive_reference and intent.action in ('stand','reach','walk') and not pose_unavailable and not preserving:
-            params['pose_upload'] = str(pose_path)
-        if self.character_profile and self.character_profile.get('adaptive') and not preserving:
-            params['prepared_reference']=self.character_profile['analysis']['opaque']
-        if self.character_profile and intent.direction == 'left' and not preserving:
-            params['mirror_output'] = True
-        if self.character_profile:
-            params.update(character_id=self.character_profile['id'], rig_id='blue_side_right_v3',
-                          pose=pose_key, character_route=route)
-        return graph, params
+        params=asdict(r)
+        params.update(mode='chat',user_prompt=user_prompt,user_negative=raw_negative,
+            template=self.active_title,bindings=mapping,denoise=denoise,
+            reference_policy='preserve' if preserving else 'redraw',
+            reference_strength=weight if self.custom_graph is None else None,
+            output_background=self.output_background.currentData(),
+            intent={'unmatched':unknown},negative_unmatched=negative_unmatched,lora_style=lora_info,
+            quality_mode=quality,edge_smoothing=(entry_for(r.lora) or {}).get('quality')!='pixel')
+        return graph,params
 
     def load_draft_in_editor(self):
         try:
@@ -732,13 +681,14 @@ class Window(QMainWindow):
             from .image_quality import check_quality_models
             check_quality_models(self.info['object_info'],params['quality_mode'])
             from .background import model_file
-            if not model_file().is_file(): raise ValueError('透明输出需要本地去背景模型，请先运行 setup.bat 安装。')
+            if params['output_background']=='transparent' and not model_file().is_file():
+                raise ValueError('透明输出需要本地去背景模型，请先运行 setup.bat 安装。')
             check_models(graph, self.info['object_info'])
             params['reference'] = str(reference) if reference else None
             fallback = '按角色基准生成' if self.character_profile else '使用这张参考图生成'
             self.add_chat('你', params['user_prompt'].strip() or fallback, str(reference) if reference else None)
             if params['intent']['unmatched'] and params['reference_policy']!='preserve':
-                self.add_chat('软件','未识别的中文暂未写入模型提示词：'+params['intent']['unmatched'])
+                self.add_chat('软件','这些中文已保留原文；当前 SDXL 词表未完整翻译：'+params['intent']['unmatched'])
             if params['negative_unmatched']:
                 self.add_chat('软件','部分反向中文没有词表映射，已保留原文：'+params['negative_unmatched'])
             if params.get('pose_fallback'):
@@ -884,12 +834,12 @@ class Window(QMainWindow):
                 self.progress.setRange(0, 100); self.progress.setValue(100 if kind == 'result' else 0)
                 self.current = None; self.connect_button.setEnabled(True); QTimer.singleShot(0, self.start_next)
         def generate(emit):
-            from .background import process_result
+            from .general_image import finish_output
             from .engine_service import release_idle_models
             result=self.client.generate(graph,folder,emit,cancel)
             result['inference_cache_release']=release_idle_models(self.client)
             emit('postprocess',{'index':0,'count':len(result['images'])})
-            return process_result(result,folder,emit,cancel,params.get('edge_smoothing',True))
+            return finish_output(result,folder,emit,cancel,params.get('output_background')=='transparent',params.get('edge_smoothing',True))
         self.launch(generate, event)
 
     def enqueue_walk(self):

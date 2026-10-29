@@ -15,6 +15,9 @@ class AnimationPlayer(QWidget):
         self.slider = QSlider(Qt.Orientation.Horizontal); self.slider.valueChanged.connect(self.seek); layout.addWidget(self.slider,1)
         self.label = QLabel(); layout.addWidget(self.label)
         export = QPushButton('导出动画…'); export.clicked.connect(self.export); layout.addWidget(export)
+        self.pixel_export = QPushButton('导出像素素材…')
+        self.pixel_export.setToolTip('像素捕捉、锚点归一化、共享调色板和精灵图；不混合前后帧，原始帧保留。')
+        self.pixel_export.clicked.connect(self.export_pixels); layout.addWidget(self.pixel_export)
         self.timer = QTimer(self); self.timer.timeout.connect(self.advance)
 
     def load(self,path):
@@ -69,3 +72,7 @@ class AnimationPlayer(QWidget):
             self.window.cache_store.record_save(target,'animation',self.manifest); self.window.load_gallery()
             self.window.add_chat('软件','已导出 PNG 序列、透明精灵图和 GIF：'+str(target))
         except (OSError,ValueError) as exc: QMessageBox.warning(self,'导出失败',str(exc))
+
+    def export_pixels(self):
+        from .sprite_export import start_export
+        start_export(self)

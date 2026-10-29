@@ -139,4 +139,11 @@ def check_models(graph, object_info):
         if is_link(value): continue
         spec = object_info.get(node['class_type'], {}).get('input', {}).get('required', {}).get(field)
         if spec and isinstance(spec[0], list) and value not in spec[0]:
+            # Windows ComfyUI enumerates subfolders with backslashes. Catalog and
+            # exported workflows use portable slashes; submit the server's exact name.
+            canonical=next((item for item in spec[0] if isinstance(item,str) and isinstance(value,str)
+                and item.replace('\\','/')==value.replace('\\','/')),None)
+            if canonical is not None:
+                node['inputs'][field]=canonical
+                continue
             raise ValueError('此工作流缺少模型：' + str(value) + '。请补齐权重或选择其他工作流。')

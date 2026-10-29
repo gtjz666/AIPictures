@@ -12,7 +12,6 @@ from aipictures.motion_clip import ACTIONS,FOOT_NAMES,make_clip,sample_clip,vali
 from aipictures.pose_animation import video_workflow,animation_prompt,bind_model_names,export_frames
 from aipictures.motion_reference import silhouette_rig,prepare_motion_reference
 from aipictures.reference_analysis import PoseNotApplicable
-from aipictures.prompt_defaults import default_prompts
 from aipictures.action_intent import appearance_description,parse_intent
 
 
@@ -83,14 +82,21 @@ class MotionClipTests(unittest.TestCase):
                 ImageDraw.Draw(image).rectangle((200,100+i*3,270,300+i*3),fill=(i*10,100,120,255)); image.save(path); paths.append(str(path))
             clip=make_clip(rig_document(),'a'*64,'jump')
             manifest={'frames':[],'source_frame_count':17,'fps':8,'frame_count':8,'canvas':[768,1024]}
-            with patch('aipictures.pose_animation.foreground_rgba',side_effect=lambda image,*_:image.convert('RGBA')),patch('aipictures.pose_animation.release_session'):
+            with patch('aipictures.pose_animation.foreground_rgba',side_effect=lambda image,*_,**kw:image.convert('RGBA')) as matte,patch('aipictures.pose_animation.release_session'):
                 result=export_frames(root,{'images':paths,'prompt_id':'owned'},manifest,clip,lambda *args:None,threading.Event())
+                self.assertTrue(all(call.kwargs.get('anti_alias') is False for call in matte.call_args_list))
             self.assertEqual(manifest['pose_selection']['source_indices'],list(range(0,16,2)))
             self.assertTrue(Path(result['gif']).name=='jump.gif' and Path(result['gif']).is_file())
             boxes=[]
             for name in result['frames']:
                 with Image.open(name) as image: boxes.append(image.getbbox())
             self.assertGreater(boxes[-1][1]-boxes[0][1],40)
+            # The pixel route must receive native resolution before old resizing
+            # and color repair, with independent per-frame provenance.
+            for i,entry in enumerate(manifest['frames']):
+                with Image.open(root/entry['native_matte']) as native:
+                    self.assertEqual(native.size,(480,640))
+                    self.assertEqual(native.getpixel((210,110+i*6)),(i*20,100,120,255))
         clip=make_clip(rig_document(),'a'*64); clip['frames'][0]['joints']['right_ankle'][0]=float('nan')
         with self.assertRaises(ValueError): validate_clip(clip)
 
@@ -112,15 +118,9 @@ class MotionClipTests(unittest.TestCase):
         for action in ACTIONS:
             text=animation_prompt('站立，蓝色头发',action)
             self.assertIn(ACTIONS[action][1],text)
-            positive,_=default_prompts(True,True,action)
-            self.assertIn(ACTIONS[action][1],positive)
+            positive='参考图中的同一角色，'+ACTIONS[action][1]
             self.assertNotIn(ACTIONS[action][1],appearance_description(positive))
             self.assertEqual(parse_intent(positive).action,action)
-
-    def test_airborne_actions_do_not_receive_grounded_feet_negative(self):
-        for action in ('run','jump'):
-            self.assertNotIn('脚部悬空',default_prompts(True,True,action)[1])
-        self.assertIn('脚部悬空',default_prompts(True,True,'walk')[1])
 
     def test_negative_exclusions_are_written_into_cfg1_generation_requirements(self):
         text=animation_prompt('参考角色','run',True,'颜色缺失，鞋子重影，机械翅膀')

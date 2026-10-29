@@ -28,6 +28,7 @@ def main():
             source=root/'reference.png'; image=Image.new('RGBA',(256,384))
             ImageDraw.Draw(image).ellipse((60,15,196,368),fill=(190,50,95,255)); image.save(source)
             window.set_reference(source)
+            window.reference_policy.setCurrentIndex(window.reference_policy.findData('preserve'))
             assert window.preserving_reference()
             assert window.lora.currentData()==selected and not window.lora.isEnabled()
             assert not window.quality_mode.isEnabled() and window.denoise.maximum()==.25
@@ -36,14 +37,14 @@ def main():
             assert params['lora']=='' and params['quality_mode']=='off'
             assert graph['5']['inputs']['denoise']<=.25
             assert not any(n['class_type'] in ('LoraLoader','ImageUpscaleWithModel') for n in graph.values())
-            assert 'navy-blue hair' not in graph['2']['inputs']['text']
-            window.reference_policy.setCurrentIndex(1)
+            assert 'navy-blue hair' in graph['2']['inputs']['text']  # Explicit user change survives; no hidden character template.
+            window.reference_policy.setCurrentIndex(window.reference_policy.findData('redraw'))
             assert window.lora.isEnabled() and window.quality_mode.isEnabled() and window.denoise.maximum()==1
             assert window.lora.currentData()==selected
             graph,params=window.graph_snapshot('reference.png')
             assert any(n['class_type']=='LoraLoader' for n in graph.values())
             assert any(n['class_type']=='ImageUpscaleWithModel' for n in graph.values())
-            window.reference_policy.setCurrentIndex(0)
+            window.reference_policy.setCurrentIndex(window.reference_policy.findData('preserve'))
             window.open_settings('image'); QTest.qWait(100)
             window.settings_dialogs['image'].grab().save(str(DATA/'reference-policy-preview.png'))
             window.settings_dialogs['image'].close(); window.open_settings('sampling'); QTest.qWait(100)
@@ -73,16 +74,16 @@ def main():
             callbacks=[]
             window.launch=lambda action,callback:callbacks.append(callback)
             window.start_engine(); assert window.engine_starting and not window.start_engine_button.isEnabled()
-            callbacks[-1]('result',True)
+            callbacks[-1]('result','http://127.0.0.1:8188')
             assert not window.engine_starting and window.start_engine_button.isEnabled()
             window.connect_engine.assert_called()
             window.clear_reference(); assert window.preview_path is None
             assert window.lora.isEnabled() and window.quality_mode.isEnabled()
             window.close()
     write_json(DATA/'recovery-fidelity-controls-acceptance.json',{
-        'passed':True,'real_qt_hover_visible':True,'reference_preserve_default':True,
+        'passed':True,'real_qt_hover_visible':True,'reference_preserve_explicit':True,
         'style_and_restoration_retained_but_not_applied':True,'explicit_redraw_restores_manual_choices':True,
-        'source_appearance_overrides_text':True,'disconnect_pauses_unstarted_jobs':True,
+        'explicit_user_prompt_preserved':True,'disconnect_pauses_unstarted_jobs':True,
         'one_click_start_connects_when_ready':True,'no_user_server_stopped':True})
     print('Recovery, hover help and reference fidelity Qt checks passed.',flush=True)
 

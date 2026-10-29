@@ -7,6 +7,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.request import Request,urlopen
+from urllib.request import ProxyHandler,build_opener,install_opener
 
 from aipictures.storage import DATA,write_json
 
@@ -60,7 +61,9 @@ def install_file(target,spec):
 
 def main():
     parser=argparse.ArgumentParser(); parser.add_argument('--models',required=True)
+    parser.add_argument('--proxy')
     args=parser.parse_args(); root=Path(args.models).resolve()
+    if args.proxy: install_opener(build_opener(ProxyHandler({'http':args.proxy,'https':args.proxy})))
     catalog=json.loads((Path(__file__).resolve().parents[1]/'aipictures/resources/lora_catalog.json').read_text('utf-8'))
     jobs=[(root/'loras'/item['filename'],item['download']) for item in catalog['models']]
     jobs += [(root/'upscale_models'/item['filename'],item) for item in UPSCALERS]

@@ -280,6 +280,61 @@
         "bytes": 170543052,
         "sha256": "4234637cb80c998f41e348e6a6cb6bc20d8d038b2b0f256b6129b3b5e353eef7"
       }
+    },
+    {
+      "id": "crayon",
+      "title": "蜡笔插画",
+      "category": "插画",
+      "description": "蜡笔笔触与纸面质感，适合手绘角色、道具与场景。",
+      "base_family": "sdxl",
+      "base_model": "stabilityai/stable-diffusion-xl-base-1.0",
+      "filename": "AIPictures/crayon-sdxl.safetensors",
+      "recommended_strength": 1.0,
+      "strength_range": [
+        0,
+        1.5
+      ],
+      "triggers": [],
+      "conditioning": [
+        "crayon drawing"
+      ],
+      "quality": "anime",
+      "source": "https://huggingface.co/ostris/crayon_style_lora_sdxl",
+      "license": "apache-2.0",
+      "license_url": "https://huggingface.co/ostris/crayon_style_lora_sdxl",
+      "download": {
+        "url": "https://huggingface.co/ostris/crayon_style_lora_sdxl/resolve/aef7fd10d197d2a80b008e9e8f0575da0a312025/crayons_v1_sdxl.safetensors",
+        "revision": "aef7fd10d197d2a80b008e9e8f0575da0a312025",
+        "bytes": 48101644,
+        "sha256": "f620948d05bc064567a73adf6c2decab184ddbae3fb9602fb3fcb1136dbda93b"
+      }
+    },
+    {
+      "id": "isometric",
+      "title": "等距游戏视角",
+      "category": "游戏素材",
+      "description": "增强等距构图倾向，适合建筑、物件与场景；不保证生成可直接拼接的地图。",
+      "base_family": "sdxl",
+      "base_model": "stabilityai/stable-diffusion-xl-base-1.0",
+      "filename": "AIPictures/isometric-sdxl.safetensors",
+      "recommended_strength": 2.0,
+      "strength_range": [
+        -3,
+        3
+      ],
+      "triggers": [
+        "isometric view"
+      ],
+      "quality": "general",
+      "source": "https://huggingface.co/ntc-ai/SDXL-LoRA-slider.isometric-view",
+      "license": "mit",
+      "license_url": "https://huggingface.co/ntc-ai/SDXL-LoRA-slider.isometric-view",
+      "download": {
+        "url": "https://huggingface.co/ntc-ai/SDXL-LoRA-slider.isometric-view/resolve/9f92c33115463c41dd52d3ac39f962498d3b0212/isometric%20view.safetensors",
+        "revision": "9f92c33115463c41dd52d3ac39f962498d3b0212",
+        "bytes": 8789076,
+        "sha256": "eeb4ce266fc54c1bf25652522fab9ab369ff04cf27d3040eec0a3e4f4d94d3a0"
+      }
     }
   ]
 }

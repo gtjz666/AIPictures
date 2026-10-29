@@ -12,7 +12,6 @@ from aipictures.app import Window,create_application
 from aipictures.character_profile import character_workflow
 from aipictures.lora_catalog import catalog,entry_for
 from aipictures.storage import DATA,write_json
-from aipictures.prompt_defaults import default_prompts
 
 
 def main():
@@ -20,7 +19,7 @@ def main():
     with tempfile.TemporaryDirectory(dir=DATA) as temp:
         root=Path(temp); (root/'chat').mkdir()
         write_json(root/'chat/active-workflow.json',{'character_id':'old-default','graph':character_workflow('old-reference.png'),'title':'old'})
-        with patch('aipictures.app.DATA',root),patch.object(Window,'load_gallery',lambda self:None),patch.object(Window,'restore_chat',lambda self:None):
+        with patch('aipictures.app.DATA',root),patch.object(Window,'load_gallery',lambda self:None),patch.object(Window,'restore_chat',lambda self:None),patch.object(Window,'refresh_stats',lambda self:None):
             window=Window(); window.show(); started=time.monotonic()
             while not window.connected and time.monotonic()-started<20: QTest.qWait(100)
             assert window.connected
@@ -28,16 +27,18 @@ def main():
             assert window.pixmap.isNull() and window.preview.pixmap().isNull()
             assert window.lora.currentData()=='' and window.quality_mode.currentData()=='off'
             assert not (root/'references').exists()
-            assert (window.positive.toPlainText(),window.negative.toPlainText())==default_prompts()
-            window.grab().save(str(DATA/'prompt-defaults-preview.png'))
+            assert (window.positive.toPlainText(),window.negative.toPlainText())==('','')
+            assert not hasattr(window,'reset_prompts_button')
+            window.grab().save(str(DATA/'general-prompts-preview.png'))
             window.generation_type.setCurrentIndex(1)
-            assert (window.positive.toPlainText(),window.negative.toPlainText())==default_prompts(True,False)
+            assert (window.positive.toPlainText(),window.negative.toPlainText())==('','')
+            assert window.reference_policy.currentData()=='preserve'
             edited=('我自己的角色描述','我自己的反向限制')
             window.positive.setPlainText(edited[0]); window.negative.setPlainText(edited[1])
             window.generation_type.setCurrentIndex(0)
             assert (window.positive.toPlainText(),window.negative.toPlainText())==edited
-            QTest.mouseClick(window.reset_prompts_button,Qt.MouseButton.LeftButton)
-            assert (window.positive.toPlainText(),window.negative.toPlainText())==default_prompts()
+            assert window.reference_policy.currentData()=='redraw'
+            window.positive.clear();window.negative.clear()
             assert window.lora.currentData()==''
             window.positive.setPlainText('动漫，写实摄影，像素画，漫画')
             assert window.lora.currentData()==''
@@ -68,11 +69,18 @@ def main():
             viewer.smoothing.setChecked(False)
             assert viewer.view.item.transformationMode()==Qt.TransformationMode.FastTransformation
             viewer.close()
-            QTest.mouseClick(window.reset_prompts_button,Qt.MouseButton.LeftButton)
-            assert (window.positive.toPlainText(),window.negative.toPlainText())==default_prompts(False,True)
+            window.positive.setPlainText('正面全身，面向镜头，保持服装')
+            window.negative.setPlainText('模糊，水印')
+            window.reference_strength.setValue(.4)
+            graph,params=window.graph_snapshot('__chosen_reference__')
+            assert graph['4']['class_type']=='EmptyLatentImage' and graph['5']['inputs']['denoise']==1
+            assert graph['reference_condition']['inputs']['weight']==.4
+            assert 'front view' in graph['2']['inputs']['text'] and 'side profile' not in graph['2']['inputs']['text']
+            assert not any(n['class_type'].startswith('ControlNet') for n in graph.values())
+            assert params['output_background']=='preserve'
             assert window.lora.currentData()==chosen
             window.activate_template(character_workflow('placeholder.png'),'restored workflow',preserve_prompts=True)
-            assert window.negative.toPlainText()==default_prompts(False,True)[1]
+            assert window.negative.toPlainText()=='模糊，水印'
             window.activate_template(character_workflow('placeholder.png'),'reference workflow')
             window.reference_policy.setCurrentIndex(window.reference_policy.findData('redraw'))
             graph,params=window.graph_snapshot('__chosen_reference__')
@@ -96,8 +104,9 @@ def main():
         'prompt_does_not_select_lora':True,'startup_has_no_reference':True,'old_character_not_restored':True,
         'selected_reference_displayed_unchanged':True,'clear_reference_clears_preview':True,
         'lora_reaches_template_model_and_clip':True,'smooth_zoom_and_pixel_toggle':True,
-        'chinese_prompts_prefilled':True,'pristine_defaults_follow_generation_type':True,
-        'edited_prompts_preserved':True,'one_click_restore_defaults':True})
+        'startup_prompts_empty':True,'mode_switch_never_fills_prompts':True,
+        'edited_prompts_preserved':True,'generic_reference_has_fresh_latent':True,
+        'front_view_not_replaced_by_side_profile':True,'reference_weight_applied':True})
     print('Manual style, empty/selected reference and smooth zoom checks passed.',flush=True)
 
 

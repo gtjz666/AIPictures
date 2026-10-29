@@ -5,3 +5,4 @@ rembg[cpu]==2.0.86
 numpy>=2.3,<3
 scipy>=1.16.3,<2
 scikit-image>=0.26,<0.27
+PyYAML>=6.0.3,<7

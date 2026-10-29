@@ -4,7 +4,7 @@
 
 主动选择后，界面给出推荐强度，并将需要的触发词 / 风格短语写入本次提示词。模型只调整风格倾向，不锁定特定人物身份，也不保证数量、肢体、构图或动作全部准确。
 
-全部模型基于 SDXL 1.0。单张生成和文字动画的前置角色图可用；SDXL 权重不会送入 Wan。当前已安装权重总计约 1.30GB。
+12 款模型基于 SDXL 1.0。单张生成和文字动画的前置角色图可用；SDXL 权重不会送入 Wan。
 
 | 类型 | 选择项 | 推荐强度 | 触发词 | 作者来源 / 原文许可 |
 |---|---|---:|---|---|
@@ -18,6 +18,8 @@
 | 写实 | 人像摄影 | 0.8 | instagram model | [artificialguybr](https://huggingface.co/artificialguybr/selfiephotographyredmond-selfie-photography-lora-for-sdxl) · other |
 | 插画 | 水彩绘画 | 0.8 | 无需 | [ostris](https://huggingface.co/ostris/watercolor_style_lora_sdxl) · apache-2.0 |
 | 像素 | 游戏像素 | 1 | 无需 | [nerijs](https://huggingface.co/nerijs/pixel-art-xl) · creativeml-openrail-m |
+| 插画 | 蜡笔插画 | 1 | 无需；附加 crayon drawing | [ostris](https://huggingface.co/ostris/crayon_style_lora_sdxl) · apache-2.0 |
+| 游戏素材 | 等距游戏素材 | 2 | isometric view | [ntc-ai](https://huggingface.co/ntc-ai/SDXL-LoRA-slider.isometric-view) · mit |
 
 写实增强选中后附加 photograph / photorealistic / natural lighting；水彩选中后附加 watercolor painting 等风格短语。它们由明确选择决定，不分析提示词来推荐 LoRA。各文件遵循作者页面所列条款；author-page 表示页面未单列统一许可，不将其解释为统一商用授权。
 
@@ -30,7 +32,7 @@
 - 单基础模型模板中，所选 LoRA 接在 checkpoint 的 model / clip 输出，位于 IP-Adapter 上游，VAE 保持原连接。作者原有 LoRA 不覆盖；选择项会叠加，界面有提示。多基础模型需在高级编辑器配置。
 - 未登记的本地 LoRA 标为“未分类”；不依据文件名或提示词猜测其风格。
 
-有参考图并使用“优先保留细节”时，单图也暂停应用风格 LoRA 和高清重画；原手选项保留。要改变参考图风格，请在“模型与画面…”明确切换“允许按描述重绘”。
+有参考图并使用“原图小幅修改”时，单图暂停应用风格 LoRA 和高清重画；原手选项保留。要改变参考图风格，请在“模型与画面…”选择“按描述创作”。主界面的风格说明显示当前选择是否应用。
 
 ## 高清修复与文件位置
 
@@ -53,3 +55,7 @@ LoRA：`D:\Local Comfy\ComfyUI\models\loras\AIPictures`。另安装官方 [Real-
 真实桌面测试完成“无参考图 → 手选 LoRA → 手选动漫高清 → 采样进度 → 透明 PNG → 界面预览及保存”。两种高清修复均使用已生成的人物 / 卡通原始帧实际运行，验证输出顺序与 768×1024 尺寸；没有重新运行整段 Wan 动画。文字动画接入 LoRA 的图结构已验证，本轮未重复完整 Wan 视觉验收。
 
 记录：data/style-models-acceptance.json、data/style-refinement-acceptance.json、data/style-controls-acceptance.json、data/style-image-acceptance.json、data/quality-models-acceptance.json。
+
+新增两款共 **56,890,720 字节**，固定版本并校验 SHA-256。两款均实际接入同一 SDXL、同种子、同一建筑提示词，与不使用风格的结果对照；验证加载与风格变化，不作成品准确率承诺。Windows 下模型路径分隔符会匹配成后端实际枚举值，避免已安装文件仍报缺失。
+
+像素 LoRA 输出仍可能带模糊边缘；完成动画后使用“导出像素素材…”进一步捕捉网格、限制色板并验收。此独立路线不会调用上述超分模型。

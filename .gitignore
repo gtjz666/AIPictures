@@ -19,11 +19,13 @@ htmlcov/
 /input/
 /output/
 /outputs/
+/out/
 /logs/
 /temp/
 /tmp/
 *.log
 *.tmp
+*.sprite-tmp
 *.latent
 *.sqlite
 *.sqlite3

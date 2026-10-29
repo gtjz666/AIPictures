@@ -141,12 +141,16 @@ def export_frames(folder,result,manifest,clip,emit,cancel):
             if cancel.is_set(): raise Cancelled('动作透明处理已取消，原始帧已保留。')
             emit('reference_stage',{'message':f'处理{ACTIONS[clip["action"]][0]}透明帧 {i+1}/{count}'})
             frame_started=time.monotonic()
-            with Image.open(result['images'][index]) as raw: image=foreground_rgba(raw,cancel)
+            with Image.open(result['images'][index]) as raw: image=foreground_rgba(raw,cancel,anti_alias=False)
+            key=folder/f'frame_{i:03d}'; key.mkdir(exist_ok=True)
+            # Separate pixel-asset source: no enlargement, palette repair or edge
+            # smoothing. This route is consumed only on explicit pixel export.
+            native=ImageOps.mirror(image) if manifest.get('source_direction')=='left' else image
+            native.save(key/'matte_native.png')
             # A generated frame's fractional matte can contain motion trails.
             # Reference pinhole repair must not turn those trails into solid limbs.
             image=clean_foreground(image,repair_interior=False).resize(SIZE,Image.Resampling.LANCZOS)
             frame_pose=sample_clip(clip,i/count)
-            key=folder/f'frame_{i:03d}'; key.mkdir(exist_ok=True)
             matte_path=key/'matte.png'; image.save(matte_path); matte_paths.append(matte_path); poses.append(frame_pose)
             matting_seconds.append(round(time.monotonic()-frame_started,3))
             emit('matte_progress',{'value':i+1,'max':count})
@@ -212,6 +216,7 @@ def export_frames(folder,result,manifest,clip,emit,cancel):
         condition_image.save(key/'pose.png')
         paint_rig(frame_pose,SIZE).save(key/'foot-controls.png')
         manifest['frames'].append({'index':i,'image':output.name,'source_frame':index,
+            'native_matte':f'frame_{i:03d}/matte_native.png',
             'stage':ACTIONS[clip['action']][0],'phase':i/count,'pose':f'frame_{i:03d}/pose.json',
             'workflow':'video/workflow.json','prompt_id':result['prompt_id'],'foot_quality':quality,
             'color_consistency':color_plan['frames'][i],'hand_quality':hand_quality,'hair_quality':hair_quality,
