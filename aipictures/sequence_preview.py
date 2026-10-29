@@ -32,7 +32,8 @@ class SequencePreview(QTabWidget):
     def load(self,manifest,folder):
         self.frames.clear(); folder=Path(folder)
         for entry in manifest['frames']:
-            review=entry.get('color_consistency',{}).get('status')=='color_cast_requires_review' or bool(
+            palette=entry.get('reference_palette',{})
+            review=palette.get('requires_review',False) or (not palette.get('method') and entry.get('color_consistency',{}).get('status')=='color_cast_requires_review') or bool(
                 entry.get('hand_quality',{}).get('unresolved_pixels') or entry.get('foot_quality',{}).get('unresolved_pixels'))
             caption=f'{entry["index"]+1:02d} · {entry["stage"]}'+(' · 待复查' if review else '')
             item=QListWidgetItem(QIcon(str(folder/entry['image'])),caption)

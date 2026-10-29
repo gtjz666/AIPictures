@@ -13,7 +13,8 @@
 - `motion_dynamics.py`：按动作的重心、肩胯、头部缓冲与腿部 IK，保留脚部接触和骨长；不覆盖旧手动关键帧。
 - `pose_condition.py`：DWPose 风格的原生分辨率条件图及随前臂转换的参考手指关键点，独立于编辑器展示。
 - `motion_preview.py`：参考取色的矢量人物示意，无推理与纹理重绘。
-- `sequence_color.py` / `hand_quality.py`：整段多区域曝光校验和有参考约束的局部新色相修正；不自动独立缩放 RGB 通道，Alpha 不变，不证明几何修复。
+- `palette_consistency.py`：透明前景中的区域颜色原型匹配，所有帧以原参考图为基准做有限 Lab 偏移；保留纹理渐变，不量化最终像素，不修改 Alpha/几何，大幅不确定颜色需复查。`sequence_color.py` 保留时间曝光诊断，并用于无保真参考的回退；`hand_quality.py` / `reference_color.py` 保留原有局部异常色保护。方法见 [配色说明](ANIMATION_COLOR_WORKFLOW.md)。
+- `face_reference.py`：可信面部关键点测量裁切，仅供独立面部条件诊断。真实测试未通过耗时与成片验收，常规生成关闭，没有增加用户操作或下载新模型。
 - `animation_constraints.py`：CFG 1 下将常见排除文本写成正向生成要求，自定义项保留；不选择 LoRA。
 - `motion_editor.py`：Qt 拖动关节、基准/逐帧编辑、骨骼预览与保存；数据按角色校验值/动作存储，入队后深拷贝快照。修改关键帧后重新生成整个连续片段。
 - `pose_animation.py`：原生 WanAnimateToVideo Move 条件图，参考图 + CLIP Vision + 平衡 ImageBatch 拼接全部姿态，TrimVideoLatent 移除参考潜帧；原生 VAE 解码。480×640、17/33 输入帧，对应 8/16 导出帧，等待上限两小时。整周期均匀取样，不做逐帧地面对齐，保留跳跃位移。

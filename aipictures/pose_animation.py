@@ -157,16 +157,33 @@ def export_frames(folder,result,manifest,clip,emit,cancel):
     from .sequence_color import plan_files,apply_correction
     color_started=time.monotonic(); color_plan=plan_files(matte_paths,poses)
     manifest['color_consistency']=color_plan; write_json(folder/'color-consistency.json',color_plan)
+    palette=None
+    if reference_rgba is not None:
+        from .palette_consistency import palette_plan
+        palette=palette_plan(matte_paths,poses,reference_rgba,clip['base_rig'])
+        manifest['reference_palette']=palette;write_json(folder/'reference-palette-plan.json',palette)
     for i,(matte_path,frame_pose) in enumerate(zip(matte_paths,poses)):
         if cancel.is_set(): raise Cancelled('颜色处理已取消，原始透明帧已保留。')
         key=folder/f'frame_{i:03d}'; index=indices[i]
-        with Image.open(matte_path) as matte: image=apply_correction(matte,color_plan['frames'][i])
+        with Image.open(matte_path) as matte: image=matte.convert('RGBA')
+        if palette is not None:
+            from .palette_consistency import apply_palette
+            image,palette_quality=apply_palette(image,frame_pose,palette['frames'][i])
+            if palette_quality['changed_pixels']:
+                backup=key/'before_reference_palette.png'
+                with Image.open(matte_path) as source: source.save(backup)
+            write_json(key/'palette-quality.json',palette_quality)
+        else:
+            image=apply_correction(image,color_plan['frames'][i])
+            palette_quality={'changed_pixels':0,'reason':'no_preserved_reference'}
         quality={'changed_pixels':0}
         if reference_rgba is not None:
+            # Retain the narrow, previously validated hue guard as a fallback for
+            # severe violet/blue hair casts; the general palette covers all colors.
             from .reference_color import repair_reference_hair
             corrected,hair_quality=repair_reference_hair(image,reference_rgba,frame_pose,clip['base_rig'])
             if hair_quality['changed_pixels']:
-                image.save(key/'before_hair_color_repair.png'); image=corrected
+                image.save(key/'before_hair_color_repair.png');image=corrected
             write_json(key/'hair-quality.json',hair_quality)
             from .hand_quality import repair_reference_hands
             corrected,hand_quality=repair_reference_hands(image,reference_rgba,frame_pose,clip['base_rig'])
@@ -197,7 +214,8 @@ def export_frames(folder,result,manifest,clip,emit,cancel):
         manifest['frames'].append({'index':i,'image':output.name,'source_frame':index,
             'stage':ACTIONS[clip['action']][0],'phase':i/count,'pose':f'frame_{i:03d}/pose.json',
             'workflow':'video/workflow.json','prompt_id':result['prompt_id'],'foot_quality':quality,
-            'color_consistency':color_plan['frames'][i],'hand_quality':hand_quality,'hair_quality':hair_quality})
+            'color_consistency':color_plan['frames'][i],'hand_quality':hand_quality,'hair_quality':hair_quality,
+            'reference_palette':palette_quality})
         # Magnified lower-leg review is saved separately so shoe topology is inspected.
         points=[frame_pose['joints'][side+'_'+part] for side in ('right','left') for part in ('ankle','heel','toe')]
         crop=image.crop((max(0,int(min(p[0] for p in points))-45),max(0,int(min(p[1] for p in points))-65),
@@ -240,7 +258,8 @@ def math_ceil_half(value):
 
 
 def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=None,checkpoint='',steps=20,
-             action='walk',motion=None,lora='',lora_strength=.8,static_test=False,fast=False,raw_only=False,preserve_reference=True):
+             action='walk',motion=None,lora='',lora_strength=.8,static_test=False,fast=False,raw_only=False,preserve_reference=True,
+             face_condition=False):
     folder=Path(folder)
     started=time.monotonic()
     manifest={'schema_version':4,'kind':'walk','action':action,'title':ACTIONS[action][0]+'动画',
@@ -277,6 +296,17 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
         manifest.update(reference=str(reference),reference_sha256=sha,intent={'action':action,'direction':analysis['direction']},
             control='static_pose_test' if static_test else 'full_pose_sequence',source_direction=analysis['direction'])
         reference_name=client.upload_image(analysis['opaque'])
+        face_name=None
+        # Experimental diagnostic only: repeated-face conditioning has not passed
+        # this machine's latency/visual acceptance and is not enabled by the UI.
+        manifest['face_reference']={'used':False,'reason':'experimental_branch_disabled'}
+        if face_condition and manifest['preserve_reference']:
+            from .face_reference import reference_face
+            with Image.open(analysis['opaque']) as source: face,face_report=reference_face(source,clip['base_rig'])
+            manifest['face_reference']=face_report
+            if face is not None:
+                face_path=folder/'reference-face.png';face.save(face_path)
+                face_name=client.upload_image(face_path,subfolder='AIPictures/reference_faces')
         # Exact cycle timing; no similarity heuristic may select only its first half.
         # Playback FPS changes playback only. It must not create hundreds of model frames.
         length=count*2+1
@@ -293,7 +323,7 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
         release_session(); manifest['pose_cache_release']=release_idle_models(client)
         video=folder/'video'; video.mkdir()
         effective_negative=negative+'，多余脚掌，重复鞋尖，分叉鞋底，双层鞋底，鞋子重影，断开的脚踝，姿态控制线条，额外色块，曝光突变，色温漂移'
-        graph=video_workflow(reference_name,names,animation_prompt(prompt,action,preserve_reference,negative),effective_negative,seed,steps,fast)
+        graph=video_workflow(reference_name,names,animation_prompt(prompt,action,preserve_reference,negative),effective_negative,seed,steps,fast,face=face_name)
         bind_model_names(graph,client.discover()['object_info'])
         write_json(video/'workflow.json',graph)
         manifest.update(status='running',source_frame_count=length,effective_negative=effective_negative,
