@@ -20,7 +20,7 @@
 
 ## 生成参数与耗时
 
-之前把普通 I2V 的 CFG 3.5 沿用到 Animate，现改为 Animate 官方的 **20 步、CFG 1、shift 5**，保留 480×640 原生推理、17/33 姿态帧、原模型精度和原生 VAE 解码，不启用快速诊断 LoRA。[官方配置](https://github.com/Wan-Video/Wan2.2/blob/main/wan/configs/wan_animate_14B.py)
+之前把普通 I2V 的 CFG 3.5 沿用到 Animate，现改为 Animate 官方的 **20 步、CFG 1、shift 5**，使用 17/33 姿态帧、原模型精度和原生 VAE 解码，不启用快速诊断 LoRA。旧的 480×640 原生推理现为可选快速预览；默认已提升到 768×1024 原生细节，详见 [清晰度说明](ANIMATION_SHARPNESS.md)。[官方配置](https://github.com/Wan-Video/Wan2.2/blob/main/wan/configs/wan_animate_14B.py)
 
 CFG 1 通常省去负向分支的模型计算，不能再把它描述为与高 CFG 相同的反向引导。软件保留原反向文本与节点用于记录，同时把常见排除项整理成简短正向生成要求，自定义排除内容也随实际提示词保存。这是固定文本规则，不调用语言模型，不选择或分析 LoRA 类型；不保证所有自然语言要求都准确实现。
 

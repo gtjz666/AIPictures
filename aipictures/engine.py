@@ -83,7 +83,7 @@ class ComfyClient:
         if any(row[1] == prompt_id for row in queue.get('queue_running', [])):
             self.request('/interrupt', {'prompt_id': prompt_id})
 
-    def generate(self, graph, folder, emit, cancel, submitted=lambda _: None, timeout=1800):
+    def generate(self, graph, folder, emit, cancel, submitted=lambda _: None, timeout=1800, allow_latent_only=False):
         client_id = uuid.uuid4().hex
         try:
             ws = websocket.create_connection(self.url.replace('http:', 'ws:', 1) + '/ws?clientId=' + client_id,
@@ -146,7 +146,9 @@ class ComfyClient:
                                 content = self.request('/view?' + urlencode(item), raw=True)
                                 path = folder / f'samples_{len(latents):03d}.latent'
                                 path.write_bytes(content); latents.append(str(path))
-                        if not images:
+                        if not images and not (allow_latent_only and latents):
+                            if allow_latent_only:
+                                raise RuntimeError('工作流执行结束但没有保存图片或潜变量，请检查 SaveLatent / SaveImage 输出节点')
                             raise RuntimeError('工作流执行结束但没有保存图片，请使用 SaveImage 输出节点')
                         return {'prompt_id': prompt_id, 'images': images, 'latents':latents, 'history': history}
             raise TimeoutError(f'等待超过 {timeout} 秒；ComfyUI 任务可能仍在执行，任务 ID：{prompt_id}')

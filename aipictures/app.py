@@ -341,6 +341,8 @@ class Window(QMainWindow):
         if walking:
             text+=({'wan':'AI 自由动画','animate':'完整骨骼 · '+('自动适配' if self.motion_mode.currentData()=='auto' else '手动调整'),'rig':'旧版人体骨骼'}[self.animation_engine.currentData()])+'\n'
             text+=f'{self.walk_count.currentData()} 帧 · {self.walk_fps.value()} FPS\n'
+            if self.animation_engine.currentData()=='animate':
+                text+=self.animation_detail.currentText()+'\n'
         background='透明主体' if walking or self.output_background.currentData()=='transparent' else '完整画面'
         text+=f'{self.width.value()} × {self.height.value()} · '+background
         self.creation_summary.setText(text)
@@ -411,6 +413,9 @@ class Window(QMainWindow):
         if walking:
             self.width.setValue(768); self.height.setValue(1024)
         self.animation_steps.setEnabled(walking and self.animation_engine.currentData() in ('wan','animate'))
+        self.animation_detail.setEnabled(walking and self.animation_engine.currentData()=='animate')
+        self.animation_sampler.setEnabled(walking and self.animation_engine.currentData()=='animate')
+        self.animation_color.setEnabled(walking and self.animation_engine.currentData()=='animate')
         temporal=walking and self.animation_engine.currentData() in ('wan','animate')
         self.motion_mode.setEnabled(walking and self.animation_engine.currentData()=='animate')
         self.model.setEnabled(not temporal or self.animation_source.currentData()=='text')
@@ -861,6 +866,8 @@ class Window(QMainWindow):
             from .pose_animation import check_models as check_pose_models
             from .background import model_file
             check_pose_models(self.info['object_info'])
+            if self.animation_sampler.currentData() not in self.info.get('samplers',[]):
+                raise ValueError('当前后端不支持所选动画采样方式，请重新选择后生成。')
             if 'DWPreprocessor' not in self.info['nodes']: raise ValueError('完整骨骼适配需要本地 DWPose 节点。')
             if not model_file().is_file(): raise ValueError('透明动画需要本地去背景模型。')
             if self.motion_mode.currentData()=='manual':
@@ -894,7 +901,9 @@ class Window(QMainWindow):
                   'negative':self.negative.toPlainText(),
                   'lora':(self.lora.currentData() or '') if engine in ('wan','animate') and reference is None else '',
                   'lora_strength':self.strength.value(),'quality_mode':'off' if self.preserving_reference() else self.quality_mode.currentData(),
-                  'preserve_reference':self.preserving_reference(),'action':action,'motion':motion}
+                  'preserve_reference':self.preserving_reference(),'action':action,'motion':motion,
+                  'animation_detail':self.animation_detail.currentData(),'animation_sampler':self.animation_sampler.currentData(),
+                  'animation_color':self.animation_color.currentData()}
         write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'queued','params':params})
         item = QListWidgetItem(task_name(params)+' · 等待'); item.setToolTip(str(folder)); self.queue_list.addItem(item)
         self.pending.append((None,params,folder,item))
@@ -925,6 +934,9 @@ class Window(QMainWindow):
                     step=data['data']; self.progress.setValue(round(10+70*step['value']/max(1,step['max'])))
                     self.status.setText(task_name(params))
                 elif data['event']=='executing': self.status.setText(task_name(params)+' · 模型处理')
+            elif kind=='decode_event':
+                if data['event']=='queued':self.current['prompt_id']=data['data']['prompt_id']
+                self.status.setText('解码原生动画帧…')
             elif kind=='quality_event':
                 if data['event']=='queued': self.current['prompt_id']=data['data']['prompt_id']
                 self.status.setText('正在进行手动选择的高清修复…')
@@ -984,7 +996,9 @@ class Window(QMainWindow):
             self.launch(lambda emit:generate(self.client,folder,params['prompt'],params['negative'],params['seed'],
                 params['count'],params['fps'],emit,cancel,params['reference'],params['checkpoint'],params['steps'],
                 params.get('action','walk'),params.get('motion'),params.get('lora',''),params.get('lora_strength',.8),
-                preserve_reference=params.get('preserve_reference',True)),event)
+                preserve_reference=params.get('preserve_reference',True),
+                detail=params.get('animation_detail','preview'),sampler=params.get('animation_sampler','euler'),
+                color_mode=params.get('animation_color','reference')),event)
         elif params.get('engine')=='wan':
             from .temporal_animation import generate_temporal
             self.launch(lambda emit:generate_temporal(self.client,folder,params['prompt'],params['negative'],

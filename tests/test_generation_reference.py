@@ -73,8 +73,10 @@ def test_animation_does_not_matte_reference_before_inference(tmp_path, text_only
     client = Mock()
     client.discover.return_value = {'object_info': {}}
     client.upload_image.side_effect = lambda p, **kw: Path(p).name
+    latent=tmp_path/'samples.latent';latent.write_bytes(b'valid-test-data')
+    sampled={'images':[],'latents':[str(latent)],'prompt_id':'sampled'}
     raw = {'images': [str(source)] * 17, 'prompt_id': 'test-prompt'}
-    client.generate.side_effect = [{'images': [str(source)], 'prompt_id': 'character'}, raw] if text_only else [raw]
+    client.generate.side_effect = [{'images': [str(source)], 'prompt_id': 'character'}, sampled, raw] if text_only else [sampled, raw]
     output = tmp_path / 'animation'; output.mkdir()
     with patch('aipictures.pose_animation.prepare_motion_reference', return_value=analysis), \
          patch('aipictures.pose_animation.release_idle_models', return_value={}), \

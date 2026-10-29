@@ -62,6 +62,16 @@ def build_studio(w):
     w.animation_source.addItem('仅文字描述（先生成角色图）','text'); wf.addRow('角色来源',w.animation_source)
     w.animation_source.setCurrentIndex(1)
     w.animation_steps = w.spin(4,60,20); wf.addRow('动画推理步数',w.animation_steps)
+    from .animation_detail import DETAIL_PROFILES,SAMPLERS,COLOR_MODES
+    w.animation_detail=QComboBox()
+    for key,profile in DETAIL_PROFILES.items():w.animation_detail.addItem(profile['title'],key)
+    wf.addRow('动画清晰度',w.animation_detail)
+    w.animation_sampler=QComboBox()
+    for key,title in SAMPLERS.items():w.animation_sampler.addItem(title,key)
+    wf.addRow('动画采样',w.animation_sampler)
+    w.animation_color=QComboBox()
+    for key,title in COLOR_MODES.items():w.animation_color.addItem(title,key)
+    wf.addRow('配色处理',w.animation_color)
     w.walk_count = QComboBox(); w.walk_count.addItem('8 帧 · 标准周期',8); w.walk_count.addItem('16 帧 · 更平滑',16)
     wf.addRow('帧数', w.walk_count)
     w.walk_fps = w.spin(1,30,8); wf.addRow('播放帧率', w.walk_fps)
@@ -216,7 +226,7 @@ def build_studio(w):
     footer.addWidget(w.reconnect_button); footer.addWidget(w.output_toggle); outer.addLayout(footer)
     for combo in (w.model,w.sampler,w.scheduler,w.workflow_selector,w.lora,w.character_route,w.pose_choice,w.generation_type,w.walk_count):
         combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon); combo.setMinimumContentsLength(8)
-    for signal in (w.width.valueChanged,w.height.valueChanged,w.walk_count.currentIndexChanged,w.walk_fps.valueChanged):
+    for signal in (w.width.valueChanged,w.height.valueChanged,w.walk_count.currentIndexChanged,w.walk_fps.valueChanged,w.animation_detail.currentIndexChanged):
         signal.connect(lambda _:w.update_sidebar_summary())
     w.animation_engine.currentIndexChanged.connect(w.generation_type_changed)
     w.animation_source.currentIndexChanged.connect(w.generation_type_changed)

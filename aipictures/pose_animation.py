@@ -20,7 +20,7 @@ from .pose_condition import render_condition
 MODEL='Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors'
 SPEED_LORA='AIPictures/animation/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors'
 VISION='CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors'
-VIDEO_SIZE=(480,640)
+VIDEO_SIZE=(768,1024)
 
 
 def animation_prompt(text,action='walk',preserve=True,negative=''):
@@ -63,9 +63,12 @@ def image_batch(graph,names,prefix='pose'):
     return links[0]
 
 
-def video_workflow(reference,poses,positive,negative,seed,steps=20,fast=False,face=None):
+def video_workflow(reference,poses,positive,negative,seed,steps=20,fast=False,face=None,
+                   size=VIDEO_SIZE,sampler='euler',scheduler='simple'):
     n=len(poses)
     if n<5 or (n-1)%4: raise ValueError('骨骼视频帧数必须为 4n+1，且不少于 5 帧。')
+    if len(size)!=2 or any(type(value) is not int or value<128 or value>2048 or value%16 for value in size):
+        raise ValueError('动画原生画布须为 128–2048 范围内的 16 的倍数。')
     graph={
       '1':{'class_type':'UNETLoader','inputs':{'unet_name':MODEL,'weight_dtype':'default'}},
       '3':{'class_type':'CLIPLoader','inputs':{'clip_name':ENCODER,'type':'wan','device':'default'}},
@@ -79,7 +82,7 @@ def video_workflow(reference,poses,positive,negative,seed,steps=20,fast=False,fa
     }
     poses_link=image_batch(graph,poses)
     graph['8']={'class_type':'WanAnimateToVideo','inputs':{'positive':['5',0],'negative':['6',0],
-        'vae':['4',0],'width':VIDEO_SIZE[0],'height':VIDEO_SIZE[1],'length':n,'batch_size':1,
+        'vae':['4',0],'width':size[0],'height':size[1],'length':n,'batch_size':1,
         'reference_image':['7',0],'clip_vision_output':['vision_encode',0],'pose_video':poses_link,
         'continue_motion_max_frames':5,'video_frame_offset':0}}
     if face:
@@ -92,7 +95,7 @@ def video_workflow(reference,poses,positive,negative,seed,steps=20,fast=False,fa
             'lora_name':SPEED_LORA,'strength_model':1.0}}
         graph['9']['inputs'].update(model=['acceleration',0],shift=8.0)
     graph['11']={'class_type':'KSampler','inputs':{'model':['9',0],'seed':seed,'steps':int(steps),
-        'cfg':1.0,'sampler_name':'euler','scheduler':'simple','denoise':1.0,
+        'cfg':1.0,'sampler_name':sampler,'scheduler':scheduler,'denoise':1.0,
         'positive':['8',0],'negative':['8',1],'latent_image':['8',2]}}
     graph['12']={'class_type':'TrimVideoLatent','inputs':{'samples':['11',0],'trim_amount':['8',3]}}
     graph['13']={'class_type':'VAEDecode','inputs':{'samples':['12',0],'vae':['4',0]}}
@@ -103,7 +106,7 @@ def video_workflow(reference,poses,positive,negative,seed,steps=20,fast=False,fa
 
 def check_models(info,fast=False):
     graph=video_workflow('ref',['pose']*5,'move','',1,fast=fast)
-    missing=sorted({node['class_type'] for node in graph.values()}-set(info))
+    missing=sorted(({node['class_type'] for node in graph.values()}|{'LoadLatent'})-set(info))
     if missing: raise ValueError('动作骨骼缺少节点：'+', '.join(missing))
     for node,field,name in [('UNETLoader','unet_name',MODEL),('CLIPLoader','clip_name',ENCODER),
                             ('VAELoader','vae_name',VAE),('CLIPVisionLoader','clip_name',VISION)]:
@@ -126,14 +129,17 @@ def bind_model_names(graph,info):
     return graph
 
 
-def export_frames(folder,result,manifest,clip,emit,cancel):
+def export_frames(folder,result,manifest,clip,emit,cancel,matte_cache=None):
     from .reference_analysis import clean_foreground
     count=clip['frame_count']; length=manifest['source_frame_count']
     if len(result['images'])!=length: raise ValueError('生成帧数与骨骼序列不一致，原始结果已保留。')
+    if matte_cache is not None and len(matte_cache)!=count:
+        raise ValueError('缓存透明帧数不匹配，请重新处理背景。')
     indices=[round(i*(length-1)/count) for i in range(count)]
     frames=[]; matte_paths=[]; poses=[]; matting_seconds=[]; matting_rgb=[]; started=time.monotonic()
+    apply_color=manifest.get('color_mode','original')=='reference'
     reference_rgba=None
-    if manifest.get('preserve_reference',True) and (folder/'reference_analysis.json').is_file():
+    if apply_color and manifest.get('preserve_reference',True) and (folder/'reference_analysis.json').is_file():
         analysis=json.loads((folder/'reference_analysis.json').read_text('utf-8'))
         with Image.open(analysis['rgba']) as source: reference_rgba=source.convert('RGBA')
     try:
@@ -142,7 +148,13 @@ def export_frames(folder,result,manifest,clip,emit,cancel):
             emit('reference_stage',{'message':f'处理{ACTIONS[clip["action"]][0]}透明帧 {i+1}/{count}'})
             frame_started=time.monotonic()
             with Image.open(result['images'][index]) as raw:
-                image=foreground_rgba(raw,cancel,anti_alias=False)
+                if matte_cache is None:
+                    image=foreground_rgba(raw,cancel,anti_alias=False)
+                else:
+                    with Image.open(matte_cache[i]) as cached:image=cached.convert('RGBA')
+                    if manifest.get('source_direction')=='left':image=ImageOps.mirror(image)
+                    if image.size!=raw.size or image.convert('RGB').tobytes()!=raw.convert('RGB').tobytes():
+                        raise ValueError('缓存透明帧与原始生成图不一致，拒绝复用；请重新处理背景。')
                 matting_rgb.append(raw.convert('RGB').tobytes()==image.convert('RGB').tobytes())
             key=folder/f'frame_{i:03d}'; key.mkdir(exist_ok=True)
             # Separate pixel-asset source: no enlargement, palette repair or edge
@@ -151,7 +163,9 @@ def export_frames(folder,result,manifest,clip,emit,cancel):
             native.save(key/'matte_native.png')
             # A generated frame's fractional matte can contain motion trails.
             # Reference pinhole repair must not turn those trails into solid limbs.
-            image=clean_foreground(image,repair_interior=False).resize(SIZE,Image.Resampling.LANCZOS)
+            image=clean_foreground(image,repair_interior=False)
+            if image.size!=SIZE:
+                image=image.resize(SIZE,Image.Resampling.LANCZOS)
             frame_pose=sample_clip(clip,i/count)
             matte_path=key/'matte.png'; image.save(matte_path); matte_paths.append(matte_path); poses.append(frame_pose)
             matting_seconds.append(round(time.monotonic()-frame_started,3))
@@ -164,20 +178,27 @@ def export_frames(folder,result,manifest,clip,emit,cancel):
         'analysis_mask_used_as_model_input':manifest.get('generation_reference',{}).get('segmentation_applied'),
         'raw_images_retained':result['images'],'native_matte_rgb_preserved':matting_rgb,
         'all_native_matte_rgb_preserved':all(matting_rgb),
+        'reused_verified_native_mattes':matte_cache is not None,
         'note':'逐帧透明处理只改变 alpha；后续校色与显示尺寸处理另行记录。'}
-    emit('reference_stage',{'message':'检查并统一整段动画的亮度与偏色…'})
+    emit('reference_stage',{'message':'检查整段动画的颜色变化…'})
     from .sequence_color import plan_files,apply_correction
     color_started=time.monotonic(); color_plan=plan_files(matte_paths,poses)
+    color_plan['applied']=apply_color
     manifest['color_consistency']=color_plan; write_json(folder/'color-consistency.json',color_plan)
+    manifest['color_processing']={'mode':'reference' if apply_color else 'original',
+        'correction_applied':apply_color,'raw_generation_retained':True}
     palette=None
     if reference_rgba is not None:
         from .palette_consistency import palette_plan
         palette=palette_plan(matte_paths,poses,reference_rgba,clip['base_rig'])
         manifest['reference_palette']=palette;write_json(folder/'reference-palette-plan.json',palette)
+        color_plan['applied']=False  # Regional palette replaces the global plan.
+        write_json(folder/'color-consistency.json',color_plan)
     for i,(matte_path,frame_pose) in enumerate(zip(matte_paths,poses)):
         if cancel.is_set(): raise Cancelled('颜色处理已取消，原始透明帧已保留。')
         key=folder/f'frame_{i:03d}'; index=indices[i]
         with Image.open(matte_path) as matte: image=matte.convert('RGBA')
+        original_rgb=image.convert('RGB').tobytes()
         if palette is not None:
             from .palette_consistency import apply_palette
             image,palette_quality=apply_palette(image,frame_pose,palette['frames'][i])
@@ -185,9 +206,11 @@ def export_frames(folder,result,manifest,clip,emit,cancel):
                 backup=key/'before_reference_palette.png'
                 with Image.open(matte_path) as source: source.save(backup)
             write_json(key/'palette-quality.json',palette_quality)
-        else:
+        elif apply_color:
             image=apply_correction(image,color_plan['frames'][i])
             palette_quality={'changed_pixels':0,'reason':'no_preserved_reference'}
+        else:
+            palette_quality={'changed_pixels':0,'reason':'original_rgb_preserved'}
         quality={'changed_pixels':0}
         if reference_rgba is not None:
             # Retain the narrow, previously validated hue guard as a fallback for
@@ -208,8 +231,9 @@ def export_frames(folder,result,manifest,clip,emit,cancel):
                 image.save(key/'matte_before_color_repair.png'); image=corrected
             write_json(key/'foot-quality.json',quality)
         else:
-            hand_quality={'changed_pixels':0,'reason':'no_preserved_reference'}
-            hair_quality={'changed_pixels':0,'reason':'no_preserved_reference'}
+            reason='original_rgb_preserved' if not apply_color else 'no_preserved_reference'
+            hand_quality={'changed_pixels':0,'reason':reason}
+            hair_quality={'changed_pixels':0,'reason':reason}
         # Keep the model's shared coordinates: per-frame grounding would erase a jump.
         output=folder/f'frame_{i:03d}.png'; image.save(output); frames.append(output)
         condition_pose=body_pose(frame_pose,clip['base_rig'])
@@ -226,9 +250,11 @@ def export_frames(folder,result,manifest,clip,emit,cancel):
         manifest['frames'].append({'index':i,'image':output.name,'source_frame':index,
             'native_matte':f'frame_{i:03d}/matte_native.png',
             'stage':ACTIONS[clip['action']][0],'phase':i/count,'pose':f'frame_{i:03d}/pose.json',
-            'workflow':'video/workflow.json','prompt_id':result['prompt_id'],'foot_quality':quality,
+            'workflow':result.get('image_workflow','video/workflow.json'),'prompt_id':result['prompt_id'],'foot_quality':quality,
             'color_consistency':color_plan['frames'][i],'hand_quality':hand_quality,'hair_quality':hair_quality,
             'reference_palette':palette_quality})
+        manifest['frames'][-1]['post_color_rgb_preserved']=(
+            original_rgb==(ImageOps.mirror(image) if manifest.get('source_direction')=='left' else image).convert('RGB').tobytes())
         # Magnified lower-leg review is saved separately so shoe topology is inspected.
         points=[frame_pose['joints'][side+'_'+part] for side in ('right','left') for part in ('ankle','heel','toe')]
         crop=image.crop((max(0,int(min(p[0] for p in points))-45),max(0,int(min(p[1] for p in points))-65),
@@ -247,7 +273,7 @@ def export_frames(folder,result,manifest,clip,emit,cancel):
     manifest['timings']['sheet_and_gif_seconds']=round(time.monotonic()-export_started,3)
     write_json(folder/'sequence.json',manifest)
     return {'manifest':str(folder/'sequence.json'),'frames':[str(p) for p in frames],
-        'workflow':str(folder/'video/workflow.json'),'gif':str(folder/(clip['action']+'.gif')),'sprite_sheet':str(folder/'sprite_sheet.png')}
+        'workflow':result.get('image_workflow',str(folder/'video/workflow.json')),'gif':str(folder/(clip['action']+'.gif')),'sprite_sheet':str(folder/'sprite_sheet.png')}
 
 
 def build_foot_review(folder,count):
@@ -272,13 +298,18 @@ def math_ceil_half(value):
 
 def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=None,checkpoint='',steps=20,
              action='walk',motion=None,lora='',lora_strength=.8,static_test=False,fast=False,raw_only=False,preserve_reference=True,
-             face_condition=False):
+             face_condition=False,detail='native',sampler='euler',color_mode='original'):
+    from .animation_detail import detail_settings,COLOR_MODES
+    if color_mode not in COLOR_MODES:raise ValueError('未知动画配色处理，请重新选择。')
+    spatial_detail=detail_settings(detail,sampler)
+    inference_size=tuple(spatial_detail['inference_canvas'])
     folder=Path(folder)
     started=time.monotonic()
     manifest={'schema_version':4,'kind':'walk','action':action,'title':ACTIONS[action][0]+'动画',
         'method':'wan_animate_pose_sequence','status':'preparing','frames':[],'frame_count':count,'fps':fps,
         'canvas':list(SIZE),'seed':seed,'user_prompt':prompt,'negative':negative,'static_test':static_test,
-        'preserve_reference':preserve_reference or reference is None,'timings':{}}
+        'preserve_reference':preserve_reference or reference is None,'timings':{},'spatial_detail':spatial_detail,
+        'color_mode':color_mode}
     save=lambda:write_json(folder/'sequence.json',manifest)
     save()
     try:
@@ -335,25 +366,33 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
             pose=clip['base_rig'] if static_test else sample_clip(clip,i/(length-1))
             write_json(pose_folder/f'pose_{i:03d}.json',pose)
             path=pose_folder/f'pose_{i:03d}.png'
-            render_condition(body_pose(pose,clip['base_rig']),clip['base_rig'],VIDEO_SIZE).save(path)
+            render_condition(body_pose(pose,clip['base_rig']),clip['base_rig'],inference_size).save(path)
             names.append(client.upload_image(path,subfolder='AIPictures/poses'))
         manifest['timings']['pose_preparation_seconds']=round(time.monotonic()-pose_started,3)
         release_session(); manifest['pose_cache_release']=release_idle_models(client)
         video=folder/'video'; video.mkdir()
         effective_negative=negative+'，多余脚掌，重复鞋尖，分叉鞋底，双层鞋底，鞋子重影，断开的脚踝，姿态控制线条，额外色块，曝光突变，色温漂移'
-        graph=video_workflow(reference_name,names,animation_prompt(prompt,action,preserve_reference,negative),effective_negative,seed,steps,fast,face=face_name)
+        graph=video_workflow(reference_name,names,animation_prompt(prompt,action,preserve_reference,negative),effective_negative,seed,steps,fast,face=face_name,
+            size=inference_size,sampler=sampler)
         bind_model_names(graph,client.discover()['object_info'])
+        from .animation_decode import sampling_workflow,decode_sampled
+        graph=sampling_workflow(graph)
         write_json(video/'workflow.json',graph)
         manifest.update(status='running',source_frame_count=length,effective_negative=effective_negative,
             pose_format='wan_v2_body18_with_observed_hands_and_foot_derived_ankles',
             negative_policy='positive_constraints_with_cfg1_negative_recorded'); save()
         emit('workflow_ready',{'graph':graph,'url':client.url})
         inference_started=time.monotonic()
-        result=client.generate(graph,video,lambda k,d:emit('pose_video_event',{'event':k,'data':d}),cancel,timeout=float('inf'),
-            submitted=lambda pid:write_json(video/'submitted.json',{'prompt_id':pid}))
+        sampled=client.generate(graph,video,lambda k,d:emit('pose_video_event',{'event':k,'data':d}),cancel,timeout=float('inf'),
+            submitted=lambda pid:write_json(video/'submitted.json',{'prompt_id':pid}),allow_latent_only=True)
+        write_json(video/'sampling_result.json',sampled)
+        manifest['sampling_prompt_id']=sampled['prompt_id'];save()
+        result=decode_sampled(client,sampled,video/'decode',emit,cancel)
         manifest['timings']['inference_wait_and_download_seconds']=round(time.monotonic()-inference_started,3)
         write_json(video/'result.json',result); manifest['video_cache_release']=release_idle_models(client)
         manifest['prompt_id']=result['prompt_id']
+        manifest['decode_prompt_id']=result['decode_prompt_id']
+        manifest['workflow_stages']={'sampling':str(video/'workflow.json'),'decode':result['image_workflow']}
         if raw_only:
             manifest.update(status='completed_raw_test',raw_images=result['images']); save()
             return {'raw_images':result['images'],'manifest':str(folder/'sequence.json')}
