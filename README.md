@@ -6,6 +6,8 @@ Windows 独立本地 AI 图像与动画创作桌面软件。Python + PySide6，C
 
 后续普及路线已完成调研：保留本地推理，优先增加用户自带 API 的图片生成；动画 API 按是否支持完整骨骼条件分别评估。[FrameRonin 对照与 API 接入方案](docs/API_AND_FRAMERONIN_RESEARCH.md)说明已确认能力、限制和实施顺序；API 尚未接入。
 
+[MOSS 接入评估](docs/MOSS_EVALUATION.md)：MOSS-Image / Edit 作为单张生图、参考图编辑候选；本机当前缺少所需原生支持，尚未下载或接入，不据此替换经过验证的动画后端。
+
 代码仓库：https://github.com/gtjz666/AIPictures
 
 当前界面采用类似 Codex 客户端的浅色两栏布局：浅灰按钮侧栏、白色预览与创作工作区、黑色生成按钮。左侧“角色与生成 / 模型与画面 / 采样与 LoRA / 连接与显存”点击打开可复用的小窗口，修改立即用于下一次生成。正向与反向提示词并排置于右侧，并写入实际生成工作流。文件记录、骨骼预览、高级工作流通过按钮按需打开；消息、队列与日志合并为默认隐藏的底部“输出面板”，点击按钮或按 Ctrl+J 切换。
@@ -54,7 +56,7 @@ Windows 独立本地 AI 图像与动画创作桌面软件。Python + PySide6，C
 & .\.venv\Scripts\python.exe -m tools.prepare_pose_models --models 'D:\Local Comfy\ComfyUI\models'
 ```
 
-完整本地模型清单、来源及限制见 [动作模型说明](docs/MOTION_MODELS.md)。在 12GB 显存上依赖模型卸载，本机 8 帧常规测试约 641 秒，其他负载会明显影响耗时，不是实时生成。
+完整本地模型清单、来源及限制见 [动作模型说明](docs/MOTION_MODELS.md)。在 12GB 显存上依赖模型卸载。V3 原生模式增加姿态条件以改善细节，耗时更长；本轮 8 帧走路实测约 37 分钟，不能沿用旧版较少条件帧的耗时估算。实际结果与限制见 [V3 动作改进](docs/MOTION_V3.md)，不是实时生成。
 
 默认前景分割为本地 CPU BiRefNet general，位于 `D:\ComfyModels\matting`。参考 PNG 已有有效透明通道时直接保留；生成的原始 RGB 帧也保留。新电脑可安装并启用：
 
