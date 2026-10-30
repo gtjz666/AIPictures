@@ -17,6 +17,7 @@ def output_indices(action: str, count: int, length: int) -> list[int]:
 
 
 def stage_label(action,phase):
+    if action=='jump' and phase>=1:return '恢复站立'
     phase=phase%1
     if action=='walk': return ('右脚接触','右脚承重','左腿经过','左脚前摆','左脚接触','左脚承重','右腿经过','右脚前摆')[int(phase*8)%8]
     if action=='run': return ('右脚接触','右腿蹬地','腾空换腿','左腿前摆','左脚接触','左腿蹬地','腾空换腿','右腿前摆')[int(phase*8)%8]

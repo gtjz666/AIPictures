@@ -55,6 +55,7 @@ def main():
                 assert dialog.loop.isChecked()==(action!='jump')
                 dialog.choice.setCurrentIndex(8)
                 assert '第 8 / 8 帧' in dialog.frame_label.text()
+                if action=='jump':assert '恢复站立' in dialog.frame_label.text()
                 dialog.close()
                 output=root/action;output.mkdir();frames=[]
                 for i in range(8):

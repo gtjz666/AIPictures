@@ -54,6 +54,7 @@ def feet_for_pose(rig,base,phase,action):
 
 def pose_at(base,phase,action='walk'):
     if action not in ACTIONS: raise ValueError('不支持的动作。')
+    jump_end=action=='jump' and phase>=1
     phase=phase%1
     base=with_feet(base); t=phase*math.tau
     if action=='walk':
@@ -111,7 +112,8 @@ def pose_at(base,phase,action='walk'):
                 elbow[:2]=[shoulder[0]+upper*math.sin(angle),shoulder[1]+upper*math.cos(angle)]
                 wrist[:2]=[elbow[0]+lower*math.sin(angle),elbow[1]+lower*math.cos(angle)]
     enrich_body(rig,base,phase,action)
-    rig.update(action=action,phase=phase,stage=stage_label(action,phase),ground_y=base.get('ground_y',978))
+    reported_phase=1 if jump_end else phase
+    rig.update(action=action,phase=reported_phase,stage=stage_label(action,reported_phase),ground_y=base.get('ground_y',978))
     feet_for_pose(rig,base,phase,action)
     return rig
 

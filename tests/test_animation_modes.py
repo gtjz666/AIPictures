@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 from PIL import Image
 import pytest
 
-from aipictures.animation_actions import ACTIONS, output_indices
+from aipictures.animation_actions import ACTIONS, output_indices,stage_label
 from aipictures.animation_status import monitor_text
 from aipictures.character_profile import rig_document
 from aipictures.motion_clip import make_clip, sample_clip
@@ -55,8 +55,10 @@ def test_every_mode_uses_full_native_conditions_and_separate_decode(tmp_path, ac
 def test_jump_retains_landing_endpoint_and_edited_final_key():
     assert output_indices('walk',8,17)==[0,2,4,6,8,10,12,14]
     assert output_indices('jump',8,17)==[0,2,5,7,9,11,14,16]
+    assert stage_label('jump',1)=='恢复站立'
     jump=make_clip(rig_document(),'a'*64,'jump')
     assert jump['frames'][0]['joints']==jump['frames'][-1]['joints']
+    assert jump['frames'][-1]['phase']==1 and jump['frames'][-1]['stage']=='恢复站立'
     jump['edited']=True
     jump['frames'][-1]['joints']['right_wrist'][0]+=15
     assert sample_clip(jump,1)['joints']==jump['frames'][-1]['joints']

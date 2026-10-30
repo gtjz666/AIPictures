@@ -16,7 +16,7 @@ from .temporal_animation import initial_character_workflow,ENCODER,VAE
 from .walk_cycle import export_sequence,SIZE
 from .workflow_library import digest
 from .pose_condition import render_condition
-from .animation_actions import output_indices
+from .animation_actions import output_indices,stage_label
 
 MODEL='Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors'
 SPEED_LORA='AIPictures/animation/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors'
@@ -250,7 +250,7 @@ def export_frames(folder,result,manifest,clip,emit,cancel,matte_cache=None):
         paint_rig(frame_pose,SIZE).save(key/'foot-controls.png')
         manifest['frames'].append({'index':i,'image':output.name,'source_frame':index,
             'native_matte':f'frame_{i:03d}/matte_native.png',
-            'stage':ACTIONS[clip['action']][0],'phase':index/(length-1),'pose':f'frame_{i:03d}/pose.json',
+            'stage':stage_label(clip['action'],index/(length-1)),'phase':index/(length-1),'pose':f'frame_{i:03d}/pose.json',
             'workflow':result.get('image_workflow','video/workflow.json'),'prompt_id':result['prompt_id'],'foot_quality':quality,
             'color_consistency':color_plan['frames'][i],'hand_quality':hand_quality,'hair_quality':hair_quality,
             'reference_palette':palette_quality})
