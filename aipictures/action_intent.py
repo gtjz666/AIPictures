@@ -130,6 +130,8 @@ def appearance_description(text):
             text=text.replace(word,' ')
     for phrase in (*ACTION_EN.values(),'双臂自然下垂','双脚平稳接触地面','保持站立','arms relaxed at sides'):
         text=text.replace(phrase,' ')
-    text=re.sub(r'\b(?:standing(?: still)?|stand|walking(?: in place)?|walk|reaching(?: forward)?|reach|running|run|jumping|jump)\b',' ',text,flags=re.I)
+    text=re.sub(r'\b(?:stand(?:ing)?(?: still)?|walk(?:ing)?(?: in place)?|reach(?:ing)?(?: forward)?|'
+                r'run(?:ning)?|jump(?:ing)?|squat(?:ting)?|crouch(?:ing)?|idl(?:e|ing))\b',
+                ' ',text,flags=re.I)
     text=re.sub(r'[，,；;。\n]+',', ',text)
     return re.sub(r' +',' ',text).strip(' ,')
