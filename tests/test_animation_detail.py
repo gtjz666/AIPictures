@@ -22,7 +22,7 @@ def test_native_size_and_sampler_reach_pose_images_latent_and_manifest(tmp_path,
     client.upload_image.side_effect=lambda p,**kw:Path(p).name
     latent=tmp_path/'samples.latent';latent.write_bytes(b'valid-test-data')
     client.generate.side_effect=[{'images':[],'latents':[str(latent)],'prompt_id':'sampled'},
-        {'images':[str(source)]*17,'prompt_id':'owned'}]
+        {'images':[str(source)]*(33 if profile=='native' else 17),'prompt_id':'owned'}]
     output=tmp_path/'animation';output.mkdir()
     with patch('aipictures.pose_animation.prepare_motion_reference',return_value=analysis), \
          patch('aipictures.pose_animation.release_idle_models',return_value={}), \

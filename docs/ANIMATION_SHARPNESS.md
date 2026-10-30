@@ -15,7 +15,7 @@
 - [ComfyUI 原生 Animate 指南](https://docs.comfy.org/tutorials/video/wan/wan2-2-animate)：核对模型、CLIP Vision、Wan2.1 VAE 及原生姿态控制方式；输出宽高需为 16 的倍数。
 - [Wan Animate 官方推理](https://github.com/Wan-Video/Wan2.2/blob/main/wan/animate.py)：官方使用 DPM++ / UniPC 求解器；本软件提供 Euler / DPM++ 2M 对照。ComfyUI 调度与官方实现并非逐行相同，不能仅凭采样器名字宣称结果等价或更好。
 - [官方 VAE 文件](https://huggingface.co/Comfy-Org/Wan-2.1/blob/main/split_files/vae/wan_2.1_vae.safetensors)：本机 SHA256 已核对为 `2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b`，与发布文件一致。未发现 VAE 文件损坏或误用的证据；这并不表示 VAE 编解码无损。
-- [Wan-Animate-2 官方项目页](https://humanaigc.github.io/wan-animate-2/)：所查页面提供论文与演示，没有可直接接入的代码/权重下载入口，本次没有将其作为已可用的替换模型。
+- [Wan-Animate-2 官方项目页](https://humanaigc.github.io/wan-animate-2/)：最初所查页面未找到直接下载入口；后续 V3 研究已核实[独立原作者代码与权重入口](https://github.com/Wan-Video/Wan-Animate-2)。它使用原始驱动视频，不能直接替换现有彩色骨架条件，当前共享后端也缺少完整新链路，本轮没有混用。详见 [V3 改进](MOTION_V3.md)。
 
 ## 本机真实对照
 

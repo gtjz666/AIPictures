@@ -16,7 +16,7 @@ from .temporal_animation import initial_character_workflow,ENCODER,VAE
 from .walk_cycle import export_sequence,SIZE
 from .workflow_library import digest
 from .pose_condition import render_condition
-from .animation_actions import output_indices,stage_label
+from .animation_actions import output_indices,stage_label,ONE_SHOT_ACTIONS
 
 MODEL='Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors'
 SPEED_LORA='AIPictures/animation/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors'
@@ -268,7 +268,7 @@ def export_frames(folder,result,manifest,clip,emit,cancel,matte_cache=None):
     export_started=time.monotonic()
     build_foot_review(folder,count)
     manifest.update(exports=export_sequence(folder,frames,clip['fps'],clip['action']),status='completed',
-        pose_selection={'method':'entire_controlled_cycle','source_indices':indices,'endpoint_duplicate_excluded':clip['action']!='jump'},
+        pose_selection={'method':'entire_controlled_cycle','source_indices':indices,'endpoint_duplicate_excluded':clip['action'] not in ONE_SHOT_ACTIONS},
         quality_review={'feet':'foot-review.jpg','accepted':False,'note':'需逐帧检查足部结构；自动检查不证明生成准确率。'})
     write_json(folder/'sequence.json',manifest)
     manifest['timings']['sheet_and_gif_seconds']=round(time.monotonic()-export_started,3)
@@ -336,6 +336,8 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
             clip=validate_clip(deepcopy(motion))
             if clip['source_sha256']!=sha or clip['action']!=action or clip['frame_count']!=count:
                 raise ValueError('手动骨骼与当前参考图、动作或帧数不匹配，请重新打开骨骼调整。')
+            if not clip.get('edited') and clip.get('generator_version',2)<3:
+                clip=make_clip(clip['base_rig'],sha,action,count,fps)
             clip['fps']=fps
         else: clip=make_clip(base,sha,action,count,fps)
         write_json(folder/'motion.json',clip); write_json(folder/'reference_analysis.json',analysis)
@@ -360,7 +362,10 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
                 face_name=client.upload_image(face_path,subfolder='AIPictures/reference_faces')
         # Exact cycle timing; no similarity heuristic may select only its first half.
         # Playback FPS changes playback only. It must not create hundreds of model frames.
-        length=count*2+1
+        length=count*spatial_detail['condition_stride']+1
+        manifest['temporal_sampling']={'source_frames':length,'exported_frames':count,
+            'vae_temporal_stride':4,'latent_time_cells':(length-1)//4+1,
+            'post_frame_interpolation':False}
         pose_started=time.monotonic()
         pose_folder=folder/'poses'; pose_folder.mkdir(); names=[]
         for i in range(length):
@@ -392,6 +397,7 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
         manifest['timings']['sampling_wait_and_download_seconds']=round(time.monotonic()-inference_started,3)
         decode_started=time.monotonic()
         result=decode_sampled(client,sampled,video/'decode',emit,cancel)
+        if len(result['images'])!=length:raise ValueError('动画解码帧数与姿态输入不一致，原始采样和结果已保留。')
         manifest['timings']['decode_wait_and_download_seconds']=round(time.monotonic()-decode_started,3)
         manifest['timings']['inference_wait_and_download_seconds']=round(time.monotonic()-inference_started,3)
         write_json(video/'result.json',result); manifest['video_cache_release']=release_idle_models(client)

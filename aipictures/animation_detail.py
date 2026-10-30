@@ -15,4 +15,5 @@ def detail_settings(profile='native', sampler='euler'):
     selected=DETAIL_PROFILES[profile]
     return {'profile':profile,'title':selected['title'],'inference_canvas':list(selected['size']),
         'sampler':sampler,'scheduler':'simple','output_canvas':[768,1024],
-        'post_enlargement':selected['size']!=(768,1024),'automatic_restoration':False}
+        'post_enlargement':selected['size']!=(768,1024),'automatic_restoration':False,
+        'condition_stride':4 if profile=='native' else 2}

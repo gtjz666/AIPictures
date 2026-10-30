@@ -8,7 +8,7 @@ from PIL import Image,ImageDraw
 from .character_profile import JOINT_NAMES,LIMBS,COLORS
 from .storage import DATA,write_json
 from .walk_cycle import walk_rig,knee_ik
-from .animation_actions import ACTIONS,stage_label
+from .animation_actions import ACTIONS,stage_label,ONE_SHOT_ACTIONS
 from .motion_dynamics import enrich_body
 
 FOOT_NAMES=('right_heel','right_toe','left_heel','left_toe')
@@ -38,7 +38,7 @@ def feet_for_pose(rig,base,phase,action):
         ankle=p[side+'_ankle']; original=source[side+'_ankle']
         # Each ankle owns exactly one heel and one toe; never duplicate an entire shoe pair.
         angle=0
-        if action in ('walk','run'):
+        if action in ('walk','run') and not rig.get('contacts',{}).get(side,False):
             q=(phase+offset)%1
             angle=math.radians(18)*math.sin(math.tau*q)
         for part in ('heel','toe'):
@@ -54,65 +54,14 @@ def feet_for_pose(rig,base,phase,action):
 
 def pose_at(base,phase,action='walk'):
     if action not in ACTIONS: raise ValueError('不支持的动作。')
-    jump_end=action=='jump' and phase>=1
+    from .motion_kinematics import walk_pose,run_pose,squat_pose,jump_pose
+    one_shot_end=action in ONE_SHOT_ACTIONS and phase>=1
     phase=phase%1
-    base=with_feet(base); t=phase*math.tau
-    if action=='walk':
-        rig=walk_rig(phase,'normal',base)
-    elif action=='run':
-        rig=deepcopy(base); p=rig['joints']; source=base['joints']
-        leg_length=math.dist(source['right_hip'][:2],source['right_knee'][:2])+math.dist(source['right_knee'][:2],source['right_ankle'][:2])
-        lift=min(55,leg_length*.13)*max(0,math.sin(t*2))
-        drop=max(0,source['right_ankle'][1]-source['right_hip'][1]-.86*leg_length)
-        for point in p.values(): point[1]+=drop-lift
-        for side,offset in (('right',0),('left',math.pi)):
-            q=t+offset; hip=p[side+'_hip']
-            ankle=[hip[0]+leg_length*.28*math.cos(q),source[side+'_ankle'][1]-lift-leg_length*.28*max(0,-math.sin(q)),1]
-            upper=math.dist(source[side+'_hip'][:2],source[side+'_knee'][:2]); lower=math.dist(source[side+'_knee'][:2],source[side+'_ankle'][:2])
-            dx,dy=ankle[0]-hip[0],ankle[1]-hip[1]; distance=math.hypot(dx,dy)
-            target=max(abs(upper-lower)+.001,min(upper+lower-.001,distance))
-            ankle[:2]=[hip[0]+dx*target/distance,hip[1]+dy*target/distance]
-            p[side+'_ankle']=ankle; p[side+'_knee']=knee_ik(hip,ankle,upper,lower)
-            shoulder=p[side+'_shoulder']; elbow=p[side+'_elbow']; wrist=p[side+'_wrist']
-            upper=math.dist(source[side+'_shoulder'][:2],source[side+'_elbow'][:2]); lower=math.dist(source[side+'_elbow'][:2],source[side+'_wrist'][:2])
-            angle=-.55*math.cos(q)
-            elbow[:2]=[shoulder[0]+upper*math.sin(angle),shoulder[1]+upper*math.cos(angle)]
-            wrist[:2]=[elbow[0]+lower*math.sin(angle+1.3),elbow[1]+lower*math.cos(angle+1.3)]
-    else:
-        rig=deepcopy(base); p=rig['joints']
-        if action=='idle':
-            for name,point in p.items():
-                if 'ankle' not in name and name not in FOOT_NAMES: point[1]+=2*math.sin(t)
-        elif action=='reach':
-            amount=(1-math.cos(t))/2
-            for side,factor in (('right',1),('left',.1)):
-                shoulder=p[side+'_shoulder']; elbow=p[side+'_elbow']; wrist=p[side+'_wrist']
-                upper=math.dist(shoulder[:2],elbow[:2]); lower=math.dist(elbow[:2],wrist[:2])
-                angle=amount*math.pi/2*factor
-                elbow[:2]=[shoulder[0]+upper*math.sin(angle),shoulder[1]+upper*math.cos(angle)]
-                wrist[:2]=[elbow[0]+lower*math.sin(angle),elbow[1]+lower*math.cos(angle)]
-        elif action=='jump':
-            # Crouch -> airborne -> landing -> rest; root motion is retained on export.
-            keys=((0,0),(.12,30),(.22,0),(.48,-60),(.72,0),(.84,24),(1,0))
-            shift=0
-            for (a,ya),(b,yb) in zip(keys,keys[1:]):
-                if a<=phase<=b:
-                    f=(1-math.cos(math.pi*(phase-a)/(b-a)))/2; shift=ya+(yb-ya)*f; break
-            up=max(0,math.sin(math.pi*(phase-.22)/.5)) if .22<phase<.72 else 0
-            for point in p.values(): point[1]+=shift
-            for side in ('right','left'):
-                hip=p[side+'_hip']; source=base['joints']
-                ankle=source[side+'_ankle'][:]
-                if up>0: ankle[1]+=shift-20*up
-                upper=math.dist(source[side+'_hip'][:2],source[side+'_knee'][:2])
-                lower=math.dist(source[side+'_knee'][:2],source[side+'_ankle'][:2])
-                p[side+'_ankle']=ankle; p[side+'_knee']=knee_ik(hip,ankle,upper,lower)
-                shoulder=p[side+'_shoulder']; elbow=p[side+'_elbow']; wrist=p[side+'_wrist']
-                upper=math.dist(shoulder[:2],elbow[:2]); lower=math.dist(elbow[:2],wrist[:2]); angle=up*math.pi*.65
-                elbow[:2]=[shoulder[0]+upper*math.sin(angle),shoulder[1]+upper*math.cos(angle)]
-                wrist[:2]=[elbow[0]+lower*math.sin(angle),elbow[1]+lower*math.cos(angle)]
+    base=with_feet(base)
+    makers={'walk':walk_pose,'run':run_pose,'squat':squat_pose,'jump':jump_pose}
+    rig=makers[action](base,phase) if action in makers else deepcopy(base)
     enrich_body(rig,base,phase,action)
-    reported_phase=1 if jump_end else phase
+    reported_phase=1 if one_shot_end else phase
     rig.update(action=action,phase=reported_phase,stage=stage_label(action,reported_phase),ground_y=base.get('ground_y',978))
     feet_for_pose(rig,base,phase,action)
     return rig
@@ -121,9 +70,9 @@ def pose_at(base,phase,action='walk'):
 def make_clip(base,source_sha,action='walk',count=8,fps=8):
     if count not in (8,16) or not 1<=fps<=30: raise ValueError('动作支持 8 / 16 帧，帧率 1–30。')
     base=with_feet(base)
-    frames=[pose_at(base,i/(count-1 if action=='jump' else count),action) for i in range(count)]
+    frames=[pose_at(base,i/(count-1 if action in ONE_SHOT_ACTIONS else count),action) for i in range(count)]
     clip={'schema_version':1,'source_sha256':source_sha,'action':action,'frame_count':count,'fps':fps,
-          'canvas':[768,1024],'base_rig':base,'frames':frames,'edited':False,'loop':action!='jump','generator_version':2}
+          'canvas':[768,1024],'base_rig':base,'frames':frames,'edited':False,'loop':action not in ONE_SHOT_ACTIONS,'generator_version':3}
     validate_clip(clip); return clip
 
 
@@ -140,7 +89,8 @@ def validate_clip(clip):
 
 
 def sample_clip(clip,phase):
-    if not clip.get('edited'): return pose_at(clip['base_rig'],phase,clip['action'])
+    if not clip.get('edited') and clip.get('generator_version',2)>=3:
+        return pose_at(clip['base_rig'],phase,clip['action'])
     n=len(clip['frames'])
     if not clip.get('loop',True):
         at=max(0.,min(1.,phase))*(n-1); left=min(int(at),n-1); right=min(left+1,n-1)

@@ -52,10 +52,10 @@ def main():
                 window.current=None
                 clip=make_clip(rig_document(),'a'*64,action)
                 dialog=MotionDialog({'rgba':str(source)},clip)
-                assert dialog.loop.isChecked()==(action!='jump')
+                assert dialog.loop.isChecked()==(action not in ('jump','squat'))
                 dialog.choice.setCurrentIndex(8)
                 assert '第 8 / 8 帧' in dialog.frame_label.text()
-                if action=='jump':assert '恢复站立' in dialog.frame_label.text()
+                if action in ('jump','squat'):assert '恢复站立' in dialog.frame_label.text()
                 dialog.close()
                 output=root/action;output.mkdir();frames=[]
                 for i in range(8):
@@ -63,15 +63,15 @@ def main():
                     ImageDraw.Draw(sprite).rectangle((350,100+i*10,390,110+i*10),fill=(i*20,100,100,255))
                     sprite.save(frame);frames.append(frame)
                 exports=export_sequence(output,frames,8,action)
-                write_json(output/'sequence.json',{'status':'completed','title':action,'action':action,'loop':action!='jump',
+                write_json(output/'sequence.json',{'status':'completed','title':action,'action':action,'loop':action not in ('jump','squat'),
                     'fps':8,'frames':[{'image':p.name,'index':i,'stage':action} for i,p in enumerate(frames)],'exports':exports})
                 player=window.animation_player;player.load(output/'sequence.json')
                 for _ in range(8):player.advance()
-                assert player.index==(7 if action=='jump' else 0)
-                assert player.timer.isActive()==(action!='jump')
-                if action=='jump':
+                assert player.index==(7 if action in ('jump','squat') else 0)
+                assert player.timer.isActive()==(action not in ('jump','squat'))
+                if action in ('jump','squat'):
                     player.toggle();assert player.index==0 and player.timer.isActive()
-                    with Image.open(output/'jump.gif') as gif:assert 'loop' not in gif.info
+                    with Image.open(output/(action+'.gif')) as gif:assert 'loop' not in gif.info
                 player.stop()
             window.pending.clear();window.current=None;window.close()
     print('All five Qt action bindings, stages, jump endpoint/replay and GIF loop flags passed.',flush=True)

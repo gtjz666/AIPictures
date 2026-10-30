@@ -9,7 +9,7 @@ from dataclasses import asdict
 from pathlib import Path
 from PySide6.QtCore import Qt, Signal, QTimer, QUrl
 from PySide6.QtGui import QPixmap, QImageReader
-from PySide6.QtWidgets import QApplication, QMainWindow, QSpinBox, QListWidgetItem, QFileDialog, QMessageBox
+from PySide6.QtWidgets import QApplication, QMainWindow, QSpinBox, QListWidgetItem, QFileDialog, QMessageBox,QDialog
 from .engine import ComfyClient, Cancelled, is_engine_unavailable
 from .workflow import ImageRequest, build_workflow
 from .storage import DATA, write_json, new_job
@@ -460,7 +460,7 @@ class Window(QMainWindow):
             return
         intent = walk_intent(self.positive.toPlainText()) if walking else parse_intent(self.positive.toPlainText())
         if walking and self.animation_engine.currentData()=='animate': intent.action=self.animation_action.currentData()
-        labels = {'walk':'行走','reach':'向前伸手','stand':'站立','run':'奔跑','jump':'跳跃','idle':'待机'}
+        labels = {'walk':'行走','reach':'向前伸手','stand':'站立','run':'奔跑','jump':'跳跃','idle':'待机','squat':'下蹲'}
         title = labels.get(intent.action,'未指定动作')
         text = ('已选择动画 · ' if walking else '动作识别 · ') + title
         if walking and self.animation_engine.currentData() in ('wan','animate') and (not intent.direction_explicit or self.preserving_reference()):
@@ -1176,9 +1176,11 @@ class Window(QMainWindow):
         ids=list(active) if isinstance(active,(list,tuple,set)) else []
         if self.current and self.current.get('prompt_id') and self.current['prompt_id'] not in ids:ids.append(self.current['prompt_id'])
         if self.current and self.current.get('folder'):
-            write_json(Path(self.current['folder'])/'window-closed.json',{
-                'cancel_requested':True,'prompt_ids':ids,'url':getattr(client,'url',None),
-                'note':'窗口已关闭，后台取消由独立的小进程继续发送；原始结果保留。'})
+            try:
+                write_json(Path(self.current['folder'])/'window-closed.json',{
+                    'cancel_requested':True,'prompt_ids':ids,'url':getattr(client,'url',None),
+                    'note':'窗口已关闭，后台取消由独立的小进程继续发送；原始结果保留。'})
+            except OSError:pass
         if ids and client:
             import subprocess
             command=[sys.executable,'-m','aipictures.cancel_tasks','--url',client.url,
@@ -1190,7 +1192,10 @@ class Window(QMainWindow):
                     creationflags=subprocess.CREATE_NO_WINDOW if sys.platform=='win32' else 0)
             except OSError:pass
         for worker in self.workers:worker.detach()
-        self.clear_pending();event.accept()
+        try:self.clear_pending()
+        except OSError:self.pending.clear()
+        for dialog in self.findChildren(QDialog):dialog.close()
+        event.accept()
 
 
 def create_application(args=None):

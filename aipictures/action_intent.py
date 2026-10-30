@@ -26,6 +26,7 @@ VOCAB = {
     'stand': ('站立', '站着', '站好', '静止', '不动'),
     'run': ('奔跑', '跑步', '跑动'),
     'jump': ('跳跃', '跳起来', '起跳'),
+    'squat': ('下蹲','蹲下','深蹲','蹲伏'),
 }
 ACTION_EN = {
     'idle':'standing idle with subtle breathing',
@@ -33,6 +34,7 @@ ACTION_EN = {
     'reach': 'one arm reaching forward at chest height',
     'stand': 'standing still upright, arms relaxed at sides',
     'run': 'running', 'jump': 'jumping',
+    'squat':'squatting with both feet planted, hips moving backward and knees bent',
 }
 TRANSLATIONS = {
     '侧视': 'strict side profile', '侧面': 'strict side profile',
@@ -74,7 +76,8 @@ def parse_intent(text):
     # English action prompts remain usable, and avoid matching e.g. "catwalk".
     if not result.action:
         for key, pattern in [('walk', r'\bwalk(?:ing)?\b'), ('reach', r'\breach(?:ing)?\b'),
-                             ('stand', r'\bstand(?:ing)?\b'), ('run', r'\brunn?ing\b'), ('jump', r'\bjump(?:ing)?\b')]:
+                             ('stand', r'\bstand(?:ing)?\b'), ('run', r'\brunn?ing\b'), ('jump', r'\bjump(?:ing)?\b'),
+                             ('squat',r'\b(?:squat(?:ting)?|crouch(?:ing)?)\b')]:
             if re.search(pattern, remaining, re.I): result.action = key; break
     phrases = []
     for words, attr, value in [

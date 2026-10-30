@@ -2,6 +2,7 @@
 import json
 import zipfile
 from pathlib import Path
+from .animation_actions import ONE_SHOT_ACTIONS
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QLabel, QSlider, QFileDialog, QMessageBox
@@ -28,7 +29,7 @@ class AnimationPlayer(QWidget):
         self.stop(); self.manifest=path; self.frames=frames; self.fps=manifest['fps']; self.index=0
         self.title=manifest.get('title','行走动画')
         self.action=manifest.get('action','walk')
-        self.loop=manifest.get('loop',self.action!='jump')
+        self.loop=manifest.get('loop',self.action not in ONE_SHOT_ACTIONS)
         self.slider.setRange(0,len(frames)-1); self.seek(0); self.show()
         self.window.sequence_preview.load(manifest,path.parent)
         self.play.setText('暂停'); self.timer.start(round(1000/self.fps))

@@ -92,6 +92,8 @@ class PoseCanvas(QWidget):
 
 class MotionDialog(QDialog):
     def __init__(self,analysis,clip,parent=None):
+        if not clip.get('edited') and clip.get('generator_version',2)<3:
+            clip=make_clip(clip['base_rig'],clip['source_sha256'],clip['action'],clip['frame_count'],clip['fps'])
         super().__init__(parent); self.analysis=analysis; self.motion=deepcopy(clip)
         self.setWindowTitle(ACTIONS[clip['action']][0]+' · 完整动作骨骼')
         available=self.screen().availableGeometry(); self.resize(min(900,available.width()-32),min(960,available.height()-48))

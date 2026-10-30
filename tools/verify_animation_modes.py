@@ -55,7 +55,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--reference',type=Path,required=True)
     parser.add_argument('--out',type=Path,required=True)
-    parser.add_argument('--actions',nargs='+',choices=ACTIONS,default=['run','idle','jump','reach'])
+    parser.add_argument('--actions',nargs='+',choices=ACTIONS,default=['walk','idle','run','jump','squat'])
     parser.add_argument('--url',default='http://127.0.0.1:8188')
     parser.add_argument('--seed',type=int,default=20261030)
     args=parser.parse_args()

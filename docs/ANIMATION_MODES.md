@@ -1,10 +1,10 @@
 # 动画模式与长任务处理
 
-五种常规动作（走路、跑步、待机、跳跃、伸手）共用 `pose_animation.generate`。界面选择决定完整动作描述和连续骨骼，不需要用户额外写“动画”或“左右交替”。默认都使用 768×1024、20 步、CFG 1、Euler、保留生成原色，以及生成结束后再去背景。没有为其他动作启用旧的单一静态骨骼、自由 I2V、快速 LoRA 或低分辨率回退。
+五种常规动作（走路、跑步、待机、跳跃、下蹲）共用 `pose_animation.generate`。界面选择决定完整动作描述和连续骨骼，不需要用户额外写“动画”或“左右交替”。默认都使用 768×1024、20 步、CFG 1、Euler、保留生成原色，以及生成结束后再去背景。新版本的骨骼与时间采样见 [V3 改进](MOTION_V3.md)，取消和关闭见 [操作响应](CANCEL_AND_CLOSE.md)。下文旧版实测保留作为比较基线。
 
 ## 真实执行阶段
 
-1. 参考骨架与完整周期：8 张导出帧对应 17 张独立姿态输入，16 张对应 33 张。播放 FPS 不改变模型帧数。
+1. 参考骨架与完整周期：原生细节的 8 张导出帧对应 33 张姿态输入，16 张对应 65 张；快速预览分别为 17 / 33 张。播放 FPS 不改变模型帧数。
 2. 采样任务：只生成和保存潜变量；`video/workflow.json` 是实际提交的图。
 3. 解码任务：空闲时释放模型缓存，读取同一潜变量，用原生 VAE 解码；`video/decode/workflow.json` 不包含采样器。
 4. 单帧去背景、保留生成 RGB、组装精灵图、导出 GIF。原始 RGB 与潜变量保留。
@@ -19,7 +19,7 @@
 
 ## 动作终点
 
-走路、跑步、待机、伸手按完整周期取帧，排除重复终点并循环。跳跃保留从准备到最终恢复站立的末帧：8 帧取原始 17 帧中的 `0,2,5,7,9,11,14,16`。跳跃的手动关键帧使用包含终点的时间轴，不跨末帧混回首帧。软件预览与导出 GIF 单次播放到末帧，“重播”从首帧开始；骨骼预览也默认不循环跳跃，仍可手动勾选循环。
+走路、跑步、待机按完整周期取帧，排除重复终点并循环。跳跃、下蹲保留最终恢复站立的末帧；8 帧原生模式从 33 张中取 `0,5,9,14,18,23,27,32`。手动关键帧使用包含终点的时间轴，不跨末帧混回首帧。软件预览与导出 GIF 单次播放到末帧，“重播”从首帧开始；骨骼预览可手动勾选循环。
 
 ## 本机检查与复现
 
@@ -28,7 +28,7 @@
 标准参数的实测使用同一参考图与固定 seed，四种动作依次执行；不会并行预处理、去背景或提交四个大模型任务。测试入口需要显式传入存在的参考图，不再引用已经被清除的历史缓存：
 
 ```powershell
-python -m tools.verify_animation_modes --reference "参考图完整路径.png" --out data/action-check --actions run idle jump reach
+python -m tools.verify_animation_modes --reference "参考图完整路径.png" --out data/action-check --actions walk idle run jump squat
 python -m pytest -q
 python -m tests.live_animation_modes
 python -m tests.live_motion_refinement --sequence "已准备好 reference_analysis.json 和 motion.json 的动作目录"

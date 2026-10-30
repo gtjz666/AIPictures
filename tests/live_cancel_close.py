@@ -37,8 +37,12 @@ def main():
         assert any(p=='/interrupt' and body=={'prompt_id':'owned'} for p,body,_ in requests)
         assert all(options.get('timeout')==2 for _,_,options in requests)
         assert window.current['cancel'].is_set()
-        began=time.monotonic();assert window.close()
+        window.open_settings('creation');QTest.qWait(30)
+        assert window.settings_dialogs['creation'].isVisible()
+        began=time.monotonic()
+        with patch('aipictures.app.write_json',side_effect=OSError('disk full')):assert window.close()
         assert time.monotonic()-began<.25 and not window.isVisible()
+        assert not window.settings_dialogs['creation'].isVisible()
         command=popen.call_args.args[0]
         assert 'aipictures.cancel_tasks' in command and 'owned' in command and 'someone-else' not in command
         release.set();QTest.qWait(100)
