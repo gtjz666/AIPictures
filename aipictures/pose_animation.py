@@ -65,8 +65,10 @@ def image_batch(graph,names,prefix='pose'):
 
 
 def video_workflow(reference,poses,positive,negative,seed,steps=20,fast=False,face=None,
-                   size=VIDEO_SIZE,sampler='euler',scheduler='simple'):
-    n=len(poses)
+                   size=VIDEO_SIZE,sampler='euler',scheduler='simple',pose_count=None):
+    if pose_count is not None and (type(pose_count) is not int or len(poses)!=1):
+        raise ValueError('多页姿态输入需要一个文件及明确帧数。')
+    n=len(poses) if pose_count is None else pose_count
     if n<5 or (n-1)%4: raise ValueError('骨骼视频帧数必须为 4n+1，且不少于 5 帧。')
     if len(size)!=2 or any(type(value) is not int or value<128 or value>2048 or value%16 for value in size):
         raise ValueError('动画原生画布须为 128–2048 范围内的 16 的倍数。')
@@ -367,20 +369,23 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
             'vae_temporal_stride':4,'latent_time_cells':(length-1)//4+1,
             'post_frame_interpolation':False}
         pose_started=time.monotonic()
-        pose_folder=folder/'poses'; pose_folder.mkdir(); names=[]
+        pose_folder=folder/'poses'; pose_folder.mkdir(); pose_paths=[]
         for i in range(length):
             if cancel.is_set(): raise Cancelled('骨骼准备已取消。')
             pose=clip['base_rig'] if static_test else sample_clip(clip,i/(length-1))
             write_json(pose_folder/f'pose_{i:03d}.json',pose)
             path=pose_folder/f'pose_{i:03d}.png'
             render_condition(body_pose(pose,clip['base_rig']),clip['base_rig'],inference_size).save(path)
-            names.append(client.upload_image(path,subfolder='AIPictures/poses'))
+            pose_paths.append(path)
+        from .pose_sequence import pack_poses
+        manifest['pose_input']=pack_poses(pose_paths,pose_folder/'sequence.tiff')
+        names=[client.upload_image(pose_folder/'sequence.tiff',subfolder='AIPictures/pose_sequences')]
         manifest['timings']['pose_preparation_seconds']=round(time.monotonic()-pose_started,3)
         release_session(); manifest['pose_cache_release']=release_idle_models(client)
         video=folder/'video'; video.mkdir()
         effective_negative=negative+'，多余脚掌，重复鞋尖，分叉鞋底，双层鞋底，鞋子重影，断开的脚踝，姿态控制线条，额外色块，曝光突变，色温漂移'
         graph=video_workflow(reference_name,names,animation_prompt(prompt,action,preserve_reference,negative),effective_negative,seed,steps,fast,face=face_name,
-            size=inference_size,sampler=sampler)
+            size=inference_size,sampler=sampler,pose_count=length)
         bind_model_names(graph,client.discover()['object_info'])
         from .animation_decode import sampling_workflow,decode_sampled
         graph=sampling_workflow(graph)

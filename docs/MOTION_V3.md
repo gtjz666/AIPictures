@@ -29,6 +29,20 @@
 
 跳跃和下蹲采用包含终点的时间轴并单次播放，保存站立终点；走路、跑步、待机排除重复终点并循环。每张帧的具体动作阶段写入元数据。
 
+连续骨骼输入改用无损多页 TIFF，仍由现有原生 `LoadImage` 读取。本机实测将原 65 个载入/拼接节点换成 1 个载入节点，33 页逐像素相等，重复页与顺序均保留；没有重采样、混帧或新增节点依赖。测试记录为 `data/research/motion-v3/pose-batch-parity-ready/acceptance.json`。这是减少重复中间拼接的优化，没有据此宣称固定的内存或耗时降幅。
+
+## 已保存采样的恢复
+
+本次跑步采样完成后，后端在解码期间断开；日志没有给出足以确定原因的异常，不将其直接归因于过热或内存。重新打开同一 Desktop 实例后，读取校验过的原 `.latent`，只执行 VAE 解码和透明导出，得到全部 33 张原生帧。原失败任务与采样编号保留，未重新采样。
+
+```powershell
+python -m tools.recover_animation_export --sequence data/action-v3/run --decode-dir data/action-v3/run/video/decode-recovery
+# 若这个新解码任务的连接中断，仅恢复同一任务，不再次提交：
+python -m tools.recover_animation_export --sequence data/action-v3/run --decode-dir data/action-v3/run/video/decode-recovery --resume-decode
+```
+
+工具拒绝覆盖已有导出帧，检查采样编号及潜变量 SHA-256。共享后端有其他任务时不抢占，不自动重启后端。若后端重启后任务记录已丢失，`--resume-decode` 不会悄悄重新提交；需明确选择新的解码目录。恢复记录与耗时单独保存，不把中断期间算作模型计算时间。
+
 ## 验证方法
 
 自动检查覆盖 129 个连续采样点的骨长、支撑脚、走路始终至少一脚落地、跑步两次腾空、下蹲低位停留与双脚固定，以及 8 / 16 帧的原生条件数量。实际测试固定同一参考、seed、画布、模型、采样器和 20 步，对照旧版结果；本次同时改变骨骼与时间采样，因此不能把差异单独归因于其中一项。
