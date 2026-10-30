@@ -134,13 +134,14 @@ def jump_pose(base,phase):
     lift=height*4*air*(1-air) if air is not None else 0.
     move_upper_and_hips(rig,-leg*.10*crouch,leg*.22*crouch-lift)
     hand_raise=curve(phase,((0,0),(.15,-.35),(.32,1),(.50,1),(.76,.15),(1,0)))
+    air_tuck=leg*(.13 if bounds else .045)
     for side in ('right','left'):
         ankle=source[side+'_ankle'][:]
-        if air is not None:ankle[1]-=lift+leg*.045*math.sin(math.pi*air)
+        if air is not None:ankle[1]-=lift+air_tuck*math.sin(math.pi*air)
         solve_leg(p,base,side,ankle)
         a,b=resting_arm_angles(base,side)
         arm(p,base,side,a+hand_raise*1.65,b+hand_raise*1.65-.12*math.sin(math.pi*max(0,hand_raise)))
     rig.update(jump_crouch=crouch,airborne=air is not None,contacts={'right':air is None,'left':air is None},
-        jump_clearance={'root_lift_limit':height,'top_margin':40 if bounds else None,
+        jump_clearance={'root_lift_limit':height,'air_tuck':air_tuck,'top_margin':40 if bounds else None,
                         'boundary_source':'source_subject_bbox' if bounds else 'legacy_face_joints'})
     return rig
