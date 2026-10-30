@@ -7,7 +7,7 @@ import html
 from uuid import uuid4
 from dataclasses import asdict
 from pathlib import Path
-from PySide6.QtCore import Qt, QThread, Signal, QTimer, QUrl
+from PySide6.QtCore import Qt, Signal, QTimer, QUrl
 from PySide6.QtGui import QPixmap, QImageReader
 from PySide6.QtWidgets import QApplication, QMainWindow, QSpinBox, QListWidgetItem, QFileDialog, QMessageBox
 from .engine import ComfyClient, Cancelled, is_engine_unavailable
@@ -24,20 +24,7 @@ from .panels import SkeletonDialog
 from .result_cache import ResultCache, within_any
 from .animation_actions import ACTIONS
 from .task_display import task_name
-
-
-class Worker(QThread):
-    event = Signal(str, object)
-    def __init__(self, action):
-        super().__init__()
-        self.action = action
-    def run(self):
-        try:
-            self.event.emit('result', self.action(self.event.emit))
-        except Cancelled as exc:
-            self.event.emit('cancelled', str(exc))
-        except Exception as exc:
-            self.event.emit('error', str(exc))
+from .background_worker import Worker
 
 
 class Window(QMainWindow):
@@ -46,6 +33,7 @@ class Window(QMainWindow):
         self.setWindowTitle('AIPictures · 本地创作工作室')
         self.resize(1440, 940)
         self.workers = []
+        self._closing = False
         self.pending = []
         self.current = None
         self.pixmap = QPixmap()
@@ -89,9 +77,10 @@ class Window(QMainWindow):
         w = QSpinBox(); w.setRange(minimum, maximum); w.setValue(value); w.setSingleStep(step); return w
 
     def launch(self, action, callback):
+        if self._closing:return
         worker = Worker(action); self.workers.append(worker)
-        worker.event.connect(callback)
-        worker.finished.connect(lambda: self.workers.remove(worker))
+        worker.event.connect(lambda kind,data:callback(kind,data) if not self._closing else None)
+        worker.finished.connect(lambda: self.workers.remove(worker) if worker in self.workers else None)
         worker.finished.connect(worker.deleteLater); worker.start()
 
     def refresh_loras(self):
@@ -700,12 +689,15 @@ class Window(QMainWindow):
                 self.add_chat('软件','可选姿态模型当前不可用，本次按参考图重绘。')
             if reference:
                 self.preparing = True; self.prepare_cancel.clear()
+                show_preparation=self.current is None
+                if show_preparation:self.task_display.start();self.progress.setRange(0,0)
                 self.status.setText('正在准备并上传参考图…')
                 self.generate_button.setEnabled(False); self.connect_button.setEnabled(False); self.workflow_selector.setEnabled(False)
                 client = self.client
                 def uploaded(kind, data):
                     if kind=='reference_stage': self.status.setText(data['message']); return
                     if kind not in ('result','error','cancelled'): return
+                    if show_preparation:self.task_display.finish('cancelled' if self.prepare_cancel.is_set() else 'failed' if kind=='error' else 'completed')
                     self.preparing = False
                     self.generate_button.setEnabled(self.connected); self.connect_button.setEnabled(self.current is None)
                     self.workflow_selector.setEnabled(self.generation_type.currentData()!='walk')
@@ -916,7 +908,7 @@ class Window(QMainWindow):
         from .walk_cycle import generate_walk
         cancel = threading.Event(); self.current={'folder':folder,'cancel':cancel,'params':params}
         self.task_display.start()
-        self.connect_button.setEnabled(False); self.progress.setRange(0,100); self.progress.setValue(0)
+        self.connect_button.setEnabled(False); self.progress.setRange(0,0)
         item.setText(task_name(params)+' · 执行中')
         temporal=params.get('engine') in ('wan','animate')
         self.status.setText('准备参考主体与连续动画…' if temporal else '准备行走骨骼与角色分层…')
@@ -934,7 +926,7 @@ class Window(QMainWindow):
                 if message:self.status.setText(message)
                 if data['event']=='queued': self.current['prompt_id']=data['data']['prompt_id']
                 elif data['event']=='progress':
-                    step=data['data']; self.progress.setValue(round(10+70*step['value']/max(1,step['max'])))
+                    step=data['data']; self.progress.setRange(0,100);self.progress.setValue(round(10+70*step['value']/max(1,step['max'])))
                     self.status.setText(f'{task_name(params)} · 采样 {step["value"]}/{step["max"]}')
             elif kind=='decode_event':
                 from .animation_status import monitor_text
@@ -953,6 +945,7 @@ class Window(QMainWindow):
                     if message:self.status.setText(message)
                 elif data['event']=='progress':
                     if kind=='video_event': stage='细节完善' if self.current.get('video_expert',0) else '动作生成'
+                    self.progress.setRange(0,100)
                     step=data['data']; self.status.setText(f'{stage}推理 {step["value"]}/{step["max"]}')
                     fraction=step['value']/max(1,step['max'])
                     offset=10 if params.get('source')=='text' else 0
@@ -970,6 +963,7 @@ class Window(QMainWindow):
                         '1':'加载模型','2':'处理描述','3':'处理描述','4':'准备画布','5':'绘制角色','6':'解码图片','7':'保存图片'}
                     self.status.setText(stage+' · '+labels.get(node,'保存结果'))
             elif kind=='matte_progress':
+                self.progress.setRange(0,100)
                 self.progress.setValue(max(self.progress.value(),round(80+15*data['value']/max(1,data['max']))))
             elif kind == 'frame_started':
                 self.status.setText(f'行走第 {data["index"]+1}/{data["count"]} 帧 · {data["stage"]}')
@@ -1022,8 +1016,23 @@ class Window(QMainWindow):
                 'duration_seconds':round(self.task_display.seconds(),2)})
 
     def cancel_current(self):
-        if self.current: self.current['cancel'].set(); self.status.setText('正在请求取消本任务…')
-        elif self.preparing: self.prepare_cancel.set(); self.status.setText('正在取消生成准备…')
+        ticket=self.current
+        if ticket:ticket['cancel'].set()
+        elif self.preparing:self.prepare_cancel.set()
+        else:return
+        self.status.setText('正在发送取消请求；后台结束当前计算后停止，可直接关闭窗口。')
+        self.progress.setRange(0,0)
+        client=getattr(self,'client',None)
+        if client:
+            def request(_):
+                ids=client.active_prompts()
+                if ticket and ticket.get('prompt_id') and ticket['prompt_id'] not in ids:ids.append(ticket['prompt_id'])
+                for pid in ids:client.cancel(pid)
+                return ids
+            def done(kind,data):
+                if self.current is ticket and (ticket is not None or self.preparing):
+                    self.status.setText('取消请求已发送，等待后台确认停止；可直接关闭窗口。' if kind=='result' else '已记录取消请求，后台暂时未响应；可直接关闭窗口。')
+            self.launch(request,done)
 
     def clear_pending(self):
         for _, params, folder, item in self.pending:
@@ -1160,10 +1169,28 @@ class Window(QMainWindow):
             except (OSError,ValueError,KeyError) as exc: QMessageBox.warning(self, '保存失败', str(exc))
 
     def closeEvent(self, event):
-        if self.current or self.workers or self.editor.pending or self.preparing:
-            self.status.setText('后台操作尚未结束，请先取消任务并稍候，再关闭窗口。')
-            self.log.append('请先取消任务并等待后台操作结束，再关闭窗口。'); event.ignore(); return
-        self.clear_pending(); event.accept()
+        self._closing=True;self.timer.stop();self.prepare_cancel.set()
+        if self.current:self.current['cancel'].set()
+        client=getattr(self,'client',None)
+        active=client.active_prompts() if client and hasattr(client,'active_prompts') else []
+        ids=list(active) if isinstance(active,(list,tuple,set)) else []
+        if self.current and self.current.get('prompt_id') and self.current['prompt_id'] not in ids:ids.append(self.current['prompt_id'])
+        if self.current and self.current.get('folder'):
+            write_json(Path(self.current['folder'])/'window-closed.json',{
+                'cancel_requested':True,'prompt_ids':ids,'url':getattr(client,'url',None),
+                'note':'窗口已关闭，后台取消由独立的小进程继续发送；原始结果保留。'})
+        if ids and client:
+            import subprocess
+            command=[sys.executable,'-m','aipictures.cancel_tasks','--url',client.url,
+                     '--report',str(DATA/'last-close-cancellation.json')]
+            for pid in ids:command+=['--prompt-id',pid]
+            try:
+                subprocess.Popen(command,cwd=str(Path(__file__).resolve().parent.parent),
+                    stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform=='win32' else 0)
+            except OSError:pass
+        for worker in self.workers:worker.detach()
+        self.clear_pending();event.accept()
 
 
 def create_application(args=None):
@@ -1176,7 +1203,14 @@ def create_application(args=None):
 def main():
     app = create_application()
     window = Window(); window.show()
-    sys.exit(app.exec())
+    code=app.exec()
+    # Some native segmentation libraries keep their own thread pools alive at
+    # interpreter shutdown. The user's close ends this GUI process; cancellation
+    # of the separate ComfyUI server is handled by cancel_tasks, without killing it.
+    if window._closing and any(worker.isRunning() for worker in window.workers):
+        import os
+        os._exit(code)
+    sys.exit(code)
 
 
 if __name__ == '__main__': main()

@@ -54,6 +54,7 @@ class TaskDisplay(QWidget):
         self.progress.setTextVisible(False); self.progress.setMaximumHeight(5); layout.addWidget(self.progress)
         self.progress.valueChanged.connect(self.update_percent); self.progress.rangeChanged.connect(self.update_percent)
         self.elapsed=QLabel('尚未开始'); self.elapsed.setWordWrap(True); self.elapsed.setObjectName('muted'); layout.addWidget(self.elapsed)
+        self.detail=QLabel();self.detail.setWordWrap(True);layout.addWidget(self.detail)
         self.started=None; self.finished_seconds=0.; self.stage='准备'
         self.clock=QTimer(self); self.clock.setInterval(250); self.clock.timeout.connect(self.update_elapsed)
 
@@ -68,6 +69,7 @@ class TaskDisplay(QWidget):
         self.stage={'completed':'完成','failed':'失败','cancelled':'已取消'}.get(status,status); self.update_elapsed()
 
     def record_stage(self,text):
+        self.detail.setText(text[:220])
         if self.started is None: return
         for words,label in ((('透明','分离','抠图'),'透明处理'),(('导出','保存连续帧','打包'),'保存资源'),
             (('取消',),'等待后端停止'),(('下载',),'下载结果'),(('解码',),'解码动画帧'),

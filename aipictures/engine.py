@@ -2,6 +2,7 @@ import json
 import time
 import uuid
 import mimetypes
+import threading
 from pathlib import Path, PurePosixPath
 from urllib.request import Request, urlopen, ProxyHandler, build_opener
 from urllib.parse import urlencode, urlparse
@@ -31,6 +32,11 @@ class ComfyClient:
         if parsed.scheme != 'http' or parsed.hostname not in ('localhost', '127.0.0.1', '::1'):
             raise ValueError('本地模式只允许 localhost / 127.0.0.1 / ::1 的 HTTP 地址')
         self.http = build_opener(ProxyHandler({}))
+        self._active = set()
+        self._active_lock = threading.Lock()
+
+    def active_prompts(self):
+        with self._active_lock: return sorted(self._active)
 
     def request(self, path, body=None, raw=False, timeout=20):
         req = Request(self.url + path, data=None if body is None else json.dumps(body).encode(),
@@ -79,10 +85,10 @@ class ComfyClient:
 
     def cancel(self, prompt_id):
         # Never interrupt another client's running task.
-        self.request('/queue', {'delete': [prompt_id]})
-        queue = self.request('/queue')
+        self.request('/queue', {'delete': [prompt_id]},timeout=2)
+        queue = self.request('/queue',timeout=2)
         if any(row[1] == prompt_id for row in queue.get('queue_running', [])):
-            self.request('/interrupt', {'prompt_id': prompt_id})
+            self.request('/interrupt', {'prompt_id': prompt_id},timeout=2)
 
     def generate(self, graph, folder, emit, cancel, submitted=lambda _: None, timeout=None, allow_latent_only=False):
         """Submit exactly once, then monitor the same task, even after a read timeout.
@@ -91,6 +97,7 @@ class ComfyClient:
         timeout is an explicit diagnostic option, not a generation quality limit.
         """
         client_id = uuid.uuid4().hex
+        folder=Path(folder);folder.mkdir(parents=True,exist_ok=True)
         ws = None
         try:
             ws = websocket.create_connection(self.url.replace('http:', 'ws:', 1) + '/ws?clientId=' + client_id,
@@ -102,12 +109,17 @@ class ComfyClient:
         try:
             if cancel.is_set():
                 raise Cancelled('任务已取消')
+            write_json(folder/'submission.json',{'url':self.url,'client_id':client_id,'state':'submitting'})
             response = self.request('/prompt', {'prompt': graph, 'client_id': client_id})
             prompt_id = response['prompt_id']
+            with self._active_lock:self._active.add(prompt_id)
+            write_json(folder/'submission.json',{'url':self.url,'client_id':client_id,'prompt_id':prompt_id,'state':'submitted'})
             submitted(prompt_id)
             emit('queued', {'prompt_id': prompt_id})
             return self._wait_for_task(prompt_id, graph, Path(folder), emit, cancel, ws, timeout, allow_latent_only)
         finally:
+            if 'prompt_id' in locals():
+                with self._active_lock:self._active.discard(prompt_id)
             if ws is not None: ws.close()
 
     def resume(self, prompt_id, graph, folder, emit, cancel, allow_latent_only=False):
