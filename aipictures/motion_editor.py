@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QDialog,QWidget,QVBoxLayout,QHBoxLayout,QLabel,QC
     QPushButton,QCheckBox,QDialogButtonBox,QSlider,QToolButton,QScrollArea)
 
 from .character_profile import JOINT_NAMES,LIMBS,COLORS
-from .motion_clip import ACTIONS,JOINT_LABELS,make_clip,save_clip,validate_clip,sample_clip,paint_rig
+from .motion_clip import ACTIONS,JOINT_LABELS,make_clip,save_clip,validate_clip,sample_clip,paint_rig,with_visual_bounds
 from .animation_actions import stage_label
 from .motion_preview import palette_from_reference,draw_puppet
 
@@ -92,8 +92,9 @@ class PoseCanvas(QWidget):
 
 class MotionDialog(QDialog):
     def __init__(self,analysis,clip,parent=None):
-        if not clip.get('edited') and clip.get('generator_version',2)<3:
-            clip=make_clip(clip['base_rig'],clip['source_sha256'],clip['action'],clip['frame_count'],clip['fps'])
+        if not clip.get('edited') and (clip.get('generator_version',2)<3 or
+                analysis.get('geometry',{}).get('subject_bbox') and not clip['base_rig'].get('visual_bounds')):
+            clip=make_clip(with_visual_bounds(clip['base_rig'],analysis),clip['source_sha256'],clip['action'],clip['frame_count'],clip['fps'])
         super().__init__(parent); self.analysis=analysis; self.motion=deepcopy(clip)
         self.setWindowTitle(ACTIONS[clip['action']][0]+' · 完整动作骨骼')
         available=self.screen().availableGeometry(); self.resize(min(900,available.width()-32),min(960,available.height()-48))
@@ -101,6 +102,8 @@ class MotionDialog(QDialog):
         self.changed_frames=set(clip.get('edited_frames',[]))
         layout=QVBoxLayout(self)
         note=QLabel('点击下方帧卡或拖动时间条选帧，拖关节后播放完整周期。人物示意用于动作校对，不是 AI 生成结果。\n基准修改会更新全周期；逐帧修改只影响该关键帧。'+analysis.get('layout_note',''))
+        if clip['action']=='jump' and clip['base_rig'].get('visual_bounds'):
+            note.setText(note.text()+'\n自动跳跃按角色头顶余量限制高度，保留画面上方空间；不会为此缩小角色。')
         if analysis.get('direction')=='left': note.setText(note.text()+'\n编辑使用向右标准坐标，导出恢复参考图的向左朝向。')
         note.setWordWrap(True); layout.addWidget(note)
         row=QHBoxLayout(); self.choice=QComboBox(); self.choice.addItem('基准骨架 · 调整角色比例',-1)
@@ -192,7 +195,7 @@ class MotionDialog(QDialog):
         self.pause()
         try:
             if self.choice.currentData()==-1:
-                self.motion=make_clip(rig,self.motion['source_sha256'],self.motion['action'],self.motion['frame_count'],self.motion['fps'])
+                self.motion=make_clip(with_visual_bounds(rig,self.analysis),self.motion['source_sha256'],self.motion['action'],self.motion['frame_count'],self.motion['fps'])
                 self.changed_frames.clear()
             else:
                 self.motion['frames'][self.choice.currentData()]=rig; self.motion['edited']=True
@@ -242,7 +245,7 @@ class MotionDialog(QDialog):
         self.buttons.button(QDialogButtonBox.StandardButton.Save).setEnabled(True)
 
     def reset_all(self):
-        self.motion=make_clip(self.motion['base_rig'],self.motion['source_sha256'],self.motion['action'],self.motion['frame_count'],self.motion['fps'])
+        self.motion=make_clip(with_visual_bounds(self.motion['base_rig'],self.analysis),self.motion['source_sha256'],self.motion['action'],self.motion['frame_count'],self.motion['fps'])
         self.changed_frames.clear(); self.refresh_tiles(); self.buttons.button(QDialogButtonBox.StandardButton.Save).setEnabled(True)
         self.select_frame(); self.message.setText('已恢复按当前基准生成的完整周期。')
 

@@ -125,7 +125,11 @@ def jump_pose(base,phase):
     rig=deepcopy(base);p=rig['joints'];source=base['joints'];leg=sum(lengths(base,'right'))
     crouch=curve(phase,((0,0),(.08,.25),(.17,1),(.27,0),(.72,0),(.82,.8),(1,0)))
     air=(phase-.27)/.45 if .27<phase<.72 else None
-    headroom=max(0,min(source[name][1] for name in ('nose','right_eye','left_eye'))-55)
+    # Eyes/nose are below the hair silhouette. They cannot establish headroom:
+    # using eye height here let the hair leave the frame at the jump apex.
+    bounds=base.get('visual_bounds')
+    headroom=(max(0,bounds[1]-40) if bounds else
+              max(0,min(source[name][1] for name in ('nose','right_eye','left_eye'))-55))
     height=min(leg*.22,headroom)
     lift=height*4*air*(1-air) if air is not None else 0.
     move_upper_and_hips(rig,-leg*.10*crouch,leg*.22*crouch-lift)
@@ -136,5 +140,7 @@ def jump_pose(base,phase):
         solve_leg(p,base,side,ankle)
         a,b=resting_arm_angles(base,side)
         arm(p,base,side,a+hand_raise*1.65,b+hand_raise*1.65-.12*math.sin(math.pi*max(0,hand_raise)))
-    rig.update(jump_crouch=crouch,airborne=air is not None,contacts={'right':air is None,'left':air is None})
+    rig.update(jump_crouch=crouch,airborne=air is not None,contacts={'right':air is None,'left':air is None},
+        jump_clearance={'root_lift_limit':height,'top_margin':40 if bounds else None,
+                        'boundary_source':'source_subject_bbox' if bounds else 'legacy_face_joints'})
     return rig

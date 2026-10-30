@@ -2,7 +2,7 @@ import math
 import pytest
 from aipictures.animation_actions import ACTIONS,ONE_SHOT_ACTIONS,output_indices
 from aipictures.character_profile import rig_document
-from aipictures.motion_clip import make_clip,sample_clip,FOOT_NAMES
+from aipictures.motion_clip import make_clip,sample_clip,FOOT_NAMES,with_visual_bounds
 
 
 @pytest.mark.parametrize('action',ACTIONS)
@@ -48,3 +48,34 @@ def test_old_unedited_motion_replays_saved_keys_instead_of_new_curves():
     clip['frames'][0]['joints']['right_wrist'][0]+=25
     assert sample_clip(clip,0)['joints']==clip['frames'][0]['joints']
     assert sample_clip(clip,1/8)['joints']==clip['frames'][1]['joints']
+
+
+def test_jump_headroom_uses_hair_boundary_not_eye_height():
+    source=rig_document()
+    base=with_visual_bounds(source,{'geometry':{'subject_bbox':[290,78,470,978]}})
+    assert 'visual_bounds' not in source  # Cached/manual source data remains unchanged.
+    clip=make_clip(base,'a'*64,'jump')
+    head=('nose','right_eye','left_eye','right_ear','left_ear')
+    rest=min(base['joints'][name][1] for name in head)
+    for index in range(129):
+        pose=sample_clip(clip,index/128)
+        estimated_hair_top=78+min(pose['joints'][name][1] for name in head)-rest
+        assert estimated_hair_top>=35
+        assert pose['jump_clearance']['root_lift_limit']<=38
+    assert sample_clip(clip,.5)['joints']['right_ankle'][1]<base['joints']['right_ankle'][1]-10
+
+
+@pytest.mark.parametrize('action',['walk','idle','run','squat'])
+def test_visual_boundary_metadata_does_not_change_other_actions(action):
+    base=rig_document()
+    bounded=with_visual_bounds(base,{'geometry':{'subject_bbox':[290,78,470,978]}})
+    old=make_clip(base,'a'*64,action);new=make_clip(bounded,'a'*64,action)
+    for index in range(33):
+        assert sample_clip(old,index/32)['joints']==sample_clip(new,index/32)['joints']
+
+
+def test_visual_bounds_are_mirrored_without_mutating_geometry():
+    analysis={'direction':'left','geometry':{'subject_bbox':[120,78,330,978]}}
+    base=with_visual_bounds(rig_document(),analysis)
+    assert base['visual_bounds']==[438,78,648,978]
+    assert analysis['geometry']['subject_bbox']==[120,78,330,978]

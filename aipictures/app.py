@@ -362,9 +362,9 @@ class Window(QMainWindow):
             self.preparing=False; self.generate_button.setEnabled(self.connected)
             if kind!='result': self.status.setText('骨骼适配失败：'+str(data)); self.log.append(str(data)); return
             if self.reference_path!=reference: self.status.setText('参考图已更换，请重新打开骨骼。'); return
-            from .motion_clip import make_clip,clip_path,validate_clip
+            from .motion_clip import make_clip,clip_path,validate_clip,with_visual_bounds
             from .motion_editor import MotionDialog
-            base=json.loads(Path(data['rig']).read_text('utf-8'))
+            base=with_visual_bounds(json.loads(Path(data['rig']).read_text('utf-8')),data)
             clip=make_clip(base,checksum,action,count,fps)
             saved=clip_path(checksum,action)
             if saved.is_file():
@@ -986,6 +986,7 @@ class Window(QMainWindow):
                     last=Path(data.get('workflow') or folder/f'frame_{params["count"]-1:03d}'/'workflow.json')
                     self.last_chat_graph=json.loads(last.read_text('utf-8')); self.editor_needs_sync=True; self.sync_editor_if_needed()
                     message=ACTIONS[params.get('action','walk')][0]+'序列已完成，可播放、逐帧查看或导出 PNG / Sprite Sheet / GIF。'
+                    if data.get('warnings'):message+='\n画面检查：'+'；'.join(data['warnings'])
                 else: message=('动作任务已取消。' if kind=='cancelled' else '动作生成失败：'+str(data))+' 已接收的结果与任务记录保留在缓存。'
                 self.add_chat('软件',message,job=str(folder)); self.log.append(folder.name+' · '+status)
                 if kind=='result': self.progress.setValue(100)

@@ -258,6 +258,8 @@ def export_frames(folder,result,manifest,clip,emit,cancel,matte_cache=None):
             'reference_palette':palette_quality})
         manifest['frames'][-1]['post_color_rgb_preserved']=(
             original_rgb==(ImageOps.mirror(image) if manifest.get('source_direction')=='left' else image).convert('RGB').tobytes())
+        from .frame_bounds import canvas_review
+        manifest['frames'][-1]['canvas_review']=canvas_review(image)
         # Magnified lower-leg review is saved separately so shoe topology is inspected.
         points=[frame_pose['joints'][side+'_'+part] for side in ('right','left') for part in ('ankle','heel','toe')]
         crop=image.crop((max(0,int(min(p[0] for p in points))-45),max(0,int(min(p[1] for p in points))-65),
@@ -272,11 +274,15 @@ def export_frames(folder,result,manifest,clip,emit,cancel,matte_cache=None):
     manifest.update(exports=export_sequence(folder,frames,clip['fps'],clip['action']),status='completed',
         pose_selection={'method':'entire_controlled_cycle','source_indices':indices,'endpoint_duplicate_excluded':clip['action'] not in ONE_SHOT_ACTIONS},
         quality_review={'feet':'foot-review.jpg','accepted':False,'note':'需逐帧检查足部结构；自动检查不证明生成准确率。'})
+    from .frame_bounds import boundary_warnings
+    warnings=boundary_warnings(manifest['frames'])
+    manifest['quality_review']['warnings']=warnings
     write_json(folder/'sequence.json',manifest)
     manifest['timings']['sheet_and_gif_seconds']=round(time.monotonic()-export_started,3)
     write_json(folder/'sequence.json',manifest)
     return {'manifest':str(folder/'sequence.json'),'frames':[str(p) for p in frames],
-        'workflow':result.get('image_workflow',str(folder/'video/workflow.json')),'gif':str(folder/(clip['action']+'.gif')),'sprite_sheet':str(folder/'sprite_sheet.png')}
+        'workflow':result.get('image_workflow',str(folder/'video/workflow.json')),'gif':str(folder/(clip['action']+'.gif')),
+        'sprite_sheet':str(folder/'sprite_sheet.png'),'warnings':warnings}
 
 
 def build_foot_review(folder,count):
@@ -332,14 +338,16 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
         analysis_started=time.monotonic()
         analysis=prepare_motion_reference(reference,client,emit,cancel)
         manifest['timings']['reference_analysis_seconds']=round(time.monotonic()-analysis_started,3)
-        base=json.loads(Path(analysis['rig']).read_text('utf-8'))
+        from .motion_clip import with_visual_bounds
+        base=with_visual_bounds(json.loads(Path(analysis['rig']).read_text('utf-8')),analysis)
         sha=digest(reference)
         if motion is not None:
             clip=validate_clip(deepcopy(motion))
             if clip['source_sha256']!=sha or clip['action']!=action or clip['frame_count']!=count:
                 raise ValueError('手动骨骼与当前参考图、动作或帧数不匹配，请重新打开骨骼调整。')
-            if not clip.get('edited') and clip.get('generator_version',2)<3:
-                clip=make_clip(clip['base_rig'],sha,action,count,fps)
+            if not clip.get('edited') and (clip.get('generator_version',2)<3 or
+                    base.get('visual_bounds') and not clip['base_rig'].get('visual_bounds')):
+                clip=make_clip(with_visual_bounds(clip['base_rig'],analysis),sha,action,count,fps)
             clip['fps']=fps
         else: clip=make_clip(base,sha,action,count,fps)
         write_json(folder/'motion.json',clip); write_json(folder/'reference_analysis.json',analysis)

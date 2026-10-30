@@ -51,12 +51,24 @@ def main():
                     assert window.current is not None and '取消' in window.status.toolTip()
                 window.current=None
                 clip=make_clip(rig_document(),'a'*64,action)
-                dialog=MotionDialog({'rgba':str(source)},clip)
+                analysis={'rgba':str(source),'geometry':{'subject_bbox':[320,50,441,979]}}
+                dialog=MotionDialog(analysis,clip)
+                assert dialog.motion['base_rig']['visual_bounds']==[320,50,441,979]
                 assert dialog.loop.isChecked()==(action not in ('jump','squat'))
                 dialog.choice.setCurrentIndex(8)
                 assert '第 8 / 8 帧' in dialog.frame_label.text()
                 if action in ('jump','squat'):assert '恢复站立' in dialog.frame_label.text()
                 dialog.close()
+                if action=='jump':
+                    clip['edited']=True
+                    clip['frames'][1]['joints']['right_wrist'][0]+=10
+                    manual=MotionDialog(analysis,clip)
+                    assert manual.motion['frames'][1]['joints']==clip['frames'][1]['joints']
+                    assert 'visual_bounds' not in manual.motion['base_rig']
+                    manual.reset_all()
+                    assert manual.motion['base_rig']['visual_bounds']==[320,50,441,979]
+                    assert not manual.motion['edited']
+                    manual.close()
                 output=root/action;output.mkdir();frames=[]
                 for i in range(8):
                     frame=output/f'frame_{i:03d}.png';sprite=image.copy()

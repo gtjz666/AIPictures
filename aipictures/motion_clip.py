@@ -32,6 +32,21 @@ def with_feet(base):
     return rig
 
 
+def with_visual_bounds(base, analysis):
+    """Attach source silhouette bounds without modifying cached rigs or proportions."""
+    rig=deepcopy(base)
+    bounds=analysis.get('geometry',{}).get('subject_bbox')
+    if bounds is None:return rig
+    if len(bounds)!=4 or not all(math.isfinite(float(v)) for v in bounds):
+        raise ValueError('参考图主体边界无效，请重新分析参考图。')
+    x0,y0,x1,y1=map(float,bounds)
+    if x1<=x0 or y1<=y0:raise ValueError('参考图主体边界为空，请重新分析参考图。')
+    if analysis.get('direction')=='left':
+        width=rig.get('canvas',[768,1024])[0];x0,x1=width-x1,width-x0
+    rig['visual_bounds']=[x0,y0,x1,y1]
+    return rig
+
+
 def feet_for_pose(rig,base,phase,action):
     p=rig['joints']; source=base['joints']
     for side,offset in (('right',0),('left',.5)):
