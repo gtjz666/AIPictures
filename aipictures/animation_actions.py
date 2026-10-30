@@ -8,6 +8,14 @@ ACTIONS={
 }
 
 
+def output_indices(action: str, count: int, length: int) -> list[int]:
+    """Loops omit the duplicate endpoint; a one-shot jump retains its landing."""
+    if action not in ACTIONS or count < 2 or length < count:
+        raise ValueError('动作、输出帧数或原始帧数无效。')
+    denominator = count - 1 if action == 'jump' else count
+    return [round(i * (length - 1) / denominator) for i in range(count)]
+
+
 def stage_label(action,phase):
     phase=phase%1
     if action=='walk': return ('右脚接触','右脚承重','左腿经过','左脚前摆','左脚接触','左脚承重','右腿经过','右脚前摆')[int(phase*8)%8]

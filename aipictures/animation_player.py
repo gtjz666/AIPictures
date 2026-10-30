@@ -28,6 +28,7 @@ class AnimationPlayer(QWidget):
         self.stop(); self.manifest=path; self.frames=frames; self.fps=manifest['fps']; self.index=0
         self.title=manifest.get('title','行走动画')
         self.action=manifest.get('action','walk')
+        self.loop=manifest.get('loop',self.action!='jump')
         self.slider.setRange(0,len(frames)-1); self.seek(0); self.show()
         self.window.sequence_preview.load(manifest,path.parent)
         self.play.setText('暂停'); self.timer.start(round(1000/self.fps))
@@ -40,9 +41,13 @@ class AnimationPlayer(QWidget):
 
     def toggle(self):
         if self.timer.isActive(): self.timer.stop(); self.play.setText('播放')
-        elif self.frames: self.timer.start(round(1000/self.fps)); self.play.setText('暂停')
+        elif self.frames:
+            if not self.loop and self.index==len(self.frames)-1:self.slider.setValue(0)
+            self.timer.start(round(1000/self.fps)); self.play.setText('暂停')
 
     def advance(self):
+        if not self.loop and self.index==len(self.frames)-1:
+            self.timer.stop();self.play.setText('重播');return
         self.slider.setValue((self.index+1)%len(self.frames))
 
     def seek(self,index):
@@ -63,7 +68,7 @@ class AnimationPlayer(QWidget):
             files=self.frames+[self.manifest.parent/manifest['exports']['sprite_sheet'],self.manifest.parent/manifest['exports']['gif']]
             target=self.window.cache_store.validate_export(path)
             if target.resolve() in {p.resolve() for p in files}: raise ValueError('导出位置不能覆盖原始帧')
-            portable={'schema_version':1,'fps':manifest['fps'],'frame_count':len(self.frames),
+            portable={'schema_version':1,'fps':manifest['fps'],'frame_count':len(self.frames),'loop':self.loop,
                       'canvas':manifest['canvas'],'frames':[p.name for p in self.frames],
                       'exports':manifest['exports'],'direction':manifest['intent']['direction'],'action':manifest.get('action','walk')}
             with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as archive:

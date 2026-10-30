@@ -124,7 +124,7 @@ class MotionDialog(QDialog):
         controls=QHBoxLayout(); previous=QPushButton('上一帧'); following=QPushButton('下一帧')
         previous.clicked.connect(lambda:self.step(-1)); following.clicked.connect(lambda:self.step(1))
         self.play=QPushButton('▶ 播放完整动画'); stop=QPushButton('停止 / 回到首帧'); stop.clicked.connect(self.stop_play)
-        self.loop=QCheckBox('循环'); self.loop.setChecked(True)
+        self.loop=QCheckBox('循环'); self.loop.setChecked(clip.get('loop',True))
         self.speed=QComboBox()
         for label,value in (('0.5 倍',.5),('1 倍',1.),('1.5 倍',1.5)): self.speed.addItem(label,value)
         self.speed.setCurrentIndex(1)
@@ -158,7 +158,7 @@ class MotionDialog(QDialog):
         self.show_frame(index)
 
     def show_frame(self,index,pose=None):
-        n=self.motion['frame_count']; fps=self.motion['fps']; phase=max(0,index)/n
+        n=self.motion['frame_count']; fps=self.motion['fps']; phase=max(0,index)/(n if self.motion.get('loop',True) else n-1)
         title='基准骨架 · 调整角色比例' if index==-1 else f'第 {index+1} / {n} 帧 · '+stage_label(self.motion['action'],phase)
         self.frame_label.setText(title); self.canvas.frame_caption=title
         self.canvas.set_pose(pose or (self.motion['base_rig'] if index==-1 else self.motion['frames'][index]),self.analysis['rgba'])
@@ -173,7 +173,8 @@ class MotionDialog(QDialog):
             qimage=QImage(image.tobytes(),36,48,36*3,QImage.Format.Format_RGB888).copy()
             button.setIcon(QIcon(QPixmap.fromImage(qimage))); button.setIconSize(qimage.size())
             button.setText(str(i+1)+(' •' if i in self.changed_frames else ''))
-            button.setToolTip(f'第 {i+1} 帧 · '+stage_label(self.motion['action'],i/self.motion['frame_count']))
+            n=self.motion['frame_count'];phase=i/(n if self.motion.get('loop',True) else n-1)
+            button.setToolTip(f'第 {i+1} 帧 · '+stage_label(self.motion['action'],phase))
 
     def set_preview_mode(self,index):
         self.canvas.show_puppet=index==0; self.canvas.update()
@@ -221,8 +222,11 @@ class MotionDialog(QDialog):
     def tick(self):
         duration=self.motion['frame_count']/self.motion['fps']
         phase=self.clock.elapsed()/1000*self.speed.currentData()/duration
-        if phase>=1 and not self.loop.isChecked(): self.stop_play(); return
-        phase%=1; index=min(self.motion['frame_count']-1,int(phase*self.motion['frame_count']))
+        if phase>=1 and not self.loop.isChecked():
+            self.pause();self.choice.setCurrentIndex(self.motion['frame_count']);return
+        phase%=1
+        intervals=self.motion['frame_count'] if self.motion.get('loop',True) else self.motion['frame_count']-1
+        index=min(self.motion['frame_count']-1,int(phase*intervals))
         self.playing_update=True; self.choice.setCurrentIndex(index+1); self.playing_update=False
         self.show_frame(index,sample_clip(self.motion,phase))
 
@@ -230,7 +234,8 @@ class MotionDialog(QDialog):
         from .motion_clip import pose_at
         index=self.choice.currentData()
         if index==-1: return
-        self.motion['frames'][index]=pose_at(self.motion['base_rig'],index/self.motion['frame_count'],self.motion['action'])
+        n=self.motion['frame_count'];phase=index/(n if self.motion.get('loop',True) else n-1)
+        self.motion['frames'][index]=pose_at(self.motion['base_rig'],phase,self.motion['action'])
         self.changed_frames.discard(index); self.refresh_tiles(); self.select_frame()
         self.buttons.button(QDialogButtonBox.StandardButton.Save).setEnabled(True)
 

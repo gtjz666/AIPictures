@@ -289,7 +289,7 @@ def generate_temporal(client, folder, prompt, negative, seed, count, fps, emit, 
         video = folder/'video'; video.mkdir(exist_ok=True); write_json(video/'workflow.json',graph)
         manifest['status']='running'; manifest['source_frame_count']=length; save()
         emit('reference_stage',{'message':'Wan2.2 14B 整段连续推理，首次加载可能较慢…'})
-        result = client.generate(graph,video,lambda k,d:emit('video_event',{'event':k,'data':d}),cancel,timeout=7200,
+        result = client.generate(graph,video,lambda k,d:emit('video_event',{'event':k,'data':d}),cancel,
             submitted=lambda pid:write_json(video/'submitted.json',{'prompt_id':pid}))
         write_json(video/'result.json',result); checked()
         emit('reference_stage',{'message':'连续推理完成，准备处理透明帧…'})

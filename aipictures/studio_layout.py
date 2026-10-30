@@ -75,7 +75,7 @@ def build_studio(w):
     w.walk_count = QComboBox(); w.walk_count.addItem('8 帧 · 标准周期',8); w.walk_count.addItem('16 帧 · 更平滑',16)
     wf.addRow('帧数', w.walk_count)
     w.walk_fps = w.spin(1,30,8); wf.addRow('播放帧率', w.walk_fps)
-    note = QLabel('动作由选择框决定，自动加入完整动作提示词。完整骨骼先适配角色比例，再生成整个周期，手动调整为可选。当前骨架适用双足角色；其他布局需要校准。'); note.setWordWrap(True); wf.addRow(note)
+    note = QLabel('动作由选择框决定，自动加入完整动作提示词。五种动作共用完整骨骼与原生清晰度流程，手动调整为可选。首次加载和编码可能较慢，可在当前任务查看阶段与耗时；取消会等待后台确认。跳跃保留完整落地，其他动作循环播放。当前骨架适用双足角色；其他布局需要校准。'); note.setWordWrap(True); wf.addRow(note)
     cf.addRow(w.walk_settings); w.walk_settings.hide()
     w.generation_type.currentIndexChanged.connect(w.generation_type_changed)
     w.character_route.currentIndexChanged.connect(w.character_selection_changed)

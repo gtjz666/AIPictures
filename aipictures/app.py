@@ -929,14 +929,17 @@ class Window(QMainWindow):
                 self.last_chat_graph=json.loads(json.dumps(data['graph']))
                 self.editor_needs_sync=True; self.sync_editor_if_needed()
             elif kind=='pose_video_event':
+                from .animation_status import monitor_text
+                message=monitor_text(data['event'],data['data'],self.last_chat_graph)
+                if message:self.status.setText(message)
                 if data['event']=='queued': self.current['prompt_id']=data['data']['prompt_id']
                 elif data['event']=='progress':
                     step=data['data']; self.progress.setValue(round(10+70*step['value']/max(1,step['max'])))
-                    self.status.setText(task_name(params))
-                elif data['event']=='executing': self.status.setText(task_name(params)+' · 模型处理')
+                    self.status.setText(f'{task_name(params)} · 采样 {step["value"]}/{step["max"]}')
             elif kind=='decode_event':
+                from .animation_status import monitor_text
                 if data['event']=='queued':self.current['prompt_id']=data['data']['prompt_id']
-                self.status.setText('解码原生动画帧…')
+                self.status.setText(monitor_text(data['event'],data['data'],self.last_chat_graph) or '解码原生动画帧…')
             elif kind=='quality_event':
                 if data['event']=='queued': self.current['prompt_id']=data['data']['prompt_id']
                 self.status.setText('正在进行手动选择的高清修复…')
@@ -944,6 +947,10 @@ class Window(QMainWindow):
                 stage='连续动画' if kind=='video_event' else '角色图片'
                 if data['event']=='monitor_waiting':
                     self.status.setText(stage+' · 进度连接暂时中断，继续检查同一任务…')
+                elif data['event'] in ('cancel_pending','monitor_status'):
+                    from .animation_status import monitor_text
+                    message=monitor_text(data['event'],data['data'],self.last_chat_graph)
+                    if message:self.status.setText(message)
                 elif data['event']=='progress':
                     if kind=='video_event': stage='细节完善' if self.current.get('video_expert',0) else '动作生成'
                     step=data['data']; self.status.setText(f'{stage}推理 {step["value"]}/{step["max"]}')

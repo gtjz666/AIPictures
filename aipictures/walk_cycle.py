@@ -112,11 +112,12 @@ def export_sequence(folder, frames, fps, name='walk'):
             indices[np.asarray(small.getchannel('A'))<128]=255
             preview=Image.fromarray(indices); preview.putpalette(table)
             preview.info['transparency']=255; previews.append(preview)
+        repeat={} if name=='jump' else {'loop':0}
         previews[0].save(folder/(name+'.gif'),save_all=True,append_images=previews[1:],duration=round(1000/fps),
-                         loop=0,disposal=2,transparency=255,optimize=False)
+                         disposal=2,transparency=255,optimize=False,**repeat)
         return {'sprite_sheet':'sprite_sheet.png','gif':name+'.gif','columns':columns,'rows':rows,
                 'cell_size':list(SIZE),'gif_size':[384,512],'background':'transparent','gif_transparency':'binary',
-                'gif_palette':'shared_foreground_palette'}
+                'gif_palette':'shared_foreground_palette','loop':name!='jump'}
     finally:
         for image in images: image.close()
 

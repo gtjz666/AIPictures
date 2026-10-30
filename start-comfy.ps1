@@ -35,6 +35,10 @@ foreach ($enginePort in $candidatePorts) {
         }
     } catch {}
 }
+if ($candidatePorts.Count -gt 0) {
+    Write-Host 'Comfy Desktop already owns a starting server. Waiting for that instance; no second server will be launched.'
+    exit 0
+}
 try {
     Invoke-RestMethod 'http://127.0.0.1:8188/system_stats' -TimeoutSec 3 | Out-Null
     Write-Host 'ComfyUI is already running at http://127.0.0.1:8188'

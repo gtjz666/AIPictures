@@ -1,5 +1,6 @@
 """Real Qt frame cards, edited-pose playback, preview render and a ticking task clock."""
 import json
+import argparse
 import tempfile
 from pathlib import Path
 from copy import deepcopy
@@ -15,7 +16,9 @@ from aipictures.storage import DATA,write_json
 
 def main():
     app=QApplication([]); DATA.mkdir(exist_ok=True)
-    source=Path.home()/'Desktop/AIPictures/data/animations/20261028_233855_212f5c6b'
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--sequence',type=Path,required=True)
+    source=parser.parse_args().sequence
     analysis=json.loads((source/'reference_analysis.json').read_text('utf-8'))
     original=json.loads((source/'motion.json').read_text('utf-8'))
     clip=make_clip(original['base_rig'],original['source_sha256'],'walk',8,8)

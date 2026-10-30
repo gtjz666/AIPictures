@@ -60,7 +60,7 @@ def enhance_frames(client,paths,folder,mode,emit,cancel):
     append_quality(graph,mode,768,1024)
     from .storage import write_json
     write_json(folder/'workflow.json',graph)
-    result=client.generate(graph,folder,lambda k,d:emit('quality_event',{'event':k,'data':d}),cancel,timeout=1800)
+    result=client.generate(graph,folder,lambda k,d:emit('quality_event',{'event':k,'data':d}),cancel)
     # History preserves SaveImage node insertion order; map by node id for robust frame order.
     ordered=[]
     downloaded={}

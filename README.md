@@ -1,5 +1,7 @@
 # AIPictures
 
+动画模式、分阶段进度与超时处理说明：[ANIMATION_MODES.md](docs/ANIMATION_MODES.md)。
+
 Windows 独立本地 AI 图像与动画创作桌面软件。Python + PySide6，ComfyUI API 推理。
 
 后续普及路线已完成调研：保留本地推理，优先增加用户自带 API 的图片生成；动画 API 按是否支持完整骨骼条件分别评估。[FrameRonin 对照与 API 接入方案](docs/API_AND_FRAMERONIN_RESEARCH.md)说明已确认能力、限制和实施顺序；API 尚未接入。

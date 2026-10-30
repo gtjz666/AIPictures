@@ -16,6 +16,7 @@ from .temporal_animation import initial_character_workflow,ENCODER,VAE
 from .walk_cycle import export_sequence,SIZE
 from .workflow_library import digest
 from .pose_condition import render_condition
+from .animation_actions import output_indices
 
 MODEL='Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors'
 SPEED_LORA='AIPictures/animation/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors'
@@ -135,7 +136,7 @@ def export_frames(folder,result,manifest,clip,emit,cancel,matte_cache=None):
     if len(result['images'])!=length: raise ValueError('生成帧数与骨骼序列不一致，原始结果已保留。')
     if matte_cache is not None and len(matte_cache)!=count:
         raise ValueError('缓存透明帧数不匹配，请重新处理背景。')
-    indices=[round(i*(length-1)/count) for i in range(count)]
+    indices=output_indices(clip['action'],count,length)
     frames=[]; matte_paths=[]; poses=[]; matting_seconds=[]; matting_rgb=[]; started=time.monotonic()
     apply_color=manifest.get('color_mode','original')=='reference'
     reference_rgba=None
@@ -166,7 +167,7 @@ def export_frames(folder,result,manifest,clip,emit,cancel,matte_cache=None):
             image=clean_foreground(image,repair_interior=False)
             if image.size!=SIZE:
                 image=image.resize(SIZE,Image.Resampling.LANCZOS)
-            frame_pose=sample_clip(clip,i/count)
+            frame_pose=sample_clip(clip,index/(length-1))
             matte_path=key/'matte.png'; image.save(matte_path); matte_paths.append(matte_path); poses.append(frame_pose)
             matting_seconds.append(round(time.monotonic()-frame_started,3))
             emit('matte_progress',{'value':i+1,'max':count})
@@ -249,7 +250,7 @@ def export_frames(folder,result,manifest,clip,emit,cancel,matte_cache=None):
         paint_rig(frame_pose,SIZE).save(key/'foot-controls.png')
         manifest['frames'].append({'index':i,'image':output.name,'source_frame':index,
             'native_matte':f'frame_{i:03d}/matte_native.png',
-            'stage':ACTIONS[clip['action']][0],'phase':i/count,'pose':f'frame_{i:03d}/pose.json',
+            'stage':ACTIONS[clip['action']][0],'phase':index/(length-1),'pose':f'frame_{i:03d}/pose.json',
             'workflow':result.get('image_workflow','video/workflow.json'),'prompt_id':result['prompt_id'],'foot_quality':quality,
             'color_consistency':color_plan['frames'][i],'hand_quality':hand_quality,'hair_quality':hair_quality,
             'reference_palette':palette_quality})
@@ -267,7 +268,7 @@ def export_frames(folder,result,manifest,clip,emit,cancel,matte_cache=None):
     export_started=time.monotonic()
     build_foot_review(folder,count)
     manifest.update(exports=export_sequence(folder,frames,clip['fps'],clip['action']),status='completed',
-        pose_selection={'method':'entire_controlled_cycle','source_indices':indices,'endpoint_duplicate_excluded':True},
+        pose_selection={'method':'entire_controlled_cycle','source_indices':indices,'endpoint_duplicate_excluded':clip['action']!='jump'},
         quality_review={'feet':'foot-review.jpg','accepted':False,'note':'需逐帧检查足部结构；自动检查不证明生成准确率。'})
     write_json(folder/'sequence.json',manifest)
     manifest['timings']['sheet_and_gif_seconds']=round(time.monotonic()-export_started,3)
@@ -338,6 +339,7 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
             clip['fps']=fps
         else: clip=make_clip(base,sha,action,count,fps)
         write_json(folder/'motion.json',clip); write_json(folder/'reference_analysis.json',analysis)
+        manifest['loop']=clip['loop']
         manifest.update(reference=str(reference),reference_sha256=sha,intent={'action':action,'direction':analysis['direction']},
             control='static_pose_test' if static_test else 'full_pose_sequence',source_direction=analysis['direction'])
         from .generation_reference import prepare_generation_reference
@@ -387,7 +389,10 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
             submitted=lambda pid:write_json(video/'submitted.json',{'prompt_id':pid}),allow_latent_only=True)
         write_json(video/'sampling_result.json',sampled)
         manifest['sampling_prompt_id']=sampled['prompt_id'];save()
+        manifest['timings']['sampling_wait_and_download_seconds']=round(time.monotonic()-inference_started,3)
+        decode_started=time.monotonic()
         result=decode_sampled(client,sampled,video/'decode',emit,cancel)
+        manifest['timings']['decode_wait_and_download_seconds']=round(time.monotonic()-decode_started,3)
         manifest['timings']['inference_wait_and_download_seconds']=round(time.monotonic()-inference_started,3)
         write_json(video/'result.json',result); manifest['video_cache_release']=release_idle_models(client)
         manifest['prompt_id']=result['prompt_id']

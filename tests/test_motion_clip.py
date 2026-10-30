@@ -85,7 +85,8 @@ class MotionClipTests(unittest.TestCase):
             with patch('aipictures.pose_animation.foreground_rgba',side_effect=lambda image,*_,**kw:image.convert('RGBA')) as matte,patch('aipictures.pose_animation.release_session'):
                 result=export_frames(root,{'images':paths,'prompt_id':'owned'},manifest,clip,lambda *args:None,threading.Event())
                 self.assertTrue(all(call.kwargs.get('anti_alias') is False for call in matte.call_args_list))
-            self.assertEqual(manifest['pose_selection']['source_indices'],list(range(0,16,2)))
+            self.assertEqual(manifest['pose_selection']['source_indices'],[0,2,5,7,9,11,14,16])
+            self.assertFalse(manifest['pose_selection']['endpoint_duplicate_excluded'])
             self.assertTrue(manifest['transparency']['all_native_matte_rgb_preserved'])
             self.assertEqual(len(manifest['transparency']['native_matte_rgb_preserved']),8)
             self.assertIsNone(manifest['transparency']['analysis_mask_used_as_model_input'])
@@ -99,7 +100,8 @@ class MotionClipTests(unittest.TestCase):
             for i,entry in enumerate(manifest['frames']):
                 with Image.open(root/entry['native_matte']) as native:
                     self.assertEqual(native.size,(480,640))
-                    self.assertEqual(native.getpixel((210,110+i*6)),(i*20,100,120,255))
+                    source_index=entry['source_frame']
+                    self.assertEqual(native.getpixel((210,110+source_index*3)),(source_index*10,100,120,255))
         clip=make_clip(rig_document(),'a'*64); clip['frames'][0]['joints']['right_ankle'][0]=float('nan')
         with self.assertRaises(ValueError): validate_clip(clip)
 

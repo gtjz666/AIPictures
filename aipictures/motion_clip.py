@@ -119,7 +119,7 @@ def pose_at(base,phase,action='walk'):
 def make_clip(base,source_sha,action='walk',count=8,fps=8):
     if count not in (8,16) or not 1<=fps<=30: raise ValueError('动作支持 8 / 16 帧，帧率 1–30。')
     base=with_feet(base)
-    frames=[pose_at(base,i/count,action) for i in range(count)]
+    frames=[pose_at(base,i/(count-1 if action=='jump' else count),action) for i in range(count)]
     clip={'schema_version':1,'source_sha256':source_sha,'action':action,'frame_count':count,'fps':fps,
           'canvas':[768,1024],'base_rig':base,'frames':frames,'edited':False,'loop':action!='jump','generator_version':2}
     validate_clip(clip); return clip
@@ -139,7 +139,12 @@ def validate_clip(clip):
 
 def sample_clip(clip,phase):
     if not clip.get('edited'): return pose_at(clip['base_rig'],phase,clip['action'])
-    n=len(clip['frames']); at=(phase%1)*n; left=int(at)%n; right=(left+1)%n; f=at-math.floor(at)
+    n=len(clip['frames'])
+    if not clip.get('loop',True):
+        at=max(0.,min(1.,phase))*(n-1); left=min(int(at),n-1); right=min(left+1,n-1)
+    else:
+        at=(phase%1)*n; left=int(at)%n; right=(left+1)%n
+    f=at-math.floor(at)
     rig=deepcopy(clip['frames'][left])
     for name,p in rig['joints'].items():
         q=clip['frames'][right]['joints'][name]
