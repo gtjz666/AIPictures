@@ -69,7 +69,7 @@ def sample_plan(base,plan,phase):
             if action not in ONE_SHOT_ACTIONS:
                 pose=_blend_rest(pose,base,min(1.,local/.12,(1-local)/.12))
             if local<=0 or local>=1:pose['joints']=deepcopy(base['joints'])
-            pose.update(action='custom',phase=phase,segment=index,
+            pose.update(action='custom',primitive_action=action,phase=phase,segment=index,
                         stage=f'{index+1}/{len(plan["segments"])} · {segment["title"]} · '+pose['stage'])
             return pose
         cursor=end

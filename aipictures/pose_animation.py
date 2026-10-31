@@ -39,6 +39,9 @@ def animation_prompt(text,action='walk',preserve=True,negative=''):
         extra=appearance_description(text)
         if extra: result+='外观补充：'+extra
     result+=' Exactly two feet, one foot per leg, one heel and one toe per shoe, clean single soles. Follow the complete pose sequence.'
+    if action=='attack':
+        result+=' 向前打击时手指握紧成拳，拇指贴住弯曲的手指，另一手握拳防守，命中后立即收拳。不要张开手掌推物，不指向前方，不挥手示意。'
+        result+=' A sharp forward punch with a tightly closed fist, curled fingers and tucked thumb; the other closed fist guards the chest. Brief impact hold, then retract. No open palm, no pointing gesture.'
     if negative:
         from .animation_constraints import positive_restrictions
         result+='生成要求：'+positive_restrictions(negative)
@@ -369,6 +372,9 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
         if action=='custom':
             if clip['motion_plan']['description']!=custom_description.strip():raise ValueError('动作说明已改变，请重新保存自定义骨骼。')
             manifest['motion_plan']=clip['motion_plan']
+        has_attack=action=='attack' or action=='custom' and any(s['action']=='attack' for s in clip['motion_plan']['segments'])
+        manifest['hand_condition']={'mode':'observed_reference_with_folded_finger_targets' if has_attack else 'observed_reference',
+            'requires_observed_hand':True,'invent_missing_hands':False}
         write_json(folder/'motion.json',clip); write_json(folder/'reference_analysis.json',analysis)
         manifest['loop']=clip['loop']
         manifest.update(reference=str(reference),reference_sha256=sha,intent={'action':action,'direction':analysis['direction']},
@@ -420,7 +426,7 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
         graph=sampling_workflow(graph)
         write_json(video/'workflow.json',graph)
         manifest.update(status='running',source_frame_count=length,effective_negative=effective_negative,
-            pose_format='wan_v2_body18_with_observed_hands_and_foot_derived_ankles',
+            pose_format='wan_v2_body18_with_hand_controls_and_foot_derived_ankles',
             negative_policy='positive_constraints_with_cfg1_negative_recorded'); save()
         emit('workflow_ready',{'graph':graph,'url':client.url})
         inference_started=time.monotonic()

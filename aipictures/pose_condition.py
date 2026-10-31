@@ -18,6 +18,20 @@ def hand_points(rig,base,side):
     for x,y,score in template:
         dx,dy=x-origin[0],y-origin[1]
         points.append([d[0]+dx*math.cos(angle)-dy*math.sin(angle),d[1]+dx*math.sin(angle)+dy*math.cos(angle),score])
+    if rig.get('primitive_action',rig.get('action'))=='attack':
+        # An open reference hand must not force every punch to become a palm reach.
+        # Only observed human hands receive these standard 21 folded-finger landmarks.
+        amount=min(1.,max(0.,rig.get('attack_ready',0.)/.5))
+        amount=amount*amount*(3-2*amount)
+        folded=((0,0),(3,-4),(7,-8),(13,-5),(13,-1),
+            (14,-6),(19,-6),(18,-3),(13,-3),(15,-1),(21,0),(19,3),(14,2),
+            (14,4),(19,5),(17,8),(12,6),(12,9),(16,10),(14,12),(10,10))
+        scale=max(.6,min(1.6,math.dist(c[:2],d[:2])/135))
+        heading=math.atan2(d[1]-c[1],d[0]-c[0])
+        for point,(x,y) in zip(points,folded):
+            target=(d[0]+scale*(x*math.cos(heading)-y*math.sin(heading)),
+                    d[1]+scale*(x*math.sin(heading)+y*math.cos(heading)))
+            point[:2]=[point[i]*(1-amount)+target[i]*amount for i in (0,1)]
     return points
 
 
