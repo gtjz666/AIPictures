@@ -479,6 +479,8 @@ class Window(QMainWindow):
             ('旧版骨骼使用网格变形；参考保真策略用于单图与 AI 连续动画。' if legacy else
              ('允许按描述改变外观，可手动使用风格 LoRA 和高清修复。' if self.reference_path and (not walking or self.animation_source.currentData()=='reference') else
               '添加参考图后生效；当前按文字描述生成。')))
+        if walking and self.animation_source.currentData()=='reference' and self.animation_style.isChecked():
+            self.reference_note.setText('先按所选 LoRA 重绘风格基准，再生成动作。发型、配色和服装细节也可能改变；此模式使用自动骨骼。')
         self.update_lora_state()
         self.update_intent_hint()
 
@@ -500,7 +502,7 @@ class Window(QMainWindow):
         else: text += ' · 朝' + ('左' if intent.direction == 'left' else '右')
         if walking and self.animation_engine.currentData()=='animate':
             text+=(' · AI 自由动作（实验性）' if self.animation_action.currentData()=='custom' and self.custom_strategy.currentData()=='free' else
-                   ' · 完整骨骼周期 · '+('自动适配，无需手调' if self.motion_mode.currentData()=='auto' else '使用手动调整'))
+                   ' · 完整骨骼周期 · '+('自动适配，无需手调' if self.motion_mode.currentData()=='auto' or self.animation_style.isChecked() else '使用手动调整'))
         elif intent.action in ('run','jump'): text += '\n连续动作请在动画类型中选择。'
         elif intent.action == 'walk' and not walking: text += '\n当前只生成单张；连续动作请选人物行走动画帧。'
         if walking and self.animation_engine.currentData() in ('wan','animate'):

@@ -38,6 +38,7 @@ def main():
             assert params['lora']=='' and params['preserve_reference'] and not params['style_reference']
             window.animation_style.setChecked(True)
             assert window.lora.isEnabled() and window.model.isEnabled() and not window.motion_mode.isEnabled()
+            assert '重绘风格基准' in window.reference_note.text()
             window.enqueue_walk();params=window.pending[-1][1]
             assert params['style_reference'] and params['lora'].endswith('anime-slider-sdxl.safetensors')
             window.animation_style.setChecked(False)
