@@ -57,6 +57,15 @@ def main():
             with patch('aipictures.custom_animation.generate') as generate:
                 window.start_walk(params,window.pending[-1][2],window.pending[-1][3])
                 assert generate.call_args.kwargs['custom_description']=='挥手告别'
+                callback=captured[-1]
+                window.last_chat_graph={str(i):{'class_type':'KSamplerAdvanced','inputs':{
+                    'steps':20,'start_at_step':start,'end_at_step':end}} for i,start,end in ((11,0,10),(12,10,20))}
+                callback('pose_video_event',{'event':'progress','data':{'node':'11','value':10,'max':10}})
+                assert window.progress.value()==45
+                callback('pose_video_event',{'event':'progress','data':{'node':'12','value':1,'max':10}})
+                assert 45<window.progress.value()<55
+                callback('pose_video_event',{'event':'progress','data':{'node':'12','value':10,'max':10}})
+                assert window.progress.value()==80
             window.current=None
             clip=make_custom_clip(rig_document(),'a'*64,'下蹲，然后出拳')
             dialog=MotionDialog({'rgba':str(source)},clip)

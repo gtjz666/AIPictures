@@ -973,8 +973,14 @@ class Window(QMainWindow):
                 message=monitor_text(data['event'],data['data'],self.last_chat_graph)
                 if message:self.status.setText(message)
                 if data['event']=='queued': self.current['prompt_id']=data['data']['prompt_id']
+                elif data['event']=='executing':self.current['sampling_node']=str(data['data'].get('node') or '')
                 elif data['event']=='progress':
-                    step=data['data']; self.progress.setRange(0,100);self.progress.setValue(round(10+70*step['value']/max(1,step['max'])))
+                    step=data['data'];fraction=step['value']/max(1,step['max'])
+                    node=(self.last_chat_graph or {}).get(str(step.get('node') or self.current.get('sampling_node','')),{})
+                    if node.get('class_type')=='KSamplerAdvanced':
+                        inputs=node['inputs'];start=inputs['start_at_step'];end=min(inputs['steps'],inputs['end_at_step'])
+                        fraction=(start+(end-start)*fraction)/max(1,inputs['steps'])
+                    self.progress.setRange(0,100);self.progress.setValue(max(self.progress.value(),round(10+70*fraction)))
                     self.status.setText(f'{task_name(params)} · 采样 {step["value"]}/{step["max"]}')
             elif kind=='decode_event':
                 from .animation_status import monitor_text
