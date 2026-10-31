@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from aipictures.character_profile import rig_document
-from aipictures.motion_clip import make_clip,sample_clip,body_pose
+from aipictures.motion_clip import make_clip,sample_clip,body_pose,with_feet
 from aipictures.natural_motion import profile
 from aipictures.game_animation import game_metadata
 from tools.research_mocap import world_positions
@@ -90,3 +90,19 @@ def test_asf_channels_and_root_transform(tmp_path):
     amc.write_text(':DEGREES\n1\nroot 3 4 5 0 0 0\narm 90\n2\nroot 3 4 5 0 0 90\narm 0\n')
     tracks,_,_=world_positions(asf,amc)
     assert np.allclose(tracks['arm'],[[1,4,5],[1,4,5]])
+
+
+def test_jump_foot_floor_constraint_does_not_change_body18_ankle_or_bone_lengths():
+    base=with_feet(rig_document())
+    # Tall/long shoes expose a mismatch if heel/toe are clamped after leg IK.
+    for side in ('right','left'):
+        ankle=base['joints'][side+'_ankle']
+        base['joints'][side+'_heel']=[ankle[0]-25,978,1]
+        base['joints'][side+'_toe']=[ankle[0]+100,978,1]
+    clip=make_clip(base,'a'*64,'jump')
+    for i in range(129):
+        pose=sample_clip(clip,i/128);body=body_pose(pose,base)
+        for side in ('right','left'):
+            name=side+'_ankle'
+            assert body['joints'][name][:2]==pytest.approx(pose['joints'][name][:2],abs=1e-5)
+            assert max(pose['joints'][side+'_'+part][1] for part in ('heel','toe'))<=978+1e-5

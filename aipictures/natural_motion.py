@@ -78,6 +78,13 @@ def pose_from_capture(base,phase,action):
                     if 0<t<1:lift=leg*.045*math.sin(math.pi*t)**2
             if lift<.01:lift=0.
             ankle[1]-=lift;rolls[side]=roll;supported=lift<.01
+        if action=='jump':
+            # Resolve shoe clearance before IK. Clamping only heel/toe afterwards
+            # would make the BODY_18 ankle differ from the solved leg endpoint.
+            pitch=rolls[side];origin=source[side+'_ankle']
+            shoe_depth=max((source[side+'_'+part][0]-origin[0])*math.sin(pitch)+
+                (source[side+'_'+part][1]-origin[1])*math.cos(pitch) for part in ('heel','toe'))
+            ankle[1]=min(ankle[1],base.get('ground_y',978)-shoe_depth)
         solve_leg(p,base,side,ankle)
         contacts[side]=supported and abs(rolls[side])<1e-4
         toe_contacts[side]=supported and not contacts[side]
