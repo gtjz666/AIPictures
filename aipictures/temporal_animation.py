@@ -76,7 +76,7 @@ def animation_prompt(description,preserve_reference=False):
     return text
 
 
-def video_workflow(reference, prompt, negative, seed, steps=20, length=33):
+def video_workflow(reference, prompt, negative, seed, steps=20, length=33,size=VIDEO_SIZE):
     """Official non-distilled 14B settings: shift 5, CFG 3.5, Euler/simple, two experts."""
     if not reference: raise ValueError('14B 图生视频需要参考图；文字模式会先生成角色图。')
     steps = max(4, int(steps)); split = steps // 2
@@ -89,7 +89,7 @@ def video_workflow(reference, prompt, negative, seed, steps=20, length=33):
         '6': {'class_type':'CLIPTextEncode','inputs':{'text':negative,'clip':['3',0]}},
         '7': {'class_type':'LoadImage','inputs':{'image':reference}},
         '8': {'class_type':'WanImageToVideo','inputs':{'positive':['5',0],'negative':['6',0],
-            'vae':['4',0],'width':VIDEO_SIZE[0],'height':VIDEO_SIZE[1],'length':length,
+            'vae':['4',0],'width':size[0],'height':size[1],'length':length,
             'batch_size':1,'start_image':['7',0]}},
         '9': {'class_type':'ModelSamplingSD3','inputs':{'model':['1',0],'shift':5.0}},
         '10': {'class_type':'ModelSamplingSD3','inputs':{'model':['2',0],'shift':5.0}},

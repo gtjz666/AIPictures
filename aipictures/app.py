@@ -105,19 +105,20 @@ class Window(QMainWindow):
         if not hasattr(self,'lora_details'): return
         walking=self.generation_type.currentData()=='walk'
         preserving=self.preserving_reference()
-        enabled=(not walking or (self.animation_engine.currentData() in ('wan','animate') and self.animation_source.currentData()=='text')) and not preserving
+        enabled=(not walking or (self.animation_engine.currentData() in ('wan','animate') and
+            (self.animation_source.currentData()=='text' or self.animation_style.isChecked()))) and not preserving
         self.lora.setEnabled(enabled); self.lora_category.setEnabled(enabled)
         self.strength.setEnabled(enabled and bool(self.lora.currentData()))
         if hasattr(self,'style_status'):
             name=self.lora.currentData()
-            scope=('仅文字角色图生效' if walking else '本次单张生效') if enabled else ('原图小幅修改时停用' if preserving else '当前动画不使用 SDXL 风格')
+            scope=('先重绘角色风格，再生成动画' if walking else '本次单张生效') if enabled else ('原图小幅修改时停用' if preserving else '当前动画沿用参考外观')
             self.style_status.setText(('风格：'+display_name(name)+' · '+scope) if name else '风格：未使用 LoRA（可在“采样与 LoRA”中手动选择）')
         if not enabled:
             self.lora_details.setText('优先保留参考图细节：不叠加风格 LoRA。已有选择保留，移除参考图或改为允许重绘后可继续使用。' if preserving else
                 '当前模式不使用 SDXL 风格 LoRA。文字动画可用于角色图；参考图动画沿用参考外观。\n如需改变参考画风，可先用单张 + LoRA 生成，再作为动画参考。')
             return
         entry=entry_for(self.lora.currentData())
-        scope='文字动画：仅角色图生效，Wan 沿用角色外观。' if walking else '本次单图生效，自动接入当前工作流。'
+        scope='先使用 SDXL LoRA 制作风格基准图，Wan 再沿用基准外观生成动作。' if walking else '本次单图生效，自动接入当前工作流。'
         if entry:
             trigger='、'.join(entry['triggers']) or '无需触发词'
             self.lora_details.setText(f'{entry["description"]}\n适用 SDXL · 推荐强度 {entry["recommended_strength"]:g}\n触发词：{trigger}\n选中后加入对应风格词和触发词。\n'+scope)
@@ -328,9 +329,10 @@ class Window(QMainWindow):
         walking=self.generation_type.currentData()=='walk'
         text=(ACTIONS[self.animation_action.currentData()][0]+'动画序列帧' if walking else '单张图片')+'\n'
         if walking:
-            text+=({'wan':'AI 自由动画','animate':'完整骨骼 · '+('自动适配' if self.motion_mode.currentData()=='auto' else '手动调整'),'rig':'旧版人体骨骼'}[self.animation_engine.currentData()])+'\n'
+            free=self.animation_action.currentData()=='custom' and self.custom_strategy.currentData()=='free'
+            text+=('AI 自由动作（实验性）' if free else {'wan':'AI 自由动画','animate':'完整骨骼 · '+('自动适配' if self.motion_mode.currentData()=='auto' or self.animation_style.isChecked() else '手动调整'),'rig':'旧版人体骨骼'}[self.animation_engine.currentData()])+'\n'
             text+=f'{self.walk_count.currentData()} 帧 · {self.walk_fps.value()} FPS\n'
-            if self.animation_engine.currentData()=='animate':
+            if self.animation_engine.currentData()=='animate' and not free:
                 text+=self.animation_detail.currentText()+'\n'
         background='透明主体' if walking or self.output_background.currentData()=='transparent' else '完整画面'
         text+=f'{self.width.value()} × {self.height.value()} · '+background
@@ -344,6 +346,16 @@ class Window(QMainWindow):
         self.skeleton_dialog.show()
 
     def open_motion_editor(self):
+        if self.animation_action.currentData()=='custom' and self.custom_strategy.currentData()=='free':
+            self.status.setText('AI 自由动作不使用骨骼；要逐帧调整，请改选骨骼编排。');return
+        if self.animation_style.isChecked():
+            self.status.setText('换风格请使用自动骨骼；也可先将风格图导入，再手动调整。');return
+        description=self.custom_description.toPlainText()
+        if self.animation_action.currentData()=='custom':
+            try:
+                from .motion_language import parse_plan
+                parse_plan(description)
+            except ValueError as exc:self.status.setText(str(exc));return
         if not self.reference_path:
             self.status.setText('先添加参考图，才能按角色比例调整骨骼。文字模式可先自动生成。'); return
         if self.current or self.preparing:
@@ -365,12 +377,15 @@ class Window(QMainWindow):
             from .motion_clip import make_clip,clip_path,validate_clip,with_visual_bounds
             from .motion_editor import MotionDialog
             base=with_visual_bounds(json.loads(Path(data['rig']).read_text('utf-8')),data)
-            clip=make_clip(base,checksum,action,count,fps)
+            if action=='custom':
+                from .motion_language import make_custom_clip
+                clip=make_custom_clip(base,checksum,description,count,fps)
+            else:clip=make_clip(base,checksum,action,count,fps)
             saved=clip_path(checksum,action)
             if saved.is_file():
                 try:
                     previous=validate_clip(json.loads(saved.read_text('utf-8')))
-                    if previous['frame_count']==count: clip=previous; clip['fps']=fps
+                    if previous['frame_count']==count and (action!='custom' or previous['motion_plan']['description']==description.strip()):clip=previous;clip['fps']=fps
                 except (ValueError,KeyError): pass
             self.motion_dialog=MotionDialog(data,clip,self)
             self.motion_dialog.accepted.connect(lambda:self.motion_mode.setCurrentIndex(self.motion_mode.findData('manual')))
@@ -394,6 +409,11 @@ class Window(QMainWindow):
         self.reference_strength.setEnabled(not walking and bool(self.reference_path) and self.custom_graph is None)
         self.walk_settings.setVisible(walking)
         action_title=ACTIONS[self.animation_action.currentData()][0]
+        custom=self.animation_action.currentData()=='custom'
+        free=custom and self.custom_strategy.currentData()=='free'
+        self.custom_settings.setVisible(walking and custom)
+        self.update_custom_hint()
+        self.animation_style.setEnabled(walking and self.animation_source.currentData()=='reference')
         self.generate_button.setText('生成'+action_title+'动画' if walking else '发送并生成')
         for control in (self.width,self.height,self.denoise,self.cfg,self.lora,self.strength):
             control.setEnabled(not walking)
@@ -402,12 +422,12 @@ class Window(QMainWindow):
         if walking:
             self.width.setValue(768); self.height.setValue(1024)
         self.animation_steps.setEnabled(walking and self.animation_engine.currentData() in ('wan','animate'))
-        self.animation_detail.setEnabled(walking and self.animation_engine.currentData()=='animate')
-        self.animation_sampler.setEnabled(walking and self.animation_engine.currentData()=='animate')
-        self.animation_color.setEnabled(walking and self.animation_engine.currentData()=='animate')
+        self.animation_detail.setEnabled(walking and self.animation_engine.currentData()=='animate' and not free)
+        self.animation_sampler.setEnabled(walking and self.animation_engine.currentData()=='animate' and not free)
+        self.animation_color.setEnabled(walking and self.animation_engine.currentData()=='animate' and not free)
         temporal=walking and self.animation_engine.currentData() in ('wan','animate')
-        self.motion_mode.setEnabled(walking and self.animation_engine.currentData()=='animate')
-        self.model.setEnabled(not temporal or self.animation_source.currentData()=='text')
+        self.motion_mode.setEnabled(walking and self.animation_engine.currentData()=='animate' and not free and not self.animation_style.isChecked())
+        self.model.setEnabled(not temporal or self.animation_source.currentData()=='text' or self.animation_style.isChecked())
         self.steps.setEnabled(not temporal)
         self.sampler.setEnabled(not walking); self.scheduler.setEnabled(not walking)
         self.workflow_selector.setEnabled(not walking and self.connected and not self.preparing)
@@ -428,8 +448,18 @@ class Window(QMainWindow):
 
     def preserving_reference(self):
         walking=self.generation_type.currentData()=='walk'
+        if walking and self.animation_style.isChecked() and self.animation_source.currentData()=='reference':return False
         weighted=walking or self.custom_graph is not None or self.reference_strength.value()>0
         return weighted and bool(self.reference_path) and (not walking or (self.animation_engine.currentData() in ('wan','animate') and self.animation_source.currentData()=='reference')) and self.reference_policy.currentData()=='preserve'
+
+    def update_custom_hint(self):
+        if self.custom_strategy.currentData()=='free':
+            self.custom_hint.setText('原文直接进入 AI 动作模型，不使用静态骨骼；复杂接触、动作完成度和循环仍需检查。');return
+        try:
+            from .motion_language import parse_plan
+            plan=parse_plan(self.custom_description.toPlainText())
+            self.custom_hint.setText('识别顺序：'+' → '.join(s['title'] for s in plan['segments'])+'。秒数控制各段占比；最终时长由帧数 / FPS 决定。')
+        except ValueError as exc:self.custom_hint.setText(str(exc))
 
     def reference_policy_changed(self,_index=None):
         from .reference_fidelity import effective_denoise
@@ -460,7 +490,7 @@ class Window(QMainWindow):
             return
         intent = walk_intent(self.positive.toPlainText()) if walking else parse_intent(self.positive.toPlainText())
         if walking and self.animation_engine.currentData()=='animate': intent.action=self.animation_action.currentData()
-        labels = {'walk':'行走','reach':'向前伸手','stand':'站立','run':'奔跑','jump':'跳跃','idle':'待机','squat':'下蹲'}
+        labels = {'walk':'行走','reach':'向前伸手','stand':'站立','run':'奔跑','jump':'横版跳跃','idle':'待机','squat':'下蹲','attack':'基础攻击','custom':'自定义动作'}
         title = labels.get(intent.action,'未指定动作')
         text = ('已选择动画 · ' if walking else '动作识别 · ') + title
         if walking and self.animation_engine.currentData() in ('wan','animate') and (not intent.direction_explicit or self.preserving_reference()):
@@ -469,7 +499,8 @@ class Window(QMainWindow):
             text += ' · 朝向未指定'
         else: text += ' · 朝' + ('左' if intent.direction == 'left' else '右')
         if walking and self.animation_engine.currentData()=='animate':
-            text+=' · 完整骨骼周期 · '+('自动适配，无需手调' if self.motion_mode.currentData()=='auto' else '使用手动调整')
+            text+=(' · AI 自由动作（实验性）' if self.animation_action.currentData()=='custom' and self.custom_strategy.currentData()=='free' else
+                   ' · 完整骨骼周期 · '+('自动适配，无需手调' if self.motion_mode.currentData()=='auto' else '使用手动调整'))
         elif intent.action in ('run','jump'): text += '\n连续动作请在动画类型中选择。'
         elif intent.action == 'walk' and not walking: text += '\n当前只生成单张；连续动作请选人物行走动画帧。'
         if walking and self.animation_engine.currentData() in ('wan','animate'):
@@ -846,6 +877,13 @@ class Window(QMainWindow):
         profile = self.character_profile
         engine=self.animation_engine.currentData()
         action=self.animation_action.currentData()
+        description=self.custom_description.toPlainText().strip() if action=='custom' else ''
+        if action=='custom':
+            if not description:raise ValueError('请在“角色与生成”中填写自定义动作说明。')
+            if self.custom_strategy.currentData()=='free':engine='custom_free'
+            else:
+                from .motion_language import parse_plan
+                parse_plan(description)
         motion=None
         reference=self.reference_path if self.animation_source.currentData()=='reference' else None
         if not reference and self.animation_source.currentData()=='reference': raise ValueError('请添加参考图，或将角色来源切换为“仅文字描述”。')
@@ -862,15 +900,16 @@ class Window(QMainWindow):
                 raise ValueError('当前后端不支持所选动画采样方式，请重新选择后生成。')
             if 'DWPreprocessor' not in self.info['nodes']: raise ValueError('完整骨骼适配需要本地 DWPose 节点。')
             if not model_file().is_file(): raise ValueError('透明动画需要本地去背景模型。')
-            if self.motion_mode.currentData()=='manual':
+            if self.motion_mode.currentData()=='manual' and not self.animation_style.isChecked():
                 from .motion_clip import clip_path,validate_clip
                 if not reference: raise ValueError('手动骨骼需要参考图。文字模式请使用自动适配。')
                 path=clip_path(digest(reference),action)
                 if not path.is_file(): raise ValueError('请先打开“动作骨骼”，保存当前角色的完整动作。')
                 motion=validate_clip(json.loads(path.read_text('utf-8')))
                 if motion['frame_count']!=self.walk_count.currentData(): raise ValueError('帧数已改变，请重新保存动作骨骼。')
-            if reference is None: validate_selection(self.lora.currentData() or '',self.model.currentText())
-        elif engine=='wan':
+                if action=='custom' and motion['motion_plan']['description']!=description:raise ValueError('动作说明已改变，请重新保存自定义骨骼。')
+            if reference is None or self.animation_style.isChecked():validate_selection(self.lora.currentData() or '',self.model.currentText())
+        elif engine in ('wan','custom_free'):
             from .temporal_animation import check_video_models
             from .background import model_file
             from .image_quality import check_quality_models
@@ -885,22 +924,31 @@ class Window(QMainWindow):
             missing = {node['class_type'] for node in graph.values()}-set(self.info['nodes'])
             if missing: raise ValueError('缺少节点：'+', '.join(sorted(missing)))
             check_models(graph,self.info['object_info'])
+        style=bool(reference and self.animation_style.isChecked())
+        if style:
+            if not self.lora.currentData():raise ValueError('请手动选择一个风格 LoRA，或取消“改变参考画风”。')
+            validate_selection(self.lora.currentData(),self.model.currentText())
+            from .animation_style import style_workflow
+            graph=style_workflow('__reference__',self.model.currentText(),self.lora.currentData(),self.strength.value(),seed)
+            missing={node['class_type'] for node in graph.values()}-set(self.info['nodes'])
+            if missing:raise ValueError('风格重绘缺少节点：'+', '.join(sorted(missing)))
+            check_models(graph,self.info['object_info'])
         folder = new_sequence()
         params = {'mode':'walk','engine':engine,'source':self.animation_source.currentData(),'profile':profile if engine=='rig' else None,
                   'reference':str(reference) if reference else None,'prompt':self.positive.toPlainText(),
                   'checkpoint':self.model.currentText(),'seed':seed,'count':self.walk_count.currentData(),
-                  'fps':self.walk_fps.value(),'steps':self.animation_steps.value() if engine in ('wan','animate') else self.steps.value(),
+                  'fps':self.walk_fps.value(),'steps':self.animation_steps.value() if engine in ('wan','animate','custom_free') else self.steps.value(),
                   'negative':self.negative.toPlainText(),
-                  'lora':(self.lora.currentData() or '') if engine in ('wan','animate') and reference is None else '',
+                  'lora':(self.lora.currentData() or '') if reference is None or style else '',
                   'lora_strength':self.strength.value(),'quality_mode':'off' if self.preserving_reference() else self.quality_mode.currentData(),
                   'preserve_reference':self.preserving_reference(),'action':action,'motion':motion,
                   'animation_detail':self.animation_detail.currentData(),'animation_sampler':self.animation_sampler.currentData(),
-                  'animation_color':self.animation_color.currentData()}
+                  'animation_color':self.animation_color.currentData(),'style_reference':style,'custom_description':description}
         write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'queued','params':params})
         item = QListWidgetItem(task_name(params)+' · 等待'); item.setToolTip(str(folder)); self.queue_list.addItem(item)
         self.pending.append((None,params,folder,item))
         self.add_chat('你',params['prompt'] or '按参考图生成'+ACTIONS[action][0]+'动画')
-        detail=({'wan':'Wan2.2 自由生成。','animate':'按完整骨骼序列生成；手动编辑为可选。','rig':'旧版人体分层与关节局部修复。'}[engine])
+        detail=({'custom_free':'按文字自由生成，不强制骨骼；复杂动作需检查。','wan':'Wan2.2 自由生成。','animate':'按完整骨骼序列生成；手动编辑为可选。','rig':'旧版人体分层与关节局部修复。'}[engine])
         self.add_chat('软件',f'已选择{ACTIONS[action][0]}动画：{params["count"]} 帧。'+detail,job=str(folder))
         self.start_next()
 
@@ -910,7 +958,7 @@ class Window(QMainWindow):
         self.task_display.start()
         self.connect_button.setEnabled(False); self.progress.setRange(0,0)
         item.setText(task_name(params)+' · 执行中')
-        temporal=params.get('engine') in ('wan','animate')
+        temporal=params.get('engine') in ('wan','animate','custom_free')
         self.status.setText('准备参考主体与连续动画…' if temporal else '准备行走骨骼与角色分层…')
         write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'running','params':params})
         def event(kind,data):
@@ -1000,7 +1048,14 @@ class Window(QMainWindow):
                 params.get('action','walk'),params.get('motion'),params.get('lora',''),params.get('lora_strength',.8),
                 preserve_reference=params.get('preserve_reference',True),
                 detail=params.get('animation_detail','preview'),sampler=params.get('animation_sampler','euler'),
-                color_mode=params.get('animation_color','reference')),event)
+                color_mode=params.get('animation_color','reference'),style_reference=params.get('style_reference',False),
+                custom_description=params.get('custom_description','')),event)
+        elif params.get('engine')=='custom_free':
+            from .custom_animation import generate
+            self.launch(lambda emit:generate(self.client,folder,params['prompt'],params['negative'],params['seed'],
+                params['count'],params['fps'],emit,cancel,params['reference'],params['checkpoint'],params['steps'],
+                custom_description=params['custom_description'],lora=params['lora'],lora_strength=params['lora_strength'],
+                style_reference=params.get('style_reference',False),preserve_reference=params.get('preserve_reference',True)),event)
         elif params.get('engine')=='wan':
             from .temporal_animation import generate_temporal
             self.launch(lambda emit:generate_temporal(self.client,folder,params['prompt'],params['negative'],

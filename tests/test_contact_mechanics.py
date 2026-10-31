@@ -1,6 +1,6 @@
 import math
 import pytest
-from aipictures.animation_actions import ACTIONS,ONE_SHOT_ACTIONS,output_indices
+from aipictures.animation_actions import PRESET_ACTIONS as ACTIONS,ONE_SHOT_ACTIONS,output_indices
 from aipictures.character_profile import rig_document
 from aipictures.motion_clip import make_clip,sample_clip,FOOT_NAMES,with_visual_bounds
 

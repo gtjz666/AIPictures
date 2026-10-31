@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 from PIL import Image
 import pytest
 
-from aipictures.animation_actions import ACTIONS, output_indices,stage_label
+from aipictures.animation_actions import PRESET_ACTIONS as ACTIONS, output_indices,stage_label,ONE_SHOT_ACTIONS
 from aipictures.animation_status import monitor_text
 from aipictures.character_profile import rig_document
 from aipictures.motion_clip import make_clip, sample_clip
@@ -47,7 +47,7 @@ def test_every_mode_uses_full_native_conditions_and_separate_decode(tmp_path, ac
     manifest=json.loads((folder/'sequence.json').read_text(encoding='utf-8'))
     assert manifest['action']==action and manifest['color_mode']=='original'
     assert manifest['sampling_prompt_id']=='sample' and manifest['decode_prompt_id']=='decode'
-    assert manifest['loop']==(action not in ('jump','squat'))
+    assert manifest['loop']==(action not in ONE_SHOT_ACTIONS)
     assert manifest['temporal_sampling']['latent_time_cells']>=count
     assert manifest['temporal_sampling']['post_frame_interpolation'] is False
     assert 'sampling_wait_and_download_seconds' in manifest['timings']

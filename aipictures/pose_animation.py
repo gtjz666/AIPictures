@@ -252,7 +252,7 @@ def export_frames(folder,result,manifest,clip,emit,cancel,matte_cache=None):
         paint_rig(frame_pose,SIZE).save(key/'foot-controls.png')
         manifest['frames'].append({'index':i,'image':output.name,'source_frame':index,
             'native_matte':f'frame_{i:03d}/matte_native.png',
-            'stage':stage_label(clip['action'],index/(length-1)),'phase':index/(length-1),'pose':f'frame_{i:03d}/pose.json',
+            'stage':frame_pose.get('stage',stage_label(clip['action'],index/(length-1))),'phase':index/(length-1),'pose':f'frame_{i:03d}/pose.json',
             'workflow':result.get('image_workflow','video/workflow.json'),'prompt_id':result['prompt_id'],'foot_quality':quality,
             'color_consistency':color_plan['frames'][i],'hand_quality':hand_quality,'hair_quality':hair_quality,
             'reference_palette':palette_quality})
@@ -277,6 +277,10 @@ def export_frames(folder,result,manifest,clip,emit,cancel,matte_cache=None):
     from .frame_bounds import boundary_warnings
     warnings=boundary_warnings(manifest['frames'])
     manifest['quality_review']['warnings']=warnings
+    if clip.get('generator_version',2)>=4:
+        from .game_animation import export_game_data
+        manifest.setdefault('action',clip['action'])
+        export_game_data(folder,manifest)
     write_json(folder/'sequence.json',manifest)
     manifest['timings']['sheet_and_gif_seconds']=round(time.monotonic()-export_started,3)
     write_json(folder/'sequence.json',manifest)
@@ -307,7 +311,7 @@ def math_ceil_half(value):
 
 def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=None,checkpoint='',steps=20,
              action='walk',motion=None,lora='',lora_strength=.8,static_test=False,fast=False,raw_only=False,preserve_reference=True,
-             face_condition=False,detail='native',sampler='euler',color_mode='original'):
+             face_condition=False,detail='native',sampler='euler',color_mode='original',style_reference=False,custom_description=''):
     from .animation_detail import detail_settings,COLOR_MODES
     if color_mode not in COLOR_MODES:raise ValueError('未知动画配色处理，请重新选择。')
     spatial_detail=detail_settings(detail,sampler)
@@ -324,6 +328,14 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
     try:
         if cancel.is_set(): raise Cancelled('已取消动作生成。')
         release_session(); manifest['initial_cache_release']=release_idle_models(client)
+        if style_reference and reference is not None:
+            if motion is not None:raise ValueError('换风格会改变基准图，请使用自动骨骼；或先将风格图导入，再手动调整。')
+            from .animation_style import restyle_reference
+            reference,manifest['style_reference']=restyle_reference(client,reference,folder/'style-anchor',
+                lora,lora_strength,checkpoint,seed,prompt,negative,emit,cancel)
+            preserve_reference=True
+            manifest['preserve_reference']=True
+        else:manifest['style_reference']={'enabled':False}
         if reference is None:
             base=folder/'character'; base.mkdir()
             graph=initial_character_workflow(prompt,negative,checkpoint,seed,20,lora,lora_strength)
@@ -345,11 +357,18 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
             clip=validate_clip(deepcopy(motion))
             if clip['source_sha256']!=sha or clip['action']!=action or clip['frame_count']!=count:
                 raise ValueError('手动骨骼与当前参考图、动作或帧数不匹配，请重新打开骨骼调整。')
-            if not clip.get('edited') and (clip.get('generator_version',2)<3 or
+            if not clip.get('edited') and (clip.get('generator_version',2)<4 or
                     base.get('visual_bounds') and not clip['base_rig'].get('visual_bounds')):
-                clip=make_clip(with_visual_bounds(clip['base_rig'],analysis),sha,action,count,fps)
+                from .motion_language import rebuild_clip
+                clip=rebuild_clip(clip,with_visual_bounds(clip['base_rig'],analysis))
             clip['fps']=fps
+        elif action=='custom':
+            from .motion_language import make_custom_clip
+            clip=make_custom_clip(base,sha,custom_description,count,fps)
         else: clip=make_clip(base,sha,action,count,fps)
+        if action=='custom':
+            if clip['motion_plan']['description']!=custom_description.strip():raise ValueError('动作说明已改变，请重新保存自定义骨骼。')
+            manifest['motion_plan']=clip['motion_plan']
         write_json(folder/'motion.json',clip); write_json(folder/'reference_analysis.json',analysis)
         manifest['loop']=clip['loop']
         manifest.update(reference=str(reference),reference_sha256=sha,intent={'action':action,'direction':analysis['direction']},
@@ -392,7 +411,9 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
         release_session(); manifest['pose_cache_release']=release_idle_models(client)
         video=folder/'video'; video.mkdir()
         effective_negative=negative+'，多余脚掌，重复鞋尖，分叉鞋底，双层鞋底，鞋子重影，断开的脚踝，姿态控制线条，额外色块，曝光突变，色温漂移'
-        graph=video_workflow(reference_name,names,animation_prompt(prompt,action,preserve_reference,negative),effective_negative,seed,steps,fast,face=face_name,
+        effective_prompt=animation_prompt(prompt,action,preserve_reference,negative)
+        if action=='custom':effective_prompt+='\n动作说明：'+custom_description+'\n按顺序执行：'+' → '.join(ACTIONS[s['action']][1] for s in clip['motion_plan']['segments'])
+        graph=video_workflow(reference_name,names,effective_prompt,effective_negative,seed,steps,fast,face=face_name,
             size=inference_size,sampler=sampler,pose_count=length)
         bind_model_names(graph,client.discover()['object_info'])
         from .animation_decode import sampling_workflow,decode_sampled

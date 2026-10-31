@@ -84,7 +84,7 @@ def frame_workflow(reference_name, pose_name, guide_name, seed, positive, checkp
 
 
 def export_sequence(folder, frames, fps, name='walk'):
-    if name not in ('walk','idle','run','jump','squat','reach'): raise ValueError('未知动作导出名称。')
+    if name not in ('walk','idle','run','jump','squat','attack','custom','reach'): raise ValueError('未知动作导出名称。')
     folder = Path(folder); images = []
     try:
         images = [Image.open(path).convert('RGBA') for path in frames]
@@ -92,32 +92,12 @@ def export_sequence(folder, frames, fps, name='walk'):
         sheet = Image.new('RGBA',(SIZE[0]*columns,SIZE[1]*rows))
         for i,image in enumerate(images): sheet.paste(image,((i%columns)*SIZE[0],(i//columns)*SIZE[1]))
         sheet.save(folder/'sprite_sheet.png')
-        import numpy as np
-        from scipy.spatial import cKDTree
-        samples=[]
-        for image in images:
-            array=np.asarray(image); samples.append(array[:,:,:3][array[:,:,3]>200][::4])
-        colors=np.concatenate(samples) if any(len(sample) for sample in samples) else np.zeros((1,3),dtype=np.uint8)
-        colors=colors[np.linspace(0,len(colors)-1,min(65536,len(colors)),dtype=int)]
-        palette=Image.fromarray(np.resize(colors,(256,256,3))).quantize(colors=255,method=Image.Quantize.MEDIANCUT)
-        palette_colors=np.asarray(palette.getpalette(),dtype=float).reshape(-1,3)[:255]
-        tree=cKDTree(palette_colors)
-        table=palette.getpalette(); table=table+[0]*(768-len(table))
-        previews = []
-        for image in images:
-            small=image.resize((384,512),Image.Resampling.LANCZOS)
-            preview=small.convert('RGB').quantize(palette=palette,dither=Image.Dither.NONE)
-            indices=np.array(preview); reserved=indices==255
-            if reserved.any(): indices[reserved]=tree.query(np.asarray(small)[:,:,:3][reserved])[1]
-            indices[np.asarray(small.getchannel('A'))<128]=255
-            preview=Image.fromarray(indices); preview.putpalette(table)
-            preview.info['transparency']=255; previews.append(preview)
-        repeat={} if name in ('jump','squat') else {'loop':0}
-        previews[0].save(folder/(name+'.gif'),save_all=True,append_images=previews[1:],duration=round(1000/fps),
-                         disposal=2,transparency=255,optimize=False,**repeat)
+        from .animation_actions import ONE_SHOT_ACTIONS
+        from .gif_export import save_gif
+        save_gif(images,folder/(name+'.gif'),fps,loop=name not in ONE_SHOT_ACTIONS)
         return {'sprite_sheet':'sprite_sheet.png','gif':name+'.gif','columns':columns,'rows':rows,
                 'cell_size':list(SIZE),'gif_size':[384,512],'background':'transparent','gif_transparency':'binary',
-                'gif_palette':'shared_foreground_palette','loop':name not in ('jump','squat')}
+                'gif_palette':'shared_foreground_palette','loop':name not in ONE_SHOT_ACTIONS}
     finally:
         for image in images: image.close()
 

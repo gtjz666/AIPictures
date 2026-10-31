@@ -67,13 +67,14 @@ def feet_for_pose(rig,base,phase,action):
     return rig
 
 
-def pose_at(base,phase,action='walk'):
+def pose_at(base,phase,action='walk',revision=4):
     if action not in ACTIONS: raise ValueError('不支持的动作。')
-    from .motion_kinematics import walk_pose,run_pose,squat_pose,jump_pose
+    if action=='custom':raise ValueError('自定义动作需要动作说明，请使用动作编排入口。')
+    from .motion_kinematics import walk_pose,run_pose,squat_pose,jump_pose,legacy_jump_pose,attack_pose
     one_shot_end=action in ONE_SHOT_ACTIONS and phase>=1
     phase=phase%1
     base=with_feet(base)
-    makers={'walk':walk_pose,'run':run_pose,'squat':squat_pose,'jump':jump_pose}
+    makers={'walk':walk_pose,'run':run_pose,'squat':squat_pose,'jump':jump_pose if revision>=4 else legacy_jump_pose,'attack':attack_pose}
     rig=makers[action](base,phase) if action in makers else deepcopy(base)
     enrich_body(rig,base,phase,action)
     reported_phase=1 if one_shot_end else phase
@@ -87,12 +88,16 @@ def make_clip(base,source_sha,action='walk',count=8,fps=8):
     base=with_feet(base)
     frames=[pose_at(base,i/(count-1 if action in ONE_SHOT_ACTIONS else count),action) for i in range(count)]
     clip={'schema_version':1,'source_sha256':source_sha,'action':action,'frame_count':count,'fps':fps,
-          'canvas':[768,1024],'base_rig':base,'frames':frames,'edited':False,'loop':action not in ONE_SHOT_ACTIONS,'generator_version':3}
+          'canvas':[768,1024],'base_rig':base,'frames':frames,'edited':False,'loop':action not in ONE_SHOT_ACTIONS,'generator_version':4}
     validate_clip(clip); return clip
 
 
 def validate_clip(clip):
     if clip.get('schema_version')!=1 or clip.get('action') not in ACTIONS: raise ValueError('无效的动作文件。')
+    if clip['action']=='custom':
+        from .motion_language import parse_plan
+        plan=clip.get('motion_plan',{})
+        if parse_plan(plan.get('description',''))!=plan:raise ValueError('自定义动作编排已失效，请按动作说明重新生成骨骼。')
     if clip.get('frame_count') not in (8,16) or len(clip.get('frames',[]))!=clip['frame_count']:
         raise ValueError('骨骼帧数量不完整。')
     for rig in [clip['base_rig']]+clip['frames']:
@@ -105,7 +110,10 @@ def validate_clip(clip):
 
 def sample_clip(clip,phase):
     if not clip.get('edited') and clip.get('generator_version',2)>=3:
-        return pose_at(clip['base_rig'],phase,clip['action'])
+        if clip['action']=='custom':
+            from .motion_language import sample_plan
+            return sample_plan(clip['base_rig'],clip['motion_plan'],phase)
+        return pose_at(clip['base_rig'],phase,clip['action'],clip.get('generator_version',3))
     n=len(clip['frames'])
     if not clip.get('loop',True):
         at=max(0.,min(1.,phase))*(n-1); left=min(int(at),n-1); right=min(left+1,n-1)

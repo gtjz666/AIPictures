@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QTabWidget, QSplitter, QScrollArea, QFormLayout, QComboBox,
-    QDoubleSpinBox, QTextEdit, QTextBrowser, QProgressBar, QDockWidget, QListWidget, QSizePolicy)
+    QDoubleSpinBox, QTextEdit, QTextBrowser, QProgressBar, QDockWidget, QListWidget, QSizePolicy, QCheckBox)
 
 from .panels import SettingsDialog, AssetsDialog
 from .workflow_library import list_workflows
@@ -58,9 +58,21 @@ def build_studio(w):
     from .animation_actions import ACTIONS
     for key,(title,_) in ACTIONS.items():
         if key!='walk': w.animation_action.addItem(title,key)
+    w.custom_settings,custom_form=form()
+    w.custom_strategy=QComboBox();w.custom_strategy.addItem('骨骼编排 · 已支持的动作组合','skeleton')
+    w.custom_strategy.addItem('AI 自由动作 · 实验性','free');custom_form.addRow('实现方式',w.custom_strategy)
+    w.custom_description=QTextEdit();w.custom_description.setMaximumHeight(80)
+    w.custom_description.setPlaceholderText('例如：下蹲1秒，然后出拳1秒。自由模式可描述其他动作。')
+    custom_form.addRow('动作说明',w.custom_description)
+    w.custom_hint=QLabel();w.custom_hint.setWordWrap(True);custom_form.addRow(w.custom_hint)
+    wf.addRow(w.custom_settings);w.custom_settings.hide()
     w.animation_source = QComboBox(); w.animation_source.addItem('参考图（导入或角色基准）','reference')
     w.animation_source.addItem('仅文字描述（先生成角色图）','text'); wf.addRow('角色来源',w.animation_source)
     w.animation_source.setCurrentIndex(1)
+    w.animation_style=QCheckBox('按手动选择的 LoRA 改变参考画风')
+    w.animation_style.setToolTip('先用 SDXL LoRA 重绘角色基准，再生成动作。未勾选时沿用参考图；不会从提示词自动选择风格。换风格可能改变细节。')
+    wf.addRow(w.animation_style)
+    style_link=QPushButton('选择风格类型 / LoRA…');style_link.clicked.connect(lambda:w.open_settings('sampling'));wf.addRow(style_link)
     w.animation_steps = w.spin(4,60,20); wf.addRow('动画推理步数',w.animation_steps)
     from .animation_detail import DETAIL_PROFILES,SAMPLERS,COLOR_MODES
     w.animation_detail=QComboBox()
@@ -75,7 +87,7 @@ def build_studio(w):
     w.walk_count = QComboBox(); w.walk_count.addItem('8 帧 · 标准周期',8); w.walk_count.addItem('16 帧 · 更平滑',16)
     wf.addRow('帧数', w.walk_count)
     w.walk_fps = w.spin(1,30,8); wf.addRow('播放帧率', w.walk_fps)
-    note = QLabel('动作由选择框决定，完整骨骼可自动适配或手动调整。原生细节使用更密的姿态输入；加载与编码阶段显示活动进度和耗时。跳跃、下蹲保留站立终点，其他动作循环。当前骨架适用双足角色；其他布局需要校准。'); note.setWordWrap(True); wf.addRow(note)
+    note = QLabel('动作由选择框决定，不必在正向提示词中重复。跳跃、下蹲和攻击为单次动作；跳跃位移由游戏引擎驱动。完整骨骼适用双足角色，其他布局需要校准。自定义动作可编排已支持的动作，或选择 AI 自由生成。'); note.setWordWrap(True); wf.addRow(note)
     cf.addRow(w.walk_settings); w.walk_settings.hide()
     w.generation_type.currentIndexChanged.connect(w.generation_type_changed)
     w.character_route.currentIndexChanged.connect(w.character_selection_changed)
@@ -232,6 +244,9 @@ def build_studio(w):
     w.animation_source.currentIndexChanged.connect(w.generation_type_changed)
     w.animation_action.currentIndexChanged.connect(w.generation_type_changed)
     w.motion_mode.currentIndexChanged.connect(w.generation_type_changed)
+    w.animation_style.toggled.connect(w.generation_type_changed)
+    w.custom_strategy.currentIndexChanged.connect(w.generation_type_changed)
+    w.custom_description.textChanged.connect(w.update_custom_hint)
     from .ui_hints import install_hints
     install_hints(w)
     w.update_intent_hint()

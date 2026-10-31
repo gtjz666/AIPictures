@@ -92,9 +92,10 @@ class PoseCanvas(QWidget):
 
 class MotionDialog(QDialog):
     def __init__(self,analysis,clip,parent=None):
-        if not clip.get('edited') and (clip.get('generator_version',2)<3 or
+        if not clip.get('edited') and (clip.get('generator_version',2)<4 or
                 analysis.get('geometry',{}).get('subject_bbox') and not clip['base_rig'].get('visual_bounds')):
-            clip=make_clip(with_visual_bounds(clip['base_rig'],analysis),clip['source_sha256'],clip['action'],clip['frame_count'],clip['fps'])
+            from .motion_language import rebuild_clip
+            clip=rebuild_clip(clip,with_visual_bounds(clip['base_rig'],analysis))
         super().__init__(parent); self.analysis=analysis; self.motion=deepcopy(clip)
         self.setWindowTitle(ACTIONS[clip['action']][0]+' · 完整动作骨骼')
         available=self.screen().availableGeometry(); self.resize(min(900,available.width()-32),min(960,available.height()-48))
@@ -103,7 +104,7 @@ class MotionDialog(QDialog):
         layout=QVBoxLayout(self)
         note=QLabel('点击下方帧卡或拖动时间条选帧，拖关节后播放完整周期。人物示意用于动作校对，不是 AI 生成结果。\n基准修改会更新全周期；逐帧修改只影响该关键帧。'+analysis.get('layout_note',''))
         if clip['action']=='jump' and clip['base_rig'].get('visual_bounds'):
-            note.setText(note.text()+'\n自动跳跃按角色头顶余量限制高度，保留画面上方空间；不会为此缩小角色。')
+            note.setText(note.text()+'\n横版跳跃只生成姿态；游戏引擎控制整体跳跃位移。输出另附带位移的演示 GIF。')
         if analysis.get('direction')=='left': note.setText(note.text()+'\n编辑使用向右标准坐标，导出恢复参考图的向左朝向。')
         note.setWordWrap(True); layout.addWidget(note)
         row=QHBoxLayout(); self.choice=QComboBox(); self.choice.addItem('基准骨架 · 调整角色比例',-1)
@@ -164,7 +165,7 @@ class MotionDialog(QDialog):
 
     def show_frame(self,index,pose=None):
         n=self.motion['frame_count']; fps=self.motion['fps']; phase=max(0,index)/(n if self.motion.get('loop',True) else n-1)
-        title='基准骨架 · 调整角色比例' if index==-1 else f'第 {index+1} / {n} 帧 · '+stage_label(self.motion['action'],phase)
+        title='基准骨架 · 调整角色比例' if index==-1 else f'第 {index+1} / {n} 帧 · '+(pose or self.motion['frames'][index]).get('stage',stage_label(self.motion['action'],phase))
         self.frame_label.setText(title); self.canvas.frame_caption=title
         self.canvas.set_pose(pose or (self.motion['base_rig'] if index==-1 else self.motion['frames'][index]),self.analysis['rgba'])
         self.slider.blockSignals(True); self.slider.setValue(max(0,index)); self.slider.blockSignals(False)
@@ -179,7 +180,7 @@ class MotionDialog(QDialog):
             button.setIcon(QIcon(QPixmap.fromImage(qimage))); button.setIconSize(qimage.size())
             button.setText(str(i+1)+(' •' if i in self.changed_frames else ''))
             n=self.motion['frame_count'];phase=i/(n if self.motion.get('loop',True) else n-1)
-            button.setToolTip(f'第 {i+1} 帧 · '+stage_label(self.motion['action'],phase))
+            button.setToolTip(f'第 {i+1} 帧 · '+self.motion['frames'][i].get('stage',stage_label(self.motion['action'],phase)))
 
     def set_preview_mode(self,index):
         self.canvas.show_puppet=index==0; self.canvas.update()
@@ -195,7 +196,8 @@ class MotionDialog(QDialog):
         self.pause()
         try:
             if self.choice.currentData()==-1:
-                self.motion=make_clip(with_visual_bounds(rig,self.analysis),self.motion['source_sha256'],self.motion['action'],self.motion['frame_count'],self.motion['fps'])
+                from .motion_language import rebuild_clip
+                self.motion=rebuild_clip(self.motion,with_visual_bounds(rig,self.analysis))
                 self.changed_frames.clear()
             else:
                 self.motion['frames'][self.choice.currentData()]=rig; self.motion['edited']=True
@@ -240,12 +242,14 @@ class MotionDialog(QDialog):
         index=self.choice.currentData()
         if index==-1: return
         n=self.motion['frame_count'];phase=index/(n if self.motion.get('loop',True) else n-1)
-        self.motion['frames'][index]=pose_at(self.motion['base_rig'],phase,self.motion['action'])
+        from .motion_language import rebuild_clip
+        self.motion['frames'][index]=rebuild_clip(self.motion)['frames'][index]
         self.changed_frames.discard(index); self.refresh_tiles(); self.select_frame()
         self.buttons.button(QDialogButtonBox.StandardButton.Save).setEnabled(True)
 
     def reset_all(self):
-        self.motion=make_clip(with_visual_bounds(self.motion['base_rig'],self.analysis),self.motion['source_sha256'],self.motion['action'],self.motion['frame_count'],self.motion['fps'])
+        from .motion_language import rebuild_clip
+        self.motion=rebuild_clip(self.motion,with_visual_bounds(self.motion['base_rig'],self.analysis))
         self.changed_frames.clear(); self.refresh_tiles(); self.buttons.button(QDialogButtonBox.StandardButton.Save).setEnabled(True)
         self.select_frame(); self.message.setText('已恢复按当前基准生成的完整周期。')
 

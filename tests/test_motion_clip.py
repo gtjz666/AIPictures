@@ -9,6 +9,7 @@ from PIL import Image,ImageDraw
 
 from aipictures.character_profile import rig_document,JOINT_NAMES
 from aipictures.motion_clip import ACTIONS,FOOT_NAMES,make_clip,sample_clip,validate_clip,body_pose
+from aipictures.animation_actions import PRESET_ACTIONS as ACTIONS
 from aipictures.pose_animation import video_workflow,animation_prompt,bind_model_names,export_frames
 from aipictures.motion_reference import silhouette_rig,prepare_motion_reference
 from aipictures.reference_analysis import PoseNotApplicable
@@ -34,13 +35,14 @@ class MotionClipTests(unittest.TestCase):
         self.assertLess(phases[0]*phases[4],0)
         self.assertEqual(clip['frames'][0]['joints'],sample_clip(clip,1)['joints'])
 
-    def test_running_contains_real_flight_and_jump_crouches_then_leaves_ground(self):
+    def test_running_contains_flight_and_platformer_jump_keeps_engine_root(self):
         clip=make_clip(rig_document(),'a'*64,'run',16)
         self.assertTrue(any(max(frame['joints'][name][1] for name in FOOT_NAMES)<960 for frame in clip['frames']))
         jump=make_clip(rig_document(),'a'*64,'jump',16)
         hip=jump['base_rig']['joints']['right_hip'][1]
-        self.assertTrue(any(frame['joints']['right_hip'][1]>hip+20 for frame in jump['frames']))
-        self.assertTrue(any(frame['joints']['right_hip'][1]<hip-40 for frame in jump['frames']))
+        self.assertTrue(any(frame['joints']['right_hip'][1]>hip+10 for frame in jump['frames']))
+        self.assertTrue(all(frame['joints']['right_hip'][1]>=hip-1e-5 for frame in jump['frames']))
+        self.assertTrue(any(frame['joints']['right_ankle'][1]<850 for frame in jump['frames']))
 
     def test_joint_edit_interpolates_without_overwriting_other_keys(self):
         clip=make_clip(rig_document(),'a'*64)

@@ -121,7 +121,7 @@ def squat_pose(base,phase):
     return rig
 
 
-def jump_pose(base,phase):
+def legacy_jump_pose(base,phase):
     rig=deepcopy(base);p=rig['joints'];source=base['joints'];leg=sum(lengths(base,'right'))
     crouch=curve(phase,((0,0),(.08,.25),(.17,1),(.27,0),(.72,0),(.82,.8),(1,0)))
     air=(phase-.27)/.45 if .27<phase<.72 else None
@@ -144,4 +144,44 @@ def jump_pose(base,phase):
     rig.update(jump_crouch=crouch,airborne=air is not None,contacts={'right':air is None,'left':air is None},
         jump_clearance={'root_lift_limit':height,'air_tuck':air_tuck,'top_margin':40 if bounds else None,
                         'boundary_source':'source_subject_bbox' if bounds else 'legacy_face_joints'})
+    return rig
+
+
+def jump_pose(base,phase):
+    """Platformer poses in place; the game engine owns the vertical trajectory."""
+    rig=deepcopy(base);p=rig['joints'];source=base['joints'];leg=sum(lengths(base,'right'))
+    crouch=curve(phase,((0,0),(.055,.22),(.15,0),(.77,0),(.86,.42),(1,0)))
+    move_upper_and_hips(rig,-leg*.035*crouch,leg*.12*crouch)
+    air=.15<phase<.79
+    keys={
+        'right':((0,0,0),(.15,3,-5),(.30,58,-55),(.50,65,-65),(.68,25,-25),(.79,0,0),(1,0,0)),
+        'left':((0,0,0),(.15,-8,-8),(.30,-25,-12),(.50,-15,-95),(.68,-8,-25),(.79,0,0),(1,0,0))}
+    for side in ('right','left'):
+        if air:
+            upper,lower=lengths(base,side);a,b=(math.radians(curve(phase,[(k[0],k[c]) for k in keys[side]])) for c in (1,2))
+            hip=p[side+'_hip'];knee=[hip[0]+upper*math.sin(a),hip[1]+upper*math.cos(a),1]
+            p[side+'_knee']=knee;p[side+'_ankle']=[knee[0]+lower*math.sin(b),knee[1]+lower*math.cos(b),1]
+        else:solve_leg(p,base,side,source[side+'_ankle'])
+        amount=curve(phase,((0,0),(.14,.45),(.30,1),(.60,.8),(.78,.3),(1,0)))
+        a,b=resting_arm_angles(base,side)
+        target=(.65,2.15) if side=='right' else (-.55,.25)
+        arm(p,base,side,a+(target[0]-a)*amount,b+(target[1]-b)*amount)
+    rig.update(game_platformer=True,jump_crouch=crouch,airborne=air,contacts={'right':not air,'left':not air},
+        jump_clearance={'root_lift_limit':0.,'top_margin':40,'boundary_source':'engine_root_motion_not_baked'})
+    return rig
+
+
+def attack_pose(base,phase):
+    rig=deepcopy(base);p=rig['joints'];leg=sum(lengths(base,'right'))
+    strike=curve(phase,((0,0),(.18,-.30),(.34,1),(.46,1),(.76,.10),(1,0)))
+    ready=curve(phase,((0,0),(.12,1),(.65,1),(1,0)))
+    move_upper_and_hips(rig,leg*.045*strike,leg*.025*ready)
+    for side in ('right','left'):
+        ankle=base['joints'][side+'_ankle'][:]
+        ankle[0]+=leg*(.045 if side=='right' else -.035)*ready
+        solve_leg(p,base,side,ankle)
+        a,b=resting_arm_angles(base,side)
+        target=(.70+strike*.85,2.15-strike*.58) if side=='right' else (.25,2.55)
+        arm(p,base,side,a+(target[0]-a)*ready,b+(target[1]-b)*ready)
+    rig.update(attack_strike=strike,attack_ready=ready,hitbox_active=.30<=phase<=.46,contacts={'right':True,'left':True})
     return rig

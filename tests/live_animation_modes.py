@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 from PIL import Image, ImageDraw
 from PySide6.QtTest import QTest
 
-from aipictures.animation_actions import ACTIONS
+from aipictures.animation_actions import PRESET_ACTIONS as ACTIONS,ONE_SHOT_ACTIONS
 from aipictures.app import Window, create_application
 from aipictures.character_profile import rig_document
 from aipictures.motion_clip import make_clip
@@ -54,10 +54,10 @@ def main():
                 analysis={'rgba':str(source),'geometry':{'subject_bbox':[320,50,441,979]}}
                 dialog=MotionDialog(analysis,clip)
                 assert dialog.motion['base_rig']['visual_bounds']==[320,50,441,979]
-                assert dialog.loop.isChecked()==(action not in ('jump','squat'))
+                assert dialog.loop.isChecked()==(action not in ONE_SHOT_ACTIONS)
                 dialog.choice.setCurrentIndex(8)
                 assert '第 8 / 8 帧' in dialog.frame_label.text()
-                if action in ('jump','squat'):assert '恢复站立' in dialog.frame_label.text()
+                if action in ONE_SHOT_ACTIONS:assert '恢复站立' in dialog.frame_label.text()
                 dialog.close()
                 if action=='jump':
                     clip['edited']=True
@@ -75,18 +75,18 @@ def main():
                     ImageDraw.Draw(sprite).rectangle((350,100+i*10,390,110+i*10),fill=(i*20,100,100,255))
                     sprite.save(frame);frames.append(frame)
                 exports=export_sequence(output,frames,8,action)
-                write_json(output/'sequence.json',{'status':'completed','title':action,'action':action,'loop':action not in ('jump','squat'),
+                write_json(output/'sequence.json',{'status':'completed','title':action,'action':action,'loop':action not in ONE_SHOT_ACTIONS,
                     'fps':8,'frames':[{'image':p.name,'index':i,'stage':action} for i,p in enumerate(frames)],'exports':exports})
                 player=window.animation_player;player.load(output/'sequence.json')
                 for _ in range(8):player.advance()
-                assert player.index==(7 if action in ('jump','squat') else 0)
-                assert player.timer.isActive()==(action not in ('jump','squat'))
-                if action in ('jump','squat'):
+                assert player.index==(7 if action in ONE_SHOT_ACTIONS else 0)
+                assert player.timer.isActive()==(action not in ONE_SHOT_ACTIONS)
+                if action in ONE_SHOT_ACTIONS:
                     player.toggle();assert player.index==0 and player.timer.isActive()
                     with Image.open(output/(action+'.gif')) as gif:assert 'loop' not in gif.info
                 player.stop()
             window.pending.clear();window.current=None;window.close()
-    print('All five Qt action bindings, stages, jump endpoint/replay and GIF loop flags passed.',flush=True)
+    print('All six preset Qt actions, endpoint/replay and GIF loop flags passed.',flush=True)
 
 
 if __name__=='__main__':main()

@@ -27,6 +27,7 @@ VOCAB = {
     'run': ('奔跑', '跑步', '跑动'),
     'jump': ('跳跃', '跳起来', '起跳'),
     'squat': ('下蹲','蹲下','深蹲','蹲伏'),
+    'attack': ('攻击','出拳','挥拳','打拳'),
 }
 ACTION_EN = {
     'idle':'standing idle with subtle breathing',
@@ -35,6 +36,8 @@ ACTION_EN = {
     'stand': 'standing still upright, arms relaxed at sides',
     'run': 'running', 'jump': 'jumping',
     'squat':'squatting with both feet planted, hips moving backward and knees bent',
+    'attack':'a single forward punch, anticipation, impact hold and recovery',
+    'custom':'performing the described action',
 }
 TRANSLATIONS = {
     '侧视': 'strict side profile', '侧面': 'strict side profile',

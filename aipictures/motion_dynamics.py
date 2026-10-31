@@ -30,9 +30,11 @@ def enrich_body(rig,base,phase,action):
         lean=.36*amount
     elif action=='jump':
         crouch=rig.get('jump_crouch',0.)
-        air=math.sin(math.pi*(phase-.27)/.45) if .27<phase<.72 else 0
-        lean=.24*crouch-.035*air
+        air=math.sin(math.pi*(phase-.15)/.64) if rig.get('game_platformer') and .15<phase<.79 else math.sin(math.pi*(phase-.27)/.45) if .27<phase<.72 else 0
+        lean=.16*crouch+.045*air if rig.get('game_platformer') else .24*crouch-.035*air
         twist=length*.001*math.sin(t)
+    elif action=='attack':
+        lean=.10*rig.get('attack_strike',0.);twist=length*.009*rig.get('attack_ready',0.)
     # Hips move over fixed ankle targets; shoulders counter the pelvis instead of
     # moving the entire sprite as one rigid block. Arm bone lengths stay unchanged.
     for side,sign in (('right',1),('left',-1)):
