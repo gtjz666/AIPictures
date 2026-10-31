@@ -49,6 +49,7 @@ htmlcov/
 *.engine
 
 # Secrets and machine-specific configuration
+.agent/*.local.md
 .env
 .env.*
 !.env.example
