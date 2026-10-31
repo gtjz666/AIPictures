@@ -9,9 +9,9 @@ WORDS={
     'walk':('走路','行走','步行','walk','walking'),
     'idle':('待机','站立','休息','idle','stand'),
     'run':('跑步','奔跑','run','running'),
-    'jump':('跳跃','起跳','跳起来','jump','jumping'),
+    'jump':('横版跳跃','跳跃','起跳','跳起来','jump','jumping'),
     'squat':('下蹲','蹲下','深蹲','squat','crouch'),
-    'attack':('攻击','出拳','挥拳','打拳','attack','punch'),
+    'attack':('基础攻击','攻击','出拳','挥拳','打拳','attack','punch'),
 }
 TOKEN=re.compile('|'.join(sorted((re.escape(w) for words in WORDS.values() for w in words),key=len,reverse=True)),re.I)
 
@@ -25,7 +25,7 @@ def parse_plan(description: str) -> dict:
     matches=list(TOKEN.finditer(text));segments=[]
     remainder=TOKEN.sub(' ',text)
     remainder=re.sub(r'\d+(?:\.\d+)?\s*(?:秒|seconds?|s\b)',' ',remainder,flags=re.I)
-    remainder=re.sub(r'然后|接着|最后|之后|先|再|并且|并|缓慢|快速|正常|一次|原地|向前|的|动作|请|角色|人物|动画|执行|then|and|slowly|quickly', ' ',remainder,flags=re.I)
+    remainder=re.sub(r'然后|接着|最后|之后|先|再|正常|一次|原地|向前|的|动作|请|角色|人物|动画|执行|then', ' ',remainder,flags=re.I)
     remainder=re.sub(r'[\s，,。.;；、→+]+','',remainder)
     if remainder or not matches:
         raise ValueError('骨骼编排暂不支持：'+(remainder or text)+'。可选走路、待机、跑步、跳跃、下蹲、出拳及组合；其他动作请选择“AI 自由动作”。')

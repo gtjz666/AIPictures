@@ -41,13 +41,14 @@ def test_custom_plan_order_proportions_and_unknown_rejection():
     plan=parse_plan('先下蹲1秒，然后向前出拳2秒，最后待机1秒')
     assert [s['action'] for s in plan['segments']]==['squat','attack','idle']
     assert plan['duration_seconds']==4
+    assert [s['action'] for s in parse_plan('横版跳跃，然后基础攻击')['segments']]==['jump','attack']
     clip=make_custom_clip(rig_document(),'a'*64,plan['description'])
     assert sample_clip(clip,.125)['segment']==0
     assert sample_clip(clip,.5)['segment']==1
     assert sample_clip(clip,.9)['segment']==2
     assert rebuild_clip(clip)['motion_plan']==plan
     assert sample_clip(clip,0)['joints']==sample_clip(clip,1)['joints']
-    for text in ('挥手告别','不要攻击','下蹲然后后空翻','跑步100秒','出拳两次'):
+    for text in ('挥手告别','不要攻击','下蹲然后后空翻','跑步100秒','出拳两次','缓慢走路','走路并攻击'):
         with pytest.raises(ValueError):parse_plan(text)
 
 
@@ -106,6 +107,7 @@ def test_free_custom_preserves_arbitrary_description_and_entire_clip(tmp_path):
     description='挥手告别，然后转身坐下'
     assert description in custom_prompt(description)
     assert '左右腿交替' not in custom_prompt(description)
+    assert '不要用静止站立或走路' not in custom_prompt('走路')
     source=tmp_path/'reference.png';Image.new('RGBA',(768,1024),(120,80,60,255)).save(source)
     latent=tmp_path/'sample.latent';latent.write_bytes(b'latent')
     client=Mock();client.url='http://127.0.0.1:8188';client.discover.return_value={'object_info':{}}

@@ -15,7 +15,7 @@ from .workflow_library import digest
 def custom_prompt(description,appearance='',preserve=True):
     if not description.strip():raise ValueError('AI 自由动作需要填写动作说明。')
     text=('固定镜头，一个完整角色，保持参考图视角与角色比例，全身和肢体始终在画面内，简单浅灰色背景。'
-          '动作要求：'+description.strip()+'。\n不要用静止站立或走路代替所描述的动作。'
+          '动作要求：'+description.strip()+'。\n严格执行动作说明，避免用无关动作代替。'
           '整段保持相同的角色、服饰、发型、配色、光照与绘画风格，不添加额外肢体。')
     if not preserve and appearance.strip():text+='\n外观补充：'+appearance
     return text
