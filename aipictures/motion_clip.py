@@ -52,7 +52,7 @@ def feet_for_pose(rig,base,phase,action):
     for side,offset in (('right',0),('left',.5)):
         ankle=p[side+'_ankle']; original=source[side+'_ankle']
         # Each ankle owns exactly one heel and one toe; never duplicate an entire shoe pair.
-        angle=0
+        angle=rig.get('foot_angles',{}).get(side,0)
         if action in ('walk','run') and not rig.get('contacts',{}).get(side,False):
             q=(phase+offset)%1
             angle=math.radians(18)*math.sin(math.tau*q)
@@ -67,28 +67,30 @@ def feet_for_pose(rig,base,phase,action):
     return rig
 
 
-def pose_at(base,phase,action='walk',revision=4):
+def pose_at(base,phase,action='walk',revision=5):
     if action not in ACTIONS: raise ValueError('不支持的动作。')
     if action=='custom':raise ValueError('自定义动作需要动作说明，请使用动作编排入口。')
-    from .motion_kinematics import walk_pose,run_pose,squat_pose,jump_pose,legacy_jump_pose,attack_pose
+    from .motion_kinematics import walk_pose,run_pose,squat_pose,jump_pose,jump_pose_v4,legacy_jump_pose,attack_pose,attack_pose_v4
     one_shot_end=action in ONE_SHOT_ACTIONS and phase>=1
     phase=phase%1
     base=with_feet(base)
-    makers={'walk':walk_pose,'run':run_pose,'squat':squat_pose,'jump':jump_pose if revision>=4 else legacy_jump_pose,'attack':attack_pose}
+    makers={'walk':walk_pose,'run':run_pose,'squat':squat_pose,
+        'jump':jump_pose if revision>=5 else jump_pose_v4 if revision>=4 else legacy_jump_pose,
+        'attack':attack_pose if revision>=5 else attack_pose_v4}
     rig=makers[action](base,phase) if action in makers else deepcopy(base)
     enrich_body(rig,base,phase,action)
     reported_phase=1 if one_shot_end else phase
-    rig.update(action=action,phase=reported_phase,stage=stage_label(action,reported_phase),ground_y=base.get('ground_y',978))
+    rig.update(action=action,phase=reported_phase,stage=stage_label(action,reported_phase,revision),ground_y=base.get('ground_y',978))
     feet_for_pose(rig,base,phase,action)
     return rig
 
 
-def make_clip(base,source_sha,action='walk',count=8,fps=8):
+def make_clip(base,source_sha,action='walk',count=8,fps=8,revision=5):
     if count not in (8,16) or not 1<=fps<=30: raise ValueError('动作支持 8 / 16 帧，帧率 1–30。')
     base=with_feet(base)
-    frames=[pose_at(base,i/(count-1 if action in ONE_SHOT_ACTIONS else count),action) for i in range(count)]
+    frames=[pose_at(base,i/(count-1 if action in ONE_SHOT_ACTIONS else count),action,revision) for i in range(count)]
     clip={'schema_version':1,'source_sha256':source_sha,'action':action,'frame_count':count,'fps':fps,
-          'canvas':[768,1024],'base_rig':base,'frames':frames,'edited':False,'loop':action not in ONE_SHOT_ACTIONS,'generator_version':4}
+          'canvas':[768,1024],'base_rig':base,'frames':frames,'edited':False,'loop':action not in ONE_SHOT_ACTIONS,'generator_version':revision}
     validate_clip(clip); return clip
 
 
@@ -112,7 +114,7 @@ def sample_clip(clip,phase):
     if not clip.get('edited') and clip.get('generator_version',2)>=3:
         if clip['action']=='custom':
             from .motion_language import sample_plan
-            return sample_plan(clip['base_rig'],clip['motion_plan'],phase)
+            return sample_plan(clip['base_rig'],clip['motion_plan'],phase,clip['generator_version'])
         return pose_at(clip['base_rig'],phase,clip['action'],clip.get('generator_version',3))
     n=len(clip['frames'])
     if not clip.get('loop',True):

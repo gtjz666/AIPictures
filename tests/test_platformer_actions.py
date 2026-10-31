@@ -16,7 +16,7 @@ from aipictures.custom_animation import custom_prompt,generate
 
 
 def test_platformer_jump_has_fixed_root_and_asymmetric_airborne_pose():
-    clip=make_clip(rig_document(),'a'*64,'jump',16);base=clip['base_rig']['joints']
+    clip=make_clip(rig_document(),'a'*64,'jump',16,revision=4);base=clip['base_rig']['joints']
     for phase in (.25,.4,.5,.6,.7):
         pose=sample_clip(clip,phase);p=pose['joints']
         assert p['right_hip'][1]==pytest.approx(base['right_hip'][1])
@@ -31,8 +31,10 @@ def test_platformer_jump_has_fixed_root_and_asymmetric_airborne_pose():
 def test_attack_contacts_extension_and_recovery():
     clip=make_clip(rig_document(),'b'*64,'attack');rest=sample_clip(clip,0)['joints']
     hit=sample_clip(clip,.4)
-    assert hit['hitbox_active'] and all(hit['contacts'].values())
-    assert hit['joints']['right_wrist'][0]>rest['right_wrist'][0]+180
+    assert hit['hitbox_active'] and hit['contacts']['right'] and hit['toe_contacts']['left']
+    p=hit['joints'];base=clip['base_rig']['joints']
+    reach=sum(math.dist(base['right_'+a][:2],base['right_'+b][:2]) for a,b in (('shoulder','elbow'),('elbow','wrist')))
+    assert math.dist(p['right_wrist'][:2],p['right_shoulder'][:2])>reach*.9
     assert abs(hit['joints']['right_wrist'][0]-hit['joints']['left_wrist'][0])>60
     assert sample_clip(clip,1)['joints']==rest
 

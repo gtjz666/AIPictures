@@ -92,7 +92,7 @@ class PoseCanvas(QWidget):
 
 class MotionDialog(QDialog):
     def __init__(self,analysis,clip,parent=None):
-        if not clip.get('edited') and (clip.get('generator_version',2)<4 or
+        if not clip.get('edited') and (clip.get('generator_version',2)<5 or
                 analysis.get('geometry',{}).get('subject_bbox') and not clip['base_rig'].get('visual_bounds')):
             from .motion_language import rebuild_clip
             clip=rebuild_clip(clip,with_visual_bounds(clip['base_rig'],analysis))

@@ -177,4 +177,4 @@ Windows 独立本地 AI 图像与动画创作桌面软件。Python + PySide6，C
 
 模块设计见 `docs/ARCHITECTURE.md`。GitHub 创建步骤见 `docs/GITHUB.md`。
 
-逐帧编辑、完整本地预览、自然动作、已用时及颜色修正见 [动作与颜色说明](docs/MOTION_REFINEMENT.md)。
+逐帧编辑、完整本地预览、自然动作、已用时及颜色修正见 [动作与颜色说明](docs/MOTION_REFINEMENT.md)。新版跳跃/攻击的真人运动适配、LoRA 走路对照及复现方式见 [真人运动与风格对照](docs/HUMAN_MOTION_V5.md)。

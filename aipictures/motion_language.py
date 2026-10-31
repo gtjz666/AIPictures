@@ -58,14 +58,14 @@ def _blend_rest(pose,base,weight):
     return feet_for_pose(result,base,pose['phase'],pose['action'])
 
 
-def sample_plan(base,plan,phase):
+def sample_plan(base,plan,phase,revision=5):
     from .motion_clip import pose_at,with_feet
     base=with_feet(base);phase=max(0.,min(1.,phase));at=phase*plan['duration_seconds'];cursor=0.
     for index,segment in enumerate(plan['segments']):
         end=cursor+segment['seconds']
         if at<=end or index==len(plan['segments'])-1:
             local=max(0.,min(1.,(at-cursor)/segment['seconds']));action=segment['action']
-            pose=pose_at(base,local,action)
+            pose=pose_at(base,local,action,revision)
             if action not in ONE_SHOT_ACTIONS:
                 pose=_blend_rest(pose,base,min(1.,local/.12,(1-local)/.12))
             if local<=0 or local>=1:pose['joints']=deepcopy(base['joints'])
@@ -81,7 +81,7 @@ def make_custom_clip(base,source_sha,description,count=16,fps=8):
     plan=parse_plan(description);base=with_feet(base)
     clip={'schema_version':1,'source_sha256':source_sha,'action':'custom','frame_count':count,'fps':fps,
           'canvas':[768,1024],'base_rig':base,'frames':[sample_plan(base,plan,i/(count-1)) for i in range(count)],
-          'edited':False,'loop':False,'generator_version':4,'motion_plan':plan}
+          'edited':False,'loop':False,'generator_version':5,'motion_plan':plan}
     return validate_clip(clip)
 
 

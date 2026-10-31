@@ -42,7 +42,7 @@ class MotionClipTests(unittest.TestCase):
         hip=jump['base_rig']['joints']['right_hip'][1]
         self.assertTrue(any(frame['joints']['right_hip'][1]>hip+10 for frame in jump['frames']))
         self.assertTrue(all(frame['joints']['right_hip'][1]>=hip-1e-5 for frame in jump['frames']))
-        self.assertTrue(any(frame['joints']['right_ankle'][1]<850 for frame in jump['frames']))
+        self.assertTrue(any(frame['joints']['right_ankle'][1]<hip+390 for frame in jump['frames']))
 
     def test_joint_edit_interpolates_without_overwriting_other_keys(self):
         clip=make_clip(rig_document(),'a'*64)

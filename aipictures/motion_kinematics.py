@@ -147,7 +147,7 @@ def legacy_jump_pose(base,phase):
     return rig
 
 
-def jump_pose(base,phase):
+def jump_pose_v4(base,phase):
     """Platformer poses in place; the game engine owns the vertical trajectory."""
     rig=deepcopy(base);p=rig['joints'];source=base['joints'];leg=sum(lengths(base,'right'))
     crouch=curve(phase,((0,0),(.055,.22),(.15,0),(.77,0),(.86,.42),(1,0)))
@@ -171,7 +171,7 @@ def jump_pose(base,phase):
     return rig
 
 
-def attack_pose(base,phase):
+def attack_pose_v4(base,phase):
     rig=deepcopy(base);p=rig['joints'];leg=sum(lengths(base,'right'))
     strike=curve(phase,((0,0),(.18,-.30),(.34,1),(.46,1),(.76,.10),(1,0)))
     ready=curve(phase,((0,0),(.12,1),(.65,1),(1,0)))
@@ -185,3 +185,13 @@ def attack_pose(base,phase):
         arm(p,base,side,a+(target[0]-a)*ready,b+(target[1]-b)*ready)
     rig.update(attack_strike=strike,attack_ready=ready,hitbox_active=.30<=phase<=.46,contacts={'right':True,'left':True})
     return rig
+
+
+def jump_pose(base,phase):
+    from .natural_motion import pose_from_capture
+    return pose_from_capture(base,phase,'jump')
+
+
+def attack_pose(base,phase):
+    from .natural_motion import pose_from_capture
+    return pose_from_capture(base,phase,'attack')

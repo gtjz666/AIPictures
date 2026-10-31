@@ -24,10 +24,11 @@ VISION='CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors'
 VIDEO_SIZE=(768,1024)
 
 
-def animation_prompt(text,action='walk',preserve=True,negative=''):
+def animation_prompt(text,action='walk',preserve=True,negative='',revision=5):
     from .action_intent import appearance_description
     if action not in ACTIONS: raise ValueError('未知动画类型。')
-    result=('一个完整主体，固定镜头，全身入镜，保持参考图朝向与视角，背景简洁。'+ACTIONS[action][1]+
+    from .animation_actions import action_clause
+    result=('一个完整主体，固定镜头，全身入镜，保持参考图朝向与视角，背景简洁。'+action_clause(action,revision)+
         '严格按照连续骨骼图的每帧肢体姿态执行，从首帧就开始动作，不要先站立等待。'
         '每条腿只连接一只脚，每只鞋只有一个鞋跟、一个鞋尖和一层清晰鞋底；总共两只脚。'
         '脚部遵循所选动作与每帧骨骼，鞋面和鞋底轮廓清晰，不出现叠加鞋尖、分叉鞋底或额外脚掌。'
@@ -39,9 +40,13 @@ def animation_prompt(text,action='walk',preserve=True,negative=''):
         extra=appearance_description(text)
         if extra: result+='外观补充：'+extra
     result+=' Exactly two feet, one foot per leg, one heel and one toe per shoe, clean single soles. Follow the complete pose sequence.'
+    if revision>=5 and action=='jump':
+        result+=' Side-scrolling game jump: hinge the hips and bend the knees to load, coordinate the arms and torso with toe-off, then extend the legs for landing and absorb the impact through the hips and knees. Follow the supplied in-place skeleton; the game engine supplies whole-body travel.'
     if action=='attack':
         result+=' 向前打击时手指握紧成拳，拇指贴住弯曲的手指，另一手握拳防守，命中后立即收拳。不要张开手掌推物，不指向前方，不挥手示意。'
         result+=' A sharp forward punch with a tightly closed fist, curled fingers and tucked thumb; the other closed fist guards the chest. Brief impact hold, then retract. No open palm, no pointing gesture.'
+        if revision>=5:
+            result+=' Open the stance with a small back step, drive from the rear toes with a lifted rear heel, lead the punch with the hips, chest and shoulder, then recover the guard and step back to rest.'
     if negative:
         from .animation_constraints import positive_restrictions
         result+='生成要求：'+positive_restrictions(negative)
@@ -360,7 +365,7 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
             clip=validate_clip(deepcopy(motion))
             if clip['source_sha256']!=sha or clip['action']!=action or clip['frame_count']!=count:
                 raise ValueError('手动骨骼与当前参考图、动作或帧数不匹配，请重新打开骨骼调整。')
-            if not clip.get('edited') and (clip.get('generator_version',2)<4 or
+            if not clip.get('edited') and (clip.get('generator_version',2)<5 or
                     base.get('visual_bounds') and not clip['base_rig'].get('visual_bounds')):
                 from .motion_language import rebuild_clip
                 clip=rebuild_clip(clip,with_visual_bounds(clip['base_rig'],analysis))
@@ -377,6 +382,10 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
             'requires_observed_hand':True,'invent_missing_hands':False}
         write_json(folder/'motion.json',clip); write_json(folder/'reference_analysis.json',analysis)
         manifest['loop']=clip['loop']
+        manifest['motion_revision']=clip['generator_version']
+        if action in ('jump','attack') and clip['generator_version']>=5:
+            from .natural_motion import profile
+            manifest['motion_source']=profile(action)['source']
         manifest.update(reference=str(reference),reference_sha256=sha,intent={'action':action,'direction':analysis['direction']},
             control='static_pose_test' if static_test else 'full_pose_sequence',source_direction=analysis['direction'])
         from .generation_reference import prepare_generation_reference
@@ -417,7 +426,7 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
         release_session(); manifest['pose_cache_release']=release_idle_models(client)
         video=folder/'video'; video.mkdir()
         effective_negative=negative+'，多余脚掌，重复鞋尖，分叉鞋底，双层鞋底，鞋子重影，断开的脚踝，姿态控制线条，额外色块，曝光突变，色温漂移'
-        effective_prompt=animation_prompt(prompt,action,preserve_reference,negative)
+        effective_prompt=animation_prompt(prompt,action,preserve_reference,negative,clip['generator_version'])
         if action=='custom':effective_prompt+='\n动作说明：'+custom_description+'\n按顺序执行：'+' → '.join(ACTIONS[s['action']][1] for s in clip['motion_plan']['segments'])
         graph=video_workflow(reference_name,names,effective_prompt,effective_negative,seed,steps,fast,face=face_name,
             size=inference_size,sampler=sampler,pose_count=length)

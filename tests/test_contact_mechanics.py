@@ -63,7 +63,7 @@ def test_jump_headroom_uses_hair_boundary_not_eye_height():
         assert estimated_hair_top>=35
         assert pose['jump_clearance']['root_lift_limit']<=38
     assert sample_clip(clip,.5)['joints']['right_ankle'][1]<base['joints']['right_ankle'][1]-10
-    assert sample_clip(clip,.5)['joints']['right_heel'][1]<clip['base_rig']['joints']['right_heel'][1]-60
+    assert sample_clip(clip,.5)['joints']['right_heel'][1]<clip['base_rig']['joints']['right_heel'][1]-20
 
 
 @pytest.mark.parametrize('action',['walk','idle','run','squat'])

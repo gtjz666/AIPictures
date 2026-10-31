@@ -15,7 +15,9 @@ def enrich_body(rig,base,phase,action):
     length=sum(math.dist(source[a][:2],source[b][:2]) for a,b in
         (('right_hip','right_knee'),('right_knee','right_ankle')))
     lean=dx=dy=twist=0.
-    if action=='walk':
+    if rig.get('natural_capture'):
+        lean=rig['capture_lean'];twist=rig['capture_twist']
+    elif action=='walk':
         # Contact -> down -> passing -> up, twice in a complete left/right cycle.
         dx=length*.004*math.sin(t)
         lean=.025+.010*math.sin(t-.25); twist=length*.004*math.cos(t)
@@ -61,7 +63,7 @@ def enrich_body(rig,base,phase,action):
         if min(upper_length,lower_length)<1 or distance<1e-6: raise ValueError('腿部骨长不足，请调整基准关节。')
         reach=max(abs(upper_length-lower_length)+.001,min(upper_length+lower_length-.001,distance))
         if abs(reach-distance)>.0001:
-            if action in ('idle','squat') or rig.get('contacts',{}).get(side,False):
+            if action in ('idle','squat') or rig.get('contacts',{}).get(side,False) or rig.get('toe_contacts',{}).get(side,False):
                 hip[:2]=[ankle[0]-vx*reach/distance,ankle[1]-vy*reach/distance]
             else: ankle[:2]=[hip[0]+vx*reach/distance,hip[1]+vy*reach/distance]
         p[side+'_knee']=knee_ik(hip,ankle,upper_length,lower_length)
