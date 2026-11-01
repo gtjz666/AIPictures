@@ -6,6 +6,9 @@ NODE_LABELS = {
     'CLIPVisionEncode': '编码参考外观', 'VAELoader': '加载图像编码器',
     'LoadImage': '读取参考与骨骼', 'ImageBatch': '准备连续骨骼',
     'WanAnimateToVideo': '编码参考与连续骨骼（采样前）',
+    'AIPicturesWanAnimateToVideo': '分阶段编码参考与连续骨骼（采样前）',
+    'WanImageToVideo':'编码自由动作参考（采样前）',
+    'AIPicturesWanImageToVideo':'分阶段编码自由动作参考（采样前）',
     'KSampler': '动作采样', 'TrimVideoLatent': '整理动作数据',
     'SaveLatent': '保存动作数据', 'LoadLatent': '读取已保存动作',
     'VAEDecode': '解码原生动画帧', 'SaveImage': '保存动画图片',
@@ -13,6 +16,7 @@ NODE_LABELS = {
 
 
 def monitor_text(event: str, data: dict, graph: dict | None = None) -> str | None:
+    if event=='condition_stage': return data.get('message','准备动画条件…')
     if event in ('monitor_waiting', 'cancel_pending'):
         return data.get('message', '继续检查同一生成任务…')
     if event == 'executing' and data.get('node') is not None:
@@ -23,6 +27,7 @@ def monitor_text(event: str, data: dict, graph: dict | None = None) -> str | Non
         if state == 'cancelling': return '正在等待后端确认取消…'
         if state == 'queued': return '等待共享引擎执行当前任务…'
         if state == 'downloading': return '下载已生成的动画图片…'
+        if state == 'running' and data.get('warning'): return data['warning']
         if state == 'running': return NODE_LABELS.get(data.get('node_type'), '后端正在处理当前动作…')
         return '正在核对当前任务记录…'
     return None

@@ -2,6 +2,18 @@
 
 项目独立于 AIGAMING、Godot 和 ComfyUI 源码。界面只依赖轻量客户端环境，不在其中安装 Torch、训练框架或 ComfyUI 自定义节点。
 
+## 本轮质量与稳定性模块
+
+- `zimage.py`：官方 Z-Image Turbo 拓扑，原生中文、独立编码器、CFG 1；`image_family.py` 管理手动引擎选择、兼容参数及参考路线切换。SDXL LoRA 不接入 Z-Image。
+- `local_translation.py` / `tools/translate_prompt.py`：独立 CPU 进程、艺术词保护、离线中文翻译、取消与超时；`smart_generation.py` 冻结并记录有效英文，不自动选 LoRA。译器复用独立 Python，而非引入桌面 Torch。
+- `image_constraints.py`：仅将明确主体数量/手部要求整理成软性约束，不强制姿态、风格或 LoRA；不能替代图像质量验收。
+- `comfy_nodes/aipictures_runtime`：可选轻量封装，部署到后端自己的新目录；先释放已完成编码器，再调用原官方 Wan 条件计算，发阶段事件。通用释放节点也用于 Z-Image。启动器采用官方兼容加载参数，复用外部已有实例时不改其启动参数。
+- `loop_frames.py`：仅以缩略图分析真实帧轮廓/配色/运动方向，选择近闭合片段，输出真实来源索引和接缝警告，不生成或混合像素。
+- `keyframe_capture.py`：以轮廓/RGB变化曲线寻找关键姿态，优先保留转折，再从源动画的时间间隔补真实过渡帧，不合成像素。
+- `video_frames.py` / `video_import_dialog.py`：PyAV 原生 RGBA 解码、可选生成后抠图、PNG/精灵图导出；冻结来源哈希、帧时间和任意一致画布。导入与推理共用串行任务互斥和取消，当前导入缓存受清理保护。
+
+新旧引擎边界、下载与真实验证见 [质量与稳定性](QUALITY_AND_STABILITY.md)。
+
 `backend_connection.py` 识别 Comfy Desktop 真实进程对应的本地服务，常规连接优先复用，显式其他端口保持；任务队列固定执行时的客户端。`engine_service.py` 启动后返回实际 URL。高级工作流与生成共用连接，网页按需加载，API 图的连线与参数一同同步。本地 Comfy 客户端的网络范围限制保持；独立的云端单图适配已接入，见 [API 使用](API_GENERATION.md)。
 
 ## 云端单图与可选需求整理
@@ -14,9 +26,9 @@
 
 ## 当前完整骨骼动画模块
 
-标准界面只提供完整姿态序列条件；历史自由 I2V / 网格后端保留作旧缓存及诊断。动画类型和风格 LoRA 都由用户明确选择，动作宏自动写入实际条件，不调用 LLM 分类。
+标准预设使用完整姿态序列；自定义动作另可选 AI 自由 I2V，旧网格后端保留作历史兼容。动画类型和风格 LoRA 都由用户明确选择，动作宏自动写入实际条件，不调用 LLM 分类。
 
-- `animation_actions.py`：五种动作名称和中文动作宏；`motion_clip.py`：角色相对周期、腿部 IK、跑步腾空、跳跃根位移、关键帧与插值、BODY_18 和独立跟/趾控制。模型只消费标准身体点，辅助足部控制转换为脚踝端点。
+- `animation_actions.py`：六种预设与自定义动作名称和中文动作宏；`motion_clip.py`：角色相对周期、腿部 IK、跑步腾空、跳跃根位移、关键帧与插值、BODY_18 和独立跟/趾控制。模型只消费标准身体点，辅助足部控制转换为脚踝端点。
 - `motion_reference.py`：本次参考的 DWPose 适配，或明确标注的双足轮廓估计；不套用另一角色坐标。输入 SHA-256 和布局信息随结果保存。
 - `motion_dynamics.py`：按动作的重心、肩胯、头部缓冲与腿部 IK，保留脚部接触和骨长；不覆盖旧手动关键帧。
 - `pose_condition.py`：DWPose 风格的原生分辨率条件图及随前臂转换的参考手指关键点，独立于编辑器展示。
@@ -25,7 +37,7 @@
 - `face_reference.py`：可信面部关键点测量裁切，仅供独立面部条件诊断。真实测试未通过耗时与成片验收，常规生成关闭，没有增加用户操作或下载新模型。
 - `animation_constraints.py`：CFG 1 下将常见排除文本写成正向生成要求，自定义项保留；不选择 LoRA。
 - `motion_editor.py`：Qt 拖动关节、基准/逐帧编辑、骨骼预览与保存；数据按角色校验值/动作存储，入队后深拷贝快照。修改关键帧后重新生成整个连续片段。
-- `pose_animation.py`：原生 WanAnimateToVideo Move 条件图，参考图 + CLIP Vision + 平衡 ImageBatch 拼接全部姿态，TrimVideoLatent 移除参考潜帧；原生 VAE 解码。480×640、17/33 输入帧，对应 8/16 导出帧，等待上限两小时。整周期均匀取样，不做逐帧地面对齐，保留跳跃位移。
+- `pose_animation.py`：原生 WanAnimateToVideo Move 条件图，参考图 + CLIP Vision + 平衡 ImageBatch 拼接全部姿态，TrimVideoLatent 移除参考潜帧；原生 VAE 解码。默认768×1024、33/65输入帧，对应8/16导出帧；快速模式480×640、17/33输入帧。没有默认生成总时限，异常等待发警告。整周期均匀取样，不做逐帧地面对齐，保留跳跃位移。
 - `foot_quality.py`：有原图约束的浅色鞋局部蓝色漏色修正，只改变有限 RGB 区域，Alpha 不动，保留原图与逐帧记录；不负责拓扑修复或普遍质量评分。
 - `task_display.py`：左侧当前任务名称、状态、百分比、细进度条及独立于工作线程事件的单调时钟；内部编号仅用于缓存、日志和服务端跟踪。
 - `tools/prepare_pose_models.py`：固定发布版本、字节数及 SHA-256，安装 Animate FP8 和独立诊断加速 LoRA；复用既有编码器/VAE/视觉编码器，不向 UI 环境加入推理框架。
@@ -34,8 +46,8 @@
 
 ## 图像、共享模块与历史后端
 
-- `aipictures/app.py`：Qt 窗口、后台 QThread、串行本地队列和事件消费。网络和推理等待不阻塞主线程。
-- `aipictures/engine.py`：本地 ComfyUI REST / WebSocket 适配器。模型发现、执行、进度、按任务取消、历史和文件下载。HTTP 超时 20 秒，单任务等待上限 30 分钟。
+- `aipictures/app.py`：Qt 窗口、可分离的 daemon Python Worker、串行队列和 Qt 信号事件消费。网络和推理等待不阻塞主线程，关闭窗口不等待 GPU 节点结束。
+- `aipictures/engine.py`：本地 ComfyUI REST / WebSocket 适配器。模型发现、执行、进度、按任务取消、历史和文件下载。HTTP 读取超时后继续查询原任务；生成没有默认总时限。条件编码超过5分钟发警告，不自动重提。
 - `aipictures/engine_service.py`：复用已有 Windows 启动脚本，后台启动本机 8188 服务并等待就绪；启动输出写文件，不使用可能被后台子进程继承而无限等待 EOF 的 PIPE。共享空闲推理缓存释放供单图和动画在 CPU 分割前调用，有其他引擎任务则跳过。连接不可用统一为可操作的 EngineUnavailable；窗口禁用生成、暂停未开始队列，重连后继续。已提交任务不自动重跑；单独 WebSocket 断线降级为相同 prompt_id 的 HTTP 记录查询。
 - `aipictures/reference_fidelity.py`：显式保真策略与低重绘上限。参考图外观优先于外观提示词；保真单图确保有源图潜空间，IP-Adapter 身份条件不能代替图生图潜空间。暂停应用本软件风格 LoRA 与超分，作者预设自带风格 / 姿态约束时明确提示选择其他策略，原文件不变。连续动画保留图像条件和朝向，补充纹样、配饰等约束，不宣称精确像素一致。
 - `aipictures/ui_hints.py`：静态悬浮说明和下拉选项区别，不运行模型分析、不自动改变用户选择。
@@ -52,7 +64,7 @@
 - `aipictures/theme.py`：统一浅色 Qt 调色板和样式，预览棋盘格仅用于渲染，不改变透明输出。
 - `aipictures/result_cache.py`：任务缓存目录枚举与删除、导出路径校验和已保存文件索引。清理前验证解析后的绝对目标为 jobs/animations 的直接任务子目录，拒绝根目录、外部路径及目录链接；从界面传入当前/排队目录保护列表，递归清理在工作线程执行。用户主动保存的位置必须在缓存目录之外，索引保存在 data/saved-files.json，缓存清理不修改该索引或外部文件。
 - `aipictures/character_profile.py`：版本化角色提示词、BODY_18 骨架、姿态草案和参考重绘/骨骼控制两条独立图构建器；图片、姿态和完整工作流实例在 data/characters 中保存。
-- `aipictures/action_intent.py`：有限中文动作词表、否定处理与英文条件映射；保存识别/未识别内容，不调用云端语言服务。单张图按动作选择姿态图，行走由生成类型显式选择。
+- `aipictures/action_intent.py`：有限中文动作词表、否定处理与英文条件映射；保存识别/未识别内容，不调用云端语言服务。普通单张不暗中选择骨骼；动画由界面类型和动作显式决定。
 - `aipictures/prompt_text.py`：单图 SDXL / 旧版骨骼的有限中文外观与反向词映射，未映射负向词保留原文并报告；Wan 使用完整中文原文。动画动作由选择框决定，外观补充会移除冲突的站立等姿势指令。
 - `aipictures/temporal_animation.py`：历史自由 I2V 后端，Wan2.2 14B 的高 / 低噪声专家连续采样、非人体参考准备、文字模式角色图生成、透明背景处理、整帧稳定和循环区间选择。两专家共享视频潜空间，无人体骨骼检测或肢体分层。使用原生连续 VAE 解码，保存原始采样 latent，便于复查解码而不重新推理。576×768 原始连续帧保留在 video/，同一尺度的输出为 768×1024；单次连续推理等待上限 2 小时。确认后端队列空闲后释放推理缓存，为 CPU 透明处理腾出内存，有其他任务时跳过。生成、保存和取消共用现有串行队列，界面不加载 Torch。
 - `aipictures/background.py`：本地 CPU IS-Net / BiRefNet 会话、Alpha 分割和原图备份。配置 data/background-settings.json 选择权重及根目录，模型文件必须已安装；生成时不隐式联网下载。保留导入 PNG 的有效 Alpha，只计算生成 RGB 的遮罩。默认 CPU 线程数为 6，任务结束及下一次大模型推理前销毁会话，释放内存。旧自由 I2V 按缩略图选帧，新 Animate 按完整周期取样；均仅分割最终 8 / 16 帧，每 4 帧重建会话，避免长批次 CPU 内存池累积。

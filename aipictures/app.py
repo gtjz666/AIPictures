@@ -112,6 +112,9 @@ class Window(QMainWindow):
         if not hasattr(self,'lora_details'): return
         if self.api_controller.cloud:
             self.api_controller.apply_mode(); return
+        if self.model_family.currentData()=='zimage' and self.generation_type.currentData()!='walk':
+            from .image_family import apply_ui
+            apply_ui(self); return
         walking=self.generation_type.currentData()=='walk'
         preserving=self.preserving_reference()
         enabled=(not walking or (self.animation_engine.currentData() in ('wan','animate') and
@@ -200,12 +203,17 @@ class Window(QMainWindow):
             previous_scheduler=self.scheduler.currentText() or 'karras'
             self.model.clear(); self.model.addItems(data['checkpoints'])
             if self.model.findText(previous_model)>=0: self.model.setCurrentText(previous_model)
+            elif not previous_model:
+                preferred=next((name for name in data['checkpoints'] if 'Juggernaut-XL_v9_' in name),None)
+                if preferred: self.model.setCurrentText(preferred)
             self.refresh_loras()
             self.sampler.clear(); self.sampler.addItems(data['samplers'])
             self.scheduler.clear(); self.scheduler.addItems(data['schedulers'])
             if self.sampler.findText(previous_sampler)>=0: self.sampler.setCurrentText(previous_sampler)
             if self.scheduler.findText(previous_scheduler)>=0: self.scheduler.setCurrentText(previous_scheduler)
             self.generate_button.setEnabled(True)
+            from .image_family import restore
+            restore(self)
             self.workflow_selector.setEnabled(self.generation_type.currentData()!='walk')
             if not self.template_restored:
                 self.template_restored = True
@@ -294,6 +302,8 @@ class Window(QMainWindow):
 
     def activate_template(self, graph, title, entry_id=None,preserve_prompts=False):
         mapping = bindings(graph)
+        from .image_family import use_reference_route
+        use_reference_route(self)
         self.character_profile = None
         self.reference_character=False
         self.context_label.setText(title)
@@ -415,6 +425,9 @@ class Window(QMainWindow):
         walking = self.generation_type.currentData() == 'walk'
         mode='walk' if walking else 'image'
         if mode!=self.reference_mode:
+            if mode=='walk':self.single_canvas=(self.width.value(),self.height.value())
+            elif hasattr(self,'single_canvas'):
+                self.width.setValue(self.single_canvas[0]);self.height.setValue(self.single_canvas[1])
             self.reference_modes[self.reference_mode]=self.reference_policy.currentData()
             self.reference_mode=mode
             self.reference_policy.blockSignals(True)
@@ -422,14 +435,24 @@ class Window(QMainWindow):
             self.reference_policy.blockSignals(False)
         self.output_background.setEnabled(not walking)
         self.reference_strength.setEnabled(not walking and bool(self.reference_path) and self.custom_graph is None)
+        show_reference_weight=not walking and bool(self.reference_path) and self.model_family.currentData()=='sdxl' and not self.api_controller.cloud
+        self.reference_strength.setVisible(show_reference_weight);self.reference_strength_label.setVisible(show_reference_weight)
+        show_cfg=not walking and self.model_family.currentData()=='sdxl' and not self.api_controller.cloud
+        self.cfg.setVisible(show_cfg);self.cfg_label.setVisible(show_cfg)
         self.walk_settings.setVisible(walking)
+        self.animation_action.setVisible(walking)
+        self.animation_action_label.setVisible(walking)
+        self.translate_prompt.setVisible(not walking and not self.api_controller.cloud)
         action_title=ACTIONS[self.animation_action.currentData()][0]
         custom=self.animation_action.currentData()=='custom'
         free=custom and self.custom_strategy.currentData()=='free'
         self.custom_settings.setVisible(walking and custom)
+        self.custom_loop.setVisible(walking and custom and free)
         self.update_custom_hint()
         self.animation_style.setEnabled(walking and self.animation_source.currentData()=='reference')
         self.generate_button.setText('生成'+action_title+'动画' if walking else '发送并生成')
+        self.positive.setPlaceholderText('描述角色外观和需要保留的细节；动作在上方选择' if walking else
+            '描述人物、物件或场景，以及视角、姿势与画风')
         for control in (self.width,self.height,self.denoise,self.cfg,self.lora,self.strength):
             control.setEnabled(not walking)
         if not walking and self.custom_graph is not None:
@@ -457,11 +480,15 @@ class Window(QMainWindow):
         elif self.character_profile:
             self.reference_label.setText('使用角色基准：'+self.character_profile['title'])
         else: self.reference_label.setText('可添加参考图')
-        self.context_label.setText(action_title+'动画' if walking else self.active_title)
+        self.context_label.setText(action_title+'动画' if walking else
+                                   '图片创作' if self.active_title=='自动选择' else self.active_title)
         self.update_intent_hint()
         self.update_sidebar_summary()
 
         if self.api_controller.cloud: self.api_controller.apply_mode()
+        else:
+            from .image_family import apply_ui
+            apply_ui(self)
 
     def preserving_reference(self):
         walking=self.generation_type.currentData()=='walk'
@@ -483,7 +510,9 @@ class Window(QMainWindow):
         preserving=self.preserving_reference()
         walking=self.generation_type.currentData()=='walk'
         legacy=walking and self.animation_engine.currentData()=='rig'
-        self.reference_policy.setEnabled(not legacy)
+        self.reference_policy.setEnabled(not walking)
+        self.reference_policy.setVisible(bool(self.reference_path) and not walking)
+        self.reference_policy_label.setVisible(bool(self.reference_path) and not walking)
         self.denoise.setMaximum(.25 if preserving else 1.)
         if preserving: self.denoise.setValue(effective_denoise(self.denoise.value(),True))
         self.denoise.setEnabled(not walking)
@@ -505,6 +534,11 @@ class Window(QMainWindow):
         if self.api_controller.cloud:
             self.api_controller.apply_mode(); return
         walking = self.generation_type.currentData() == 'walk'
+        if walking:
+            from .action_intent import has_pose_conflict
+            if has_pose_conflict(self.positive.toPlainText(),self.animation_action.currentData()):
+                self.intent_hint.setText('描述包含其他姿态，当前仍按上方动作预设生成；要按文字改变动作，请选“自定义动作 → AI 自由动作”。')
+                return
         if not walking:
             self.intent_hint.setText('单张通用创作 · 视角、主体与背景由你的描述决定。'+
                 ('当前是原图小幅修改；更换视角请切换“按描述创作”。' if self.preserving_reference() else ''))
@@ -572,7 +606,6 @@ class Window(QMainWindow):
         self.chat_messages.append(message)
         self.render_message(message)
         if role == '软件':
-            self.output_toggle.setToolTip(text + '\n\n展开 / 隐藏输出面板：Ctrl+J')
             if not self.current and not self.preparing:
                 self.status.setText(text.splitlines()[0][:110] if text else '')
                 self.status.setToolTip(text)
@@ -611,6 +644,8 @@ class Window(QMainWindow):
         target.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(source, target)
         self.reference_path = target
         self.reference_display_name = source.name
+        from .image_family import use_reference_route
+        use_reference_route(self)
         self.animation_source.setCurrentIndex(0)
         if not self.character_loading and self.character_profile and digest(target)!=self.character_profile['source_sha256']:
             self.reset_graph()
@@ -657,6 +692,9 @@ class Window(QMainWindow):
                 self.editor.sync_inputs(graph)
 
     def graph_snapshot(self, reference_name=''):
+        if self.model_family.currentData()=='zimage':
+            from .image_family import snapshot
+            return snapshot(self,reference_name)
         from .general_image import positive_text,reference_workflow,bind_reference_weight
         from .reference_fidelity import effective_denoise
         seed=int(self.seed.text())
@@ -666,6 +704,9 @@ class Window(QMainWindow):
         raw_negative=self.negative.toPlainText()
         positive,unknown=positive_text(user_prompt)
         negative,negative_unmatched=negative_text(raw_negative)
+        from .image_constraints import compile_constraints,apply_constraints
+        constraints=compile_constraints(user_prompt)
+        positive,negative=apply_constraints(positive,negative,constraints)
         if not positive.strip():
             if reference_name: positive='create an image based on the reference'
             else: raise ValueError('请先输入画面描述，或添加一张参考图。')
@@ -692,6 +733,7 @@ class Window(QMainWindow):
         append_quality(graph,quality,r.width,r.height)
         params=asdict(r)
         params.update(mode='chat',user_prompt=user_prompt,user_negative=raw_negative,
+            prompt_constraints=constraints,
             template=self.active_title,bindings=mapping,denoise=denoise,
             reference_policy='preserve' if preserving else 'redraw',
             reference_strength=weight if self.custom_graph is None else None,
@@ -971,6 +1013,7 @@ class Window(QMainWindow):
                   'preserve_reference':self.preserving_reference(),'action':action,'motion':motion,
                   'animation_detail':self.animation_detail.currentData(),'animation_sampler':self.animation_sampler.currentData(),
                   'animation_color':self.animation_color.currentData(),'style_reference':style,'custom_description':description}
+        params['custom_loop']=bool(engine=='custom_free' and self.custom_loop.isChecked())
         write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'queued','params':params})
         item = QListWidgetItem(task_name(params)+' · 等待'); item.setToolTip(str(folder)); self.queue_list.addItem(item)
         self.pending.append((None,params,folder,item))
@@ -1088,7 +1131,8 @@ class Window(QMainWindow):
             self.launch(lambda emit:generate(self.client,folder,params['prompt'],params['negative'],params['seed'],
                 params['count'],params['fps'],emit,cancel,params['reference'],params['checkpoint'],params['steps'],
                 custom_description=params['custom_description'],lora=params['lora'],lora_strength=params['lora_strength'],
-                style_reference=params.get('style_reference',False),preserve_reference=params.get('preserve_reference',True)),event)
+                style_reference=params.get('style_reference',False),preserve_reference=params.get('preserve_reference',True),
+                custom_loop=params.get('custom_loop',False)),event)
         elif params.get('engine')=='wan':
             from .temporal_animation import generate_temporal
             self.launch(lambda emit:generate_temporal(self.client,folder,params['prompt'],params['negative'],
@@ -1173,6 +1217,7 @@ class Window(QMainWindow):
             self.assets_dialog.cache_status.setText('暂无可清理缓存。' if all_cached else '请先选中要清除的记录。'); return
         protected=[entry[2] for entry in self.pending]
         if self.current: protected.append(self.current['folder'])
+        if getattr(self,'importing_folder',None): protected.append(self.importing_folder)
         self.cache_busy=True; self.assets_dialog.set_cache_busy(True)
         self.assets_dialog.cache_status.setText('正在清理本地缓存…')
         # Pause a cached sequence before the worker removes its frame files.

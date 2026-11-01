@@ -5,7 +5,7 @@ from PIL import Image
 from scipy.spatial import cKDTree
 
 
-def save_gif(images, target, fps, loop=False, size=(384,512)):
+def save_gif(images, target, fps, loop=False, size=(384,512), resampling=Image.Resampling.NEAREST):
     samples=[]
     for image in images:
         array=np.asarray(image.convert('RGBA'));samples.append(array[:,:,:3][array[:,:,3]>200][::4])
@@ -15,7 +15,7 @@ def save_gif(images, target, fps, loop=False, size=(384,512)):
     table=palette.getpalette();table=table+[0]*(768-len(table))
     tree=cKDTree(np.asarray(table,dtype=float).reshape(-1,3)[:255]);previews=[]
     for image in images:
-        small=image.convert('RGBA').resize(size,Image.Resampling.LANCZOS)
+        small=image.convert('RGBA').resize(size,resampling)
         quantized=small.convert('RGB').quantize(palette=palette,dither=Image.Dither.NONE)
         indices=np.array(quantized);reserved=indices==255
         if reserved.any():indices[reserved]=tree.query(np.asarray(small)[:,:,:3][reserved])[1]

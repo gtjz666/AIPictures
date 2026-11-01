@@ -7,7 +7,7 @@ from PySide6.QtCore import Signal
 
 def task_name(params):
     if params.get('mode')=='smart_image':
-        return '云端图片生成' if params.get('backend')=='api' else '智能本地生图'
+        return '云端图片生成' if params.get('backend')=='api' else '智能本地生图' if params.get('smart') else '本地图片生成'
     from .animation_actions import ACTIONS
     if params.get('mode')=='walk': return ACTIONS.get(params.get('action','walk'),('动作',))[0]+'动画'
     return '工作流生成' if params.get('mode')=='workflow_editor' else '图片生成'

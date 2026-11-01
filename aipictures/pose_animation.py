@@ -430,7 +430,11 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
         if action=='custom':effective_prompt+='\n动作说明：'+custom_description+'\n按顺序执行：'+' → '.join(ACTIONS[s['action']][1] for s in clip['motion_plan']['segments'])
         graph=video_workflow(reference_name,names,effective_prompt,effective_negative,seed,steps,fast,face=face_name,
             size=inference_size,sampler=sampler,pose_count=length)
-        bind_model_names(graph,client.discover()['object_info'])
+        object_info=client.discover()['object_info']
+        if 'AIPicturesWanAnimateToVideo' in object_info:
+            graph['8']['class_type']='AIPicturesWanAnimateToVideo'
+            manifest['condition_encoding']='release_completed_encoders_then_official_wan'
+        bind_model_names(graph,object_info)
         from .animation_decode import sampling_workflow,decode_sampled
         graph=sampling_workflow(graph)
         write_json(video/'workflow.json',graph)

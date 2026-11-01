@@ -83,7 +83,12 @@ class AnimationPlayer(QWidget):
             if target.resolve() in {p.resolve() for p in files}: raise ValueError('导出位置不能覆盖原始帧')
             portable={'schema_version':1,'fps':manifest['fps'],'frame_count':len(self.frames),'loop':self.loop,
                       'canvas':manifest['canvas'],'frames':[p.name for p in self.frames],
-                      'exports':manifest['exports'],'direction':manifest['intent']['direction'],'action':manifest.get('action','walk')}
+                      'exports':manifest['exports'],'direction':manifest.get('intent',{}).get('direction','source'),'action':manifest.get('action','walk')}
+            if manifest.get('method')=='native_video_frames':
+                portable['source_frames']=[{k:f[k] for k in ('index','source_frame','source_time','is_keyframe') if k in f}
+                                           for f in manifest['frames']]
+                portable['frame_sampling']=manifest.get('frame_sampling','uniform')
+                portable['warnings']=manifest.get('warnings',[])
             if manifest.get('game_animation'):portable['game_animation']=manifest['game_animation']
             with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as archive:
                 for file in files: archive.write(file,file.name)

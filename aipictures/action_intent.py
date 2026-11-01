@@ -125,6 +125,8 @@ def walk_intent(text):
 def appearance_description(text):
     """Remove conflicting pose commands when the UI has already selected an animation."""
     from .animation_actions import ACTIONS
+    # Whole-body pose clauses cannot be appearance supplements to a selected cycle.
+    text=re.sub(r'[^，,。；;\n]*(?:平躺|躺在|趴在|爬行|背部贴地|脸朝上|双臂向[^，,。；;\n]*展开|双腿向[^，,。；;\n]*分开)[^，,。；;\n]*',' ',text)
     for _,clause in ACTIONS.values(): text=text.replace(clause,' ')
     for noun in ('动画序列帧','动画帧','动画','序列帧','精灵图'): text=text.replace(noun,' ')
     for words in VOCAB.values():
@@ -138,3 +140,10 @@ def appearance_description(text):
                 ' ',text,flags=re.I)
     text=re.sub(r'[，,；;。\n]+',', ',text)
     return re.sub(r' +',' ',text).strip(' ,')
+
+
+def has_pose_conflict(text, selected):
+    if selected=='custom':return False
+    intent=parse_intent(text)
+    if intent.action and intent.action not in (selected,'stand'):return True
+    return bool(re.search(r'平躺|躺在|趴在|爬行|背部贴地|脸朝上',text))

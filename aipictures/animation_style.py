@@ -10,6 +10,8 @@ from .engine_service import release_idle_models
 
 
 def style_workflow(reference,checkpoint,lora,strength,seed,prompt='',negative=''):
+    from .action_intent import appearance_description
+    prompt=appearance_description(prompt)
     if not lora:raise ValueError('启用动画换风格后，请在“采样与 LoRA”中手动选择风格。')
     if not is_sdxl(checkpoint):raise ValueError('动画风格重绘需要 SDXL 基础模型与对应 LoRA，请在“模型与画面”中选择 SDXL。')
     validate_selection(lora,checkpoint)

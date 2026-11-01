@@ -65,7 +65,12 @@ class ApiController:
             ('\n'+self.load_error if self.load_error else ''))
         w.generate_button.setEnabled(not w.preparing and (cloud or w.connected))
         if cloud:
-            for name in ('model','width','height','steps','cfg','seed','sampler','scheduler','lora',
+            w.translate_prompt.hide()
+            w.cfg.hide();w.cfg_label.hide()
+            w.reference_strength.hide();w.reference_strength_label.hide()
+            w.context_label.setText('云端图片创作')
+            w.model_note.setText('云端模型和尺寸在“API 与智能生图”设置，本地采样参数不参与。')
+            for name in ('model','model_family','width','height','steps','cfg','seed','sampler','scheduler','lora',
                          'lora_category','strength','denoise','reference_strength','quality_mode','workflow_selector'):
                 getattr(w,name).setEnabled(False)
             w.style_status.setText('云端模型直接理解描述与参考图；本地 LoRA、CFG 和采样参数不参与。尺寸在 API 设置中选择。')
@@ -73,13 +78,15 @@ class ApiController:
             w.reference_note.setText('参考图随本次请求发送；保真是提示词约束，不能保证细节完全一致。')
             w.intent_hint.setText('云端单张创作 · 保留中文描述，不套用本地有限词表。')
         else:
+            w.model_family.setEnabled(True)
             for name in ('seed','cfg','width','height','steps','sampler','scheduler','quality_mode'):
                 getattr(w,name).setEnabled(True)
             w.generation_type_changed()
 
     def intercept(self) -> bool:
         w = self.window
-        if not self.cloud and (not self.settings.smart or w.generation_type.currentData()=='walk'):
+        translating = bool(getattr(w,'translate_prompt',None) and w.translate_prompt.isChecked() and w.model_family.currentData()=='sdxl')
+        if not self.cloud and (not self.settings.smart and not translating or w.generation_type.currentData()=='walk'):
             return False
         if w.preparing:
             return True
@@ -122,6 +129,12 @@ class ApiController:
             check_models(graph,w.info['object_info'])
             check_quality_models(w.info['object_info'],params['quality_mode'])
             client = ComfyClient(w.client.url)
+            if w.translate_prompt.isChecked() and not planner and params.get('model_family')!='zimage':
+                from .local_translation import settings
+                config = settings(self.data)
+                if not config:
+                    raise ValueError('本地翻译模型尚未就绪，请安装小译器，或关闭翻译后输入英文。')
+                params['translation'] = config
         if params['output_background']=='transparent':
             from .background import model_file
             if not model_file().is_file():

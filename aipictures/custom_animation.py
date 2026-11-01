@@ -22,12 +22,12 @@ def custom_prompt(description,appearance='',preserve=True):
 
 
 def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=None,checkpoint='',steps=20,
-             custom_description='',lora='',lora_strength=.8,style_reference=False,preserve_reference=True,**_):
+             custom_description='',lora='',lora_strength=.8,style_reference=False,preserve_reference=True,custom_loop=False,**_):
     folder=Path(folder);folder.mkdir(parents=True,exist_ok=True);started=time.monotonic()
     if count not in (8,16):raise ValueError('自由动作支持 8 或 16 帧。')
     text=custom_prompt(custom_description,prompt,preserve_reference)
     manifest={'schema_version':4,'kind':'walk','action':'custom','title':'自定义 · AI 自由动作','method':'wan_i2v_custom',
-        'status':'preparing','frame_count':count,'fps':fps,'canvas':list(SIZE),'seed':seed,'loop':False,'frames':[],
+        'status':'preparing','frame_count':count,'fps':fps,'canvas':list(SIZE),'seed':seed,'loop':bool(custom_loop),'frames':[],
         'intent':{'action':'custom','direction':'reference'},'user_prompt':prompt,'custom_description':custom_description,
         'negative':negative,'timings':{},'style_reference':{'enabled':False},
         'quality_review':{'accepted':False,'warnings':['自由动作没有逐帧骨骼约束，复杂动作、接触和循环接缝需要人工验收。']}}
@@ -56,6 +56,8 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
         length=count*4+1;manifest['source_frame_count']=length
         graph=sampling_workflow(video_workflow(client.upload_image(folder/'generation-reference.png'),text,negative,
             seed,steps,length,size=SIZE))
+        if 'AIPicturesWanImageToVideo' in client.discover()['object_info']:
+            graph['8']['class_type']='AIPicturesWanImageToVideo'
         video=folder/'video';video.mkdir();write_json(video/'workflow.json',graph)
         manifest['status']='running';save()
         emit('workflow_ready',{'graph':graph,'url':client.url,'stage':'sampling'})
@@ -69,6 +71,11 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
         if len(paths)!=length:raise ValueError('自由动作解码帧数不完整；原始数据保留，不会自动重提。')
         manifest['decode_prompt_id']=result['prompt_id'];manifest['prompt_id']=result['prompt_id']
         indices=[round(i*(length-1)/(count-1)) for i in range(count)];frames=[]
+        selection={'method':'uniform_entire_sequence','source_indices':indices,'endpoint_duplicate_excluded':False}
+        if custom_loop:
+            from .loop_frames import cycle_indices
+            indices,selection=cycle_indices([Path(p) for p in paths],count)
+            manifest['quality_review']['warnings'].extend(selection['warnings'])
         for i,index in enumerate(indices):
             if cancel.is_set():raise Cancelled('已取消，已完成的原始帧保留。')
             emit('reference_stage',{'message':f'生成后分离透明背景 · {i+1}/{count}'})
@@ -80,8 +87,8 @@ def generate(client,folder,prompt,negative,seed,count,fps,emit,cancel,reference=
             manifest['frames'].append({'index':i,'image':target.name,'source_frame':index,'phase':i/(count-1),
                 'stage':'自由动作','post_color_rgb_preserved':True})
             emit('frame_ready',{'index':i,'count':count,'image':str(target)});save()
-        manifest.update(status='completed',exports=export_sequence(folder,frames,fps,'custom'),
-            pose_selection={'method':'uniform_entire_sequence','source_indices':indices,'endpoint_duplicate_excluded':False})
+        manifest.update(status='completed',exports=export_sequence(folder,frames,fps,'custom',loop=custom_loop),
+            pose_selection=selection)
         manifest['timings']['total_seconds']=round(time.monotonic()-started,3);save()
         return {'manifest':str(folder/'sequence.json'),'frames':[str(p) for p in frames],
                 'gif':str(folder/'custom.gif'),'sprite_sheet':str(folder/'sprite_sheet.png'),

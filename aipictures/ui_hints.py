@@ -32,8 +32,8 @@ def install_hints(w):
         'reference_strength':'自动单图工作流的图像参考比重，0 为仅文字；越高越接近原图，也越难改变视角。导入的自定义工作流请在高级编辑器调整对应节点。',
         'output_background':'完整画面保留场景和背景；透明主体在生成完成后才执行本地去背景。动画同样先生成完整帧，再导出透明帧，原始生成图保留。',
         'quality_mode':'高清修复会重新推测纹理。保留参考细节时使用标准平滑，避免改画细节。',
-        'steps':'图像推理次数。默认 24；增加会更慢，不保证质量持续提高。',
-        'cfg':'提示词影响程度。太高可能使颜色和轮廓失真，通常先用 6.5。',
+        'steps':'图像推理次数。默认 30；增加会更慢，不保证质量持续提高。',
+        'cfg':'提示词影响程度。太高可能使颜色和轮廓失真，先用 5.5。',
         'seed':'-1 每次随机；固定一个数字便于比较参数变化。相同种子也不能保证跨工作流一致。',
         'sampler':'图像去噪算法。通常保留 dpmpp_2m。',
         'scheduler':'安排各步去噪强度。通常保留 karras。',
@@ -50,14 +50,20 @@ def install_hints(w):
         'generate_button':'按当前设置加入本地生成队列；结果先保存为缓存。',
         'cancel_button':'只取消本软件当前任务；已生成的文件保留。',
     }
+    technical={'animation_style','custom_strategy','animation_engine','motion_mode','animation_steps',
+        'animation_detail','animation_sampler','animation_color','walk_fps','workflow_selector','model',
+        'denoise','reference_policy','reference_strength','quality_mode','steps','cfg','seed','sampler',
+        'scheduler','lora_category','lora','strength','unload_button'}
     for name,text in descriptions.items():
-        control=getattr(w,name); control.setToolTip(tip(text)); control.setToolTipDuration(12000)
+        control=getattr(w,name)
+        control.setToolTip(tip(text) if name in technical else '')
+        control.setToolTipDuration(12000)
     for key,text in {
         'creation':'选择生成类型、动画方式、角色来源和播放设置。',
         'image':'调整基础模型、尺寸、参考图策略和画质。',
         'sampling':'调整采样参数，并手动筛选、选择风格 LoRA。',
         'connection':'查看引擎连接、启动本地 ComfyUI 和释放空闲显存。',
-    }.items(): w.settings_buttons[key].setToolTip(tip(text))
+    }.items(): w.settings_buttons[key].setToolTip('')
     item_hints={
         'reference_policy':['按描述创作新构图，参考图用于外观条件；可手动选择 LoRA。','沿用原构图进行小幅修改；不叠加风格 LoRA。AI 仍可能改变细节。'],
         'quality_mode':['只平滑透明边缘和显示缩放，不生成额外纹理。','适合动漫线条；可能重画纹理，耗时增加。','适合照片；可能重画皮肤和材质，耗时增加。'],
@@ -67,4 +73,4 @@ def install_hints(w):
     }
     for name,texts in item_hints.items():
         combo=getattr(w,name)
-        for index,text in enumerate(texts): combo.setItemData(index,tip(text),Qt.ItemDataRole.ToolTipRole)
+        for index,text in enumerate(texts): combo.setItemData(index,tip(text) if name in technical else None,Qt.ItemDataRole.ToolTipRole)

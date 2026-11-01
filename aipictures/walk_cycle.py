@@ -83,21 +83,27 @@ def frame_workflow(reference_name, pose_name, guide_name, seed, positive, checkp
     return graph
 
 
-def export_sequence(folder, frames, fps, name='walk'):
+def export_sequence(folder, frames, fps, name='walk', loop=None):
     if name not in ('walk','idle','run','jump','squat','attack','custom','reach'): raise ValueError('未知动作导出名称。')
     folder = Path(folder); images = []
     try:
         images = [Image.open(path).convert('RGBA') for path in frames]
+        if not images: raise ValueError('没有可导出的动画帧。')
+        canvas=images[0].size
+        if any(image.size!=canvas for image in images):raise ValueError('动画帧尺寸不一致。')
         columns = min(4,len(images)); rows = math.ceil(len(images)/columns)
-        sheet = Image.new('RGBA',(SIZE[0]*columns,SIZE[1]*rows))
-        for i,image in enumerate(images): sheet.paste(image,((i%columns)*SIZE[0],(i//columns)*SIZE[1]))
+        sheet = Image.new('RGBA',(canvas[0]*columns,canvas[1]*rows))
+        for i,image in enumerate(images): sheet.paste(image,((i%columns)*canvas[0],(i//columns)*canvas[1]))
         sheet.save(folder/'sprite_sheet.png')
         from .animation_actions import ONE_SHOT_ACTIONS
+        looping=name not in ONE_SHOT_ACTIONS if loop is None else bool(loop)
         from .gif_export import save_gif
-        save_gif(images,folder/(name+'.gif'),fps,loop=name not in ONE_SHOT_ACTIONS)
+        factor=min(1.,384/canvas[0],512/canvas[1])
+        gif_size=(max(1,round(canvas[0]*factor)),max(1,round(canvas[1]*factor)))
+        save_gif(images,folder/(name+'.gif'),fps,loop=looping,size=gif_size)
         return {'sprite_sheet':'sprite_sheet.png','gif':name+'.gif','columns':columns,'rows':rows,
-                'cell_size':list(SIZE),'gif_size':[384,512],'background':'transparent','gif_transparency':'binary',
-                'gif_palette':'shared_foreground_palette','loop':name not in ONE_SHOT_ACTIONS}
+                'cell_size':list(canvas),'gif_size':list(gif_size),'background':'transparent','gif_transparency':'binary',
+                'gif_palette':'shared_foreground_palette','loop':looping}
     finally:
         for image in images: image.close()
 

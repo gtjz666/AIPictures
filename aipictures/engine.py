@@ -159,11 +159,17 @@ class ComfyClient:
                     if isinstance(message, str):
                         event = json.loads(message)
                         data = event.get('data', {})
+                        if event.get('type')=='aipictures_stage' and data.get('node') in graph:
+                            # This websocket belongs to our client. Accept only the installed
+                            # runtime node's stage messages; never treat them as sampling %.
+                            if graph[data['node']].get('class_type') in ('AIPicturesWanAnimateToVideo','AIPicturesWanImageToVideo'):
+                                record(condition_stage=data.get('message'))
+                                emit('condition_stage',data)
                         if data.get('prompt_id') == prompt_id:
                             if event['type']=='executing' and data.get('node') is not None:
                                 node=str(data['node'])
                                 record(state='cancelling' if cancellation_sent else 'running',node=node,
-                                       node_type=graph.get(node,{}).get('class_type'),node_started_seconds=round(time.monotonic()-start,2))
+                                       node_type=graph.get(node,{}).get('class_type'),warning=None,node_started_seconds=round(time.monotonic()-start,2))
                             elif event['type']=='progress':
                                 record(state='cancelling' if cancellation_sent else 'running',last_progress=data)
                             emit(event['type'], data)
@@ -231,6 +237,9 @@ class ComfyClient:
                             if missing_checks>=3:
                                 raise RuntimeError('后端连续三次既无此任务记录，也无排队或运行记录。可能已重启或清空历史；请查看 submitted.json，当前任务不会自动重新生成。')
                             record(state='cancelling' if cancellation_sent else 'running' if running else 'queued' if pending else 'checking')
+                            node_seconds=time.monotonic()-start-state.get('node_started_seconds',0.)
+                            if running and node_seconds>300 and state.get('node_type') in ('WanAnimateToVideo','AIPicturesWanAnimateToVideo','WanImageToVideo','AIPicturesWanImageToVideo'):
+                                record(warning=f'动画条件编码已等待 {int(node_seconds//60)} 分钟，耗时异常；任务保留，未自动重提。可查看日志或取消，必要时恢复后端。')
                             emit('monitor_status',dict(state))
                         except (TimeoutError,URLError):
                             notify_wait('后端暂时忙碌，继续检查同一任务。')

@@ -64,6 +64,11 @@ class AssetsDialog(QDialog):
             button.clicked.connect(lambda _=False, path=path: self.open_folder(path)); fv.addWidget(button)
         fv.addStretch(); tabs.addTab(files, '素材文件夹')
         self.cache_status=QLabel('清理缓存会跳过正在运行和排队的任务，已另存的文件保留。'); self.cache_status.setWordWrap(True); layout.addWidget(self.cache_status)
+        video_import=QPushButton('导入视频制作动画帧…')
+        def import_video():
+            from .video_import_dialog import open_import
+            open_import(parent)
+        video_import.clicked.connect(import_video);layout.addWidget(video_import)
         close = QPushButton('返回创作'); close.clicked.connect(self.close); layout.addWidget(close)
 
     def set_cache_busy(self,busy):

@@ -43,6 +43,7 @@ def main():
             assert params['style_reference'] and params['lora'].endswith('anime-slider-sdxl.safetensors')
             window.animation_style.setChecked(False)
             window.animation_action.setCurrentIndex(window.animation_action.findData('custom'))
+            window.custom_strategy.setCurrentIndex(window.custom_strategy.findData('skeleton'))
             window.custom_description.setPlainText('下蹲1秒，然后出拳1秒')
             assert '下蹲 → 基础攻击' in window.custom_hint.text()
             window.enqueue_walk();params=window.pending[-1][1]
@@ -51,7 +52,7 @@ def main():
             try:window.enqueue_walk()
             except ValueError:pass
             else:raise AssertionError('Unknown skeleton action must not silently become walking')
-            window.custom_strategy.setCurrentIndex(1);window.enqueue_walk();params=window.pending[-1][1]
+            window.custom_strategy.setCurrentIndex(window.custom_strategy.findData('free'));window.enqueue_walk();params=window.pending[-1][1]
             assert params['engine']=='custom_free' and not window.motion_mode.isEnabled()
             captured=[]
             window.launch=lambda worker,callback:(captured.append(callback),worker(lambda *_:None))

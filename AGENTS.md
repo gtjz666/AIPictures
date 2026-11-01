@@ -13,6 +13,9 @@
 - `aipictures/app.py`：独立桌面界面；`run.bat` 启动。
 - `aipictures/engine.py`、`backend_connection.py`：ComfyUI 请求、任务监控和共享后端。
 - `aipictures/general_image.py`：通用单张生成；不要重新强制限定立绘、人物或侧视。
+- `zimage.py` / `image_family.py`：原生中文无参考图路线、与 SDXL 的兼容边界；`local_translation.py` 为 SDXL 提供可选独立 CPU 翻译，不得对原生中文或云端重复翻译。SDXL LoRA 不接到 Z-Image。
+- `comfy_nodes/aipictures_runtime`：可选后端节点，释放完成的编码器后原样调用官方条件计算；不修改 Comfy 核心。启动脚本兼容加载策略须有真实测试依据。
+- `video_frames.py` / `loop_frames.py`：真实视频解码与循环片段选择，先保留 RGB 再处理 Alpha；近似接缝评分不能声称保证无缝，不插帧/混帧。
 - `api_config.py` / `api_dialog.py` / `api_controller.py`：用户自带 API 设置、密钥保护及单图队列；`api_generation.py` / `api_transport.py` / `smart_generation.py`：独立云端生图与可选文字整理。不要读取其他软件的 Key，不因超时自动重复付费 POST；聊天 Key 不等于生图权限。
 - `aipictures/pose_animation.py`：完整骨骼序列 → Wan Animate → 原生解码 → 去背景 → 帧/精灵图/GIF。
 - `motion_clip.py`、`motion_kinematics.py`、`natural_motion.py`、`motion_editor.py`：预设、真人曲线适配、逐帧编辑和预览。
