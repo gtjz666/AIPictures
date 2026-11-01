@@ -6,18 +6,23 @@ from uuid import uuid4
 from PySide6.QtWidgets import QDialog,QFormLayout,QVBoxLayout,QComboBox,QCheckBox,QPushButton,QFileDialog,QLabel
 
 
-def open_import(window):
+def open_import(window,source=None):
     if window.current or window.preparing:
         window.status.setText('请等当前任务结束后再导入视频。');return
-    path,_=QFileDialog.getOpenFileName(window,'选择动作视频或 GIF','','动画 (*.mp4 *.mov *.webm *.mkv *.avi *.gif)')
+    path=str(source) if source is not None else QFileDialog.getOpenFileName(window,'选择动作视频或 GIF','','动画 (*.mp4 *.mov *.webm *.mkv *.avi *.gif)')[0]
     if not path:return
     dialog=QDialog(window);dialog.setWindowTitle('视频 → 动画帧');dialog.resize(420,260)
     layout=QVBoxLayout(dialog);form=QFormLayout();layout.addLayout(form)
-    count=QComboBox();count.addItem('8 帧',8);count.addItem('16 帧',16);form.addRow('输出帧数',count)
+    count=QComboBox();count.addItem('8 帧',8);count.addItem('16 帧',16);count.addItem('全部源帧（最多240张）',0);form.addRow('输出帧数',count)
     fps=window.spin(1,30,8);form.addRow('播放帧率',fps)
     sampling=QComboBox();sampling.addItem('关键姿态优先 + 源过渡帧','keyframes')
     sampling.addItem('均匀取帧','uniform');form.addRow('取帧方式',sampling)
     looping=QCheckBox('提取首尾相近的循环片段');looping.setChecked(True);form.addRow(looping)
+    def options():
+        all_frames=count.currentData()==0
+        fps.setEnabled(not all_frames);sampling.setEnabled(not all_frames)
+        looping.setText('循环播放（保留全部源帧，不裁剪）' if all_frames else '提取首尾相近的循环片段')
+    count.currentIndexChanged.connect(options)
     transparent=QCheckBox('生成透明背景');transparent.setChecked(True);form.addRow(transparent)
     note=QLabel('保留原始画布，不混帧、不缩放人物。视频最长 30 秒；循环接缝仍需检查。')
     note.setWordWrap(True);layout.addWidget(note)
@@ -30,14 +35,14 @@ def open_import(window):
     from .video_frames import extract_video
     from pathlib import Path
     folder=window.api_controller.data/'animations'/(datetime.now().strftime('%Y%m%d_%H%M%S_')+uuid4().hex[:8])
-    window.preparing=True;window.importing_folder=folder
+    window.preparing=True;window.importing_folder=folder;window.importing_source=path
     window.prepare_cancel.clear();window.task_display.start();window.progress.setRange(0,0)
     window.api_controller.apply_mode()
     def event(kind,data):
         if kind=='reference_stage':window.status.setText(data['message'])
         elif kind=='frame_ready':window.show_image(data['image'],allow_zoom=False)
         elif kind in ('result','error','cancelled'):
-            window.preparing=False;window.importing_folder=None
+            window.preparing=False;window.importing_folder=None;window.importing_source=None
             status={'result':'completed','error':'failed','cancelled':'cancelled'}[kind]
             window.task_display.finish(status);window.progress.setRange(0,100)
             window.progress.setValue(100 if kind=='result' else 0);window.api_controller.apply_mode()

@@ -20,8 +20,9 @@ def extract_video(source: Path, folder: Path, count: int, fps: int, loop: bool,
     if sampling not in ('uniform','keyframes'):
         raise ValueError('取帧方式应为 uniform 或 keyframes。')
     if source.stat().st_size>2*1024**3:raise ValueError('源视频超过 2GB，请先裁成动作片段。')
-    if count not in (8,16) or not 1<=fps<=30:
-        raise ValueError('请选择 8 / 16 帧和 1–30 FPS。')
+    if count not in (0,8,16) or not 1<=fps<=30:
+        raise ValueError('请选择全部源帧（0）、8 / 16 帧和 1–30 FPS。')
+    all_frames=count==0
     folder.mkdir(parents=True,exist_ok=True)
     if (folder/'sequence.json').exists():
         raise ValueError('目标已有任务记录，请使用新目录，避免覆盖素材。')
@@ -30,7 +31,8 @@ def extract_video(source: Path, folder: Path, count: int, fps: int, loop: bool,
         'method':'native_video_frames','status':'preparing','loop':bool(loop),'fps':fps,
         'frame_count':count,'frames':[],'source_video':str(source),'source_sha256':digest(source),
         'intent':{'action':'custom','direction':'source'},'frame_sampling':sampling,
-        'post_color_rgb_preserved':True,'temporal_blending':False,'content_scaled':False}
+        'post_color_rgb_preserved':True,'temporal_blending':False,'content_scaled':False,
+        'all_source_frames':all_frames}
     save=lambda:write_json(folder/'sequence.json',manifest)
     save();started=time.monotonic()
     try:
@@ -45,6 +47,9 @@ def extract_video(source: Path, folder: Path, count: int, fps: int, loop: bool,
                 raise ValueError('请选择有有效时长、且不超过 30 秒的动作片段；长视频请先裁剪。')
             if stream.width*stream.height>16_000_000:
                 raise ValueError('视频尺寸超过当前转帧限制，请先裁剪到 1600 万像素以内。')
+            if all_frames:
+                fps=float(stream.average_rate or 24)
+                if not 1<=fps<=30:raise ValueError('全部源帧导出目前支持1–30FPS，请选择均匀取帧。')
             sample_count=count*4+1
             sample_times=[i*duration/sample_count for i in range(sample_count)]
             sampled=[];timestamps=[];target=0
@@ -54,15 +59,25 @@ def extract_video(source: Path, folder: Path, count: int, fps: int, loop: bool,
                 timestamp=float(frame.time) if frame.time is not None else ordinal/float(stream.average_rate or 24)
                 if origin is None:origin=timestamp
                 timestamp-=origin
-                if timestamp+1e-6<sample_times[target]:continue
+                if not all_frames and timestamp+1e-6<sample_times[target]:continue
+                if all_frames and len(sampled)>=240:raise ValueError('全部源帧最多240张，请先裁短片段或选择8/16帧。')
                 image=Image.fromarray(frame.to_ndarray(format='rgba'))
                 path=raw/f'source_{len(sampled):04d}.png';image.save(path)
                 sampled.append(path);timestamps.append(timestamp)
-                emit('reference_stage',{'message':f'解码原生视频帧 {len(sampled)}/{sample_count}…'})
+                emit('reference_stage',{'message':f'解码原生视频帧 {len(sampled)}…'})
                 target+=1
-                if target==sample_count:break
+                if not all_frames and target==sample_count:break
+        if all_frames:
+            count=len(sampled)
+            if not count:raise ValueError('片段没有有效画面。')
+            sampling='uniform'
+            manifest.update(frame_count=count,fps=fps,frame_sampling='all_source_frames')
         if len(sampled)<count:raise ValueError('片段有效画面不足，请用更长的视频或减少输出帧数。')
-        if loop and len(sampled)>count:
+        if all_frames:
+            indices=list(range(count))
+            selection={'method':'all_source_frames','source_indices':indices,'warnings':[]}
+            if loop:selection['warnings'].append('保留全部源帧，未裁剪循环区间；循环播放仍需检查首尾接缝。')
+        elif loop and len(sampled)>count:
             indices,selection=cycle_indices(sampled,count)
         else:
             indices=[round(i*(len(sampled)-1)/(count-1)) for i in range(count)]

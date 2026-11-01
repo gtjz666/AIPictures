@@ -65,8 +65,7 @@ def main():
     args=parser.parse_args(); root=Path(args.models).resolve()
     if args.proxy: install_opener(build_opener(ProxyHandler({'http':args.proxy,'https':args.proxy})))
     catalog=json.loads((Path(__file__).resolve().parents[1]/'aipictures/resources/lora_catalog.json').read_text('utf-8'))
-    jobs=[(root/'loras'/item['filename'],item['download']) for item in catalog['models']]
-    jobs += [(root/'upscale_models'/item['filename'],item) for item in UPSCALERS]
+    jobs = [(root/'upscale_models'/item['filename'],item) for item in UPSCALERS]
     with ThreadPoolExecutor(max_workers=3) as pool:
         records=list(pool.map(lambda job:install_file(*job),jobs))
     write_json(DATA/'style-model-installation.json',{'installed':True,'files':records,'bytes':sum(r['bytes'] for r in records)})

@@ -70,6 +70,10 @@ def generate(folder: Path, graph: dict, params: dict, planner: AuthEndpoint | No
             graph=json.loads(json.dumps(graph))
             graph['text']['inputs']['text']=prompt_text(prompt,negative)
             mapping=params['bindings']
+        elif params.get('model_family')=='qwen_edit':
+            from .reference_edit import build
+            runtime={'AIPicturesReleaseCompletedEncoders':{}} if 'release' in graph else {}
+            graph,mapping=build(request,reference_name,runtime)
         else:
             graph, mapping = bind_request(graph, request, reference_name, params['denoise'],
                 preserve_reference=params.get('reference_policy')=='preserve')

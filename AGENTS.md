@@ -19,15 +19,17 @@
 - `api_config.py` / `api_dialog.py` / `api_controller.py`：用户自带 API 设置、密钥保护及单图队列；`api_generation.py` / `api_transport.py` / `smart_generation.py`：独立云端生图与可选文字整理。不要读取其他软件的 Key，不因超时自动重复付费 POST；聊天 Key 不等于生图权限。
 - `aipictures/pose_animation.py`：完整骨骼序列 → Wan Animate → 原生解码 → 去背景 → 帧/精灵图/GIF。
 - `motion_clip.py`、`motion_kinematics.py`、`natural_motion.py`、`motion_editor.py`：预设、真人曲线适配、逐帧编辑和预览。
-- `animation_style.py`、`lora_catalog.py`：用户主动选择风格、兼容模型及风格基准图。
+- `video_controller.py` / `video_generation.py` / `video_preview.py`：完整自由动画先预览，再显式转素材；`h3_backend.py`为独立可选引擎。
+- `reference_edit.py`：已有Qwen-Image-Edit-2511中文语义参考编辑，不能与Qwen-Image-2.1混淆。
+- `animation_style.py`、`lora_catalog.py`仅保留历史复现与删除收据识别；当前停用LoRA，不重新下载。
 - `sprite_pipeline/`：可独立运行的离散精灵素材 CLI，不强制依赖 ComfyUI。
 - `tests/`、`tools/`、`docs/`：自动检查、实机验收工具和使用/研究记录。
 
 ## 用户确认过的产品要求
 
 - 面向游戏创作者，界面浅色、简洁；提示词和反向词由用户填写，不自动预填强制角色模板。没有选择参考图时留空，选中后显示该图。
-- 动画类型由用户选择决定，不要求提示词重复出现“走路动画”。当前基础动作是走路、跑步、待机、横版跳跃、下蹲、基础攻击；自定义动作有有限骨骼编排和实验性自由生成两条路线。
-- LoRA 类型和模型由用户主动选择，不能分析提示词后暗中自动选择。启用换画风时风格优先；默认沿用参考最小修改。SDXL LoRA 不直接连接 Wan。
+- 动画先生成完整片段，用户选择处理为动画帧后才拆帧/抠图/拼图。预设只提供可编辑动作描述，最终以动作说明为准；自定义动作不要求逐帧骨骼操作。骨骼仅可选研究工具。
+- 用户已取消LoRA：停用界面与自动流程，按SHA和安装收据只删除软件管理的权重。不重新下载风格/加速LoRA。原工作流不改，标准节点在工作副本旁路，特殊节点明确提示。
 - 先生成完整 RGB，再去背景。骨骼分析可使用分割，但不能把被删色的分析图冒充原始生成参考。
 - 精灵帧不做时间混合、历史帧融合、FXAA/TAA/DLSS 或全局自动平滑。像素模式使用明确的像素捕捉/调色板管线；预览像素图用最近邻。不要默认缩放角色内容。
 - 单帧须保持独立资产；精灵图切片须与 PNG 逐像素相同。跳跃整体轨迹由游戏引擎驱动，演示 GIF 的位移必须明确标注。
@@ -56,6 +58,6 @@ python -m tests.live_platformer_controls
 python -m tests.live_animation_modes
 ```
 
-针对改动选择必要检查。`tools.verify_animation_modes`、`tools.verify_lora_walks` 等会实际消耗较长 GPU 时间：先看本地状态和既有结果，使用新目录，不能重复运行已经成功的样本。
+针对改动选择必要检查。`tools.probe_h3`、`tools.verify_video_first`、`tools.verify_animation_modes` 会实际消耗较长GPU时间：先看本地状态和既有结果，使用新目录，不能重复运行已成功样本。历史`tools.verify_lora_walks`不再用于新任务，不因其缺权重而重新下载已删除LoRA。
 
 最终用中文说明完成内容、运行方式、测试结果、真实 GIF/PNG、已知视觉偏差和新增下载。修改生成逻辑时需查看真实输出，不能只交付模拟界面或伪造图片。未经用户明确要求，不启动其他 agent 并行修改同一项目。

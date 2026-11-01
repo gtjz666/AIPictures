@@ -17,7 +17,7 @@ def main():
     lora='lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors'
     spec={'bytes':738005744,'sha256':'85c4a61c30e0497aa44b91d93a893b624708461a56fe5485183b28fa07e2dfb3',
       'url':'https://huggingface.co/Kijai/WanVideo_comfy/resolve/8260d429d19fd7a72304cad059160b95d843913f/Lightx2v/'+lora}
-    jobs=[(root/'diffusion_models'/MODEL,MODEL_SPEC),(root/'loras'/'AIPictures'/'animation'/lora,spec)]
+    jobs=[(root/'diffusion_models'/MODEL,MODEL_SPEC)]
     with ThreadPoolExecutor(max_workers=2) as pool: records=list(pool.map(lambda job:install_file(*job),jobs))
     write_json(DATA/'pose-model-installation.json',{'files':records,'bytes':sum(r['bytes'] for r in records)})
     print('Motion models verified and installed.',flush=True)

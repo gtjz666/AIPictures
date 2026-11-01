@@ -44,9 +44,10 @@ def build_studio(w):
     w.character_route.hide()  # Internal binding retained for existing saved workflows.
     w.pose_choice = QComboBox(); w.pose_choice.addItem('侧视站立 · 基准', 'stand'); w.pose_choice.addItem('向前伸手 · 草案', 'reach')
     w.pose_choice.hide()
-    w.generation_type = QComboBox(); w.generation_type.addItem('单张图片', 'image'); w.generation_type.addItem('动画序列帧', 'walk')
+    w.generation_type = QComboBox(); w.generation_type.addItem('单张图片', 'image'); w.generation_type.addItem('动画制作', 'walk')
     w.intent_hint = QLabel('输入中文动作，自动选择对应骨骼参考。'); w.intent_hint.setWordWrap(True)
     w.walk_settings, wf = form()
+    w.walk_form=wf
     w.animation_action = QComboBox(); w.animation_action.addItem('走路', 'walk')
     # Unreliable static-pose/direct routes are kept out of the standard creation flow.
     # Historical graphs remain available in the advanced workflow editor.
@@ -54,10 +55,12 @@ def build_studio(w):
     w.motion_mode=QComboBox(); w.motion_mode.addItem('自动适配完整骨骼（推荐）','auto'); w.motion_mode.addItem('使用手动调整的完整骨骼','manual')
     wf.addRow('骨骼方式',w.motion_mode)
     edit_motion=QPushButton('查看 / 调整完整动作骨骼…'); edit_motion.clicked.connect(w.open_motion_editor); wf.addRow(edit_motion)
+    w.research_motion_button=edit_motion
     from .animation_actions import ACTIONS
     for key,(title,_) in ACTIONS.items():
         if key!='walk': w.animation_action.addItem(title,key)
     w.custom_settings,custom_form=form()
+    w.custom_form=custom_form
     w.custom_strategy=QComboBox();w.custom_strategy.addItem('AI 自由动作 · 实验性','free')
     w.custom_strategy.addItem('骨骼编排 · 已支持的动作组合','skeleton');custom_form.addRow('实现方式',w.custom_strategy)
     w.custom_description=QTextEdit();w.custom_description.setMaximumHeight(80)
@@ -74,6 +77,7 @@ def build_studio(w):
     w.animation_style.setToolTip('先用 SDXL LoRA 重绘角色基准，再生成动作。未勾选时沿用参考图；不会从提示词自动选择风格。换风格可能改变细节。')
     wf.addRow(w.animation_style)
     style_link=QPushButton('选择风格类型 / LoRA…');style_link.clicked.connect(lambda:w.open_settings('sampling'));wf.addRow(style_link)
+    w.style_link=style_link
     w.animation_steps = w.spin(4,60,20); wf.addRow('动画推理步数',w.animation_steps)
     from .animation_detail import DETAIL_PROFILES,SAMPLERS,COLOR_MODES
     w.animation_detail=QComboBox()
@@ -88,7 +92,7 @@ def build_studio(w):
     w.walk_count = QComboBox(); w.walk_count.addItem('8 帧 · 标准周期',8); w.walk_count.addItem('16 帧 · 更平滑',16)
     wf.addRow('帧数', w.walk_count)
     w.walk_fps = w.spin(1,30,8); wf.addRow('播放帧率', w.walk_fps)
-    note = QLabel('动作由选择框决定，不必在正向提示词中重复。跳跃、下蹲和攻击为单次动作；跳跃位移由游戏引擎驱动。完整骨骼适用双足角色，其他布局需要校准。自定义动作可编排已支持的动作，或选择 AI 自由生成。'); note.setWordWrap(True); wf.addRow(note)
+    note = QLabel('骨骼路线仅作为研究工具。普通创作可选自由动画，按描述生成完整片段。'); note.setWordWrap(True); wf.addRow(note);w.motion_note=note
     cf.addRow(w.walk_settings); w.walk_settings.hide()
     w.generation_type.currentIndexChanged.connect(w.generation_type_changed)
     w.character_route.currentIndexChanged.connect(w.character_selection_changed)
@@ -104,9 +108,11 @@ def build_studio(w):
     for entry in list_workflows(): w.workflow_selector.addItem(entry['title'], entry)
     w.workflow_selector.currentIndexChanged.connect(w.select_chat_workflow)
     bf.addRow('后台预设', w.workflow_selector)
-    w.model_family=QComboBox();w.model_family.addItem('SDXL · 通用 / 手选风格 LoRA','sdxl')
+    w.model_family=QComboBox();w.model_family.addItem('SDXL · 兼容工作流','sdxl')
     w.model_family.addItem('Z-Image Turbo · 原生中文（无参考图）','zimage')
-    w.model_family.model().item(1).setEnabled(False);bf.addRow('图片引擎',w.model_family)
+    w.model_family.addItem('Qwen-Image-Edit · 中文参考编辑','qwen_edit')
+    w.model_family.model().item(1).setEnabled(False);w.model_family.model().item(2).setEnabled(False)
+    bf.addRow('图片引擎',w.model_family)
     w.model = QComboBox();w.model_label=QLabel('基础模型'); bf.addRow(w.model_label, w.model)
     w.model_note=QLabel('SDXL 用于单张图片与文字动画角色图；动作使用独立动画模型。')
     w.model_note.setWordWrap(True); w.model_note.setObjectName('muted'); bf.addRow(w.model_note)
@@ -127,25 +133,24 @@ def build_studio(w):
         w.quality_mode.addItem(title,value)
     bf.addRow('画质优化',w.quality_mode)
     settings_button('image','模型与画面',basic,580)
-    advanced, af = form()
+    advanced, af = form();w.sampling_form=af
     w.steps = w.spin(1, 150, 30); af.addRow('步数', w.steps)
     w.cfg = QDoubleSpinBox(); w.cfg.setRange(0,30); w.cfg.setValue(5.5); w.cfg.setSingleStep(.5)
     w.seed = QLineEdit('-1'); af.addRow('种子', w.seed)
     w.sampler = QComboBox(); w.scheduler = QComboBox(); af.addRow('采样', w.sampler); af.addRow('调度', w.scheduler)
     w.lora_category=QComboBox()
     for category in ('全部类型','动漫','写实','卡通','插画','像素','游戏素材','未分类'): w.lora_category.addItem(category)
-    af.addRow('风格类型',w.lora_category)
-    w.lora = QComboBox(); w.lora.addItem('不使用 LoRA', ''); af.addRow('风格 LoRA', w.lora)
-    w.strength = QDoubleSpinBox(); w.strength.setRange(-5,5); w.strength.setValue(.8); w.strength.setSingleStep(.1); af.addRow('强度', w.strength)
+    w.lora = QComboBox(); w.lora.addItem('不使用 LoRA', '')
+    w.strength = QDoubleSpinBox(); w.strength.setRange(-5,5); w.strength.setValue(0)
     w.lora_details=QLabel('选择风格后显示适用范围、推荐强度和触发词。'); w.lora_details.setWordWrap(True)
-    w.lora_details.setObjectName('muted'); af.addRow(w.lora_details)
+    w.lora_details.setObjectName('muted')
     w.lora_category.currentTextChanged.connect(lambda _:w.refresh_loras())
     w.lora.currentIndexChanged.connect(lambda _:w.lora_changed())
     w.model.currentTextChanged.connect(lambda _:w.update_lora_state())
     w.workflow_label = QLabel('输入会自动绑定到后台工作流。'); w.workflow_label.setWordWrap(True); af.addRow(w.workflow_label)
     imp = QPushButton('导入工作流 API…'); imp.clicked.connect(w.import_graph); af.addRow(imp)
     reset = QPushButton('恢复自动工作流'); reset.clicked.connect(w.reset_graph); af.addRow(reset)
-    settings_button('sampling','采样与 LoRA',advanced,600)
+    settings_button('sampling','生成参数',advanced,480)
     connection, nf = form()
     w.url = QLineEdit('http://127.0.0.1:8188'); nf.addRow('地址', w.url)
     connection_note=QLabel('优先复用已打开的 ComfyUI；生成与高级工作流使用同一地址。自定义端口按你填写的连接。')
@@ -159,7 +164,8 @@ def build_studio(w):
     w.api_controller.install_controls(side)
     side.addSpacing(12)
     files = QPushButton('生成记录与缓存…'); files.clicked.connect(w.open_assets); side.addWidget(files)
-    bone = QPushButton('动作骨骼…'); bone.clicked.connect(w.open_motion_editor); side.addWidget(bone)
+    import_animation=QPushButton('导入动画…');import_animation.clicked.connect(lambda:w.video_controller.import_file());side.addWidget(import_animation)
+    bone = QPushButton('骨骼研究…'); bone.clicked.connect(w.open_motion_editor); side.addWidget(bone);w.research_bones_button=bone;bone.hide()
     edit = QPushButton('高级工作流…'); edit.clicked.connect(lambda: w.tabs.setCurrentIndex(1)); side.addWidget(edit)
     guide=QLabel('选择生成类型\n→ 填写正向 / 反向提示词\n→ 生成、预览，再另存需要的结果'); guide.setWordWrap(True)
     guide.setObjectName('muted')
@@ -168,7 +174,7 @@ def build_studio(w):
     w.task_display=TaskDisplay(w); side.addWidget(w.task_display)
     w.status=w.task_display.status; w.progress=w.task_display.progress
     sidebar.setMinimumWidth(210); sidebar.setMaximumWidth(270); split.addWidget(sidebar); w.inspector = sidebar
-    workspace = QWidget(); cv = QVBoxLayout(workspace); cv.setContentsMargins(22, 8, 16, 6)
+    workspace = QWidget(); cv = QVBoxLayout(workspace); cv.setContentsMargins(22, 8, 16, 6);w.workspace_layout=cv
     w.context_label = QLabel('创作'); w.context_label.setStyleSheet('font-size:18px;font-weight:600;'); cv.addWidget(w.context_label)
     mode_row=QHBoxLayout()
     mode_row.addWidget(QLabel('我要制作')); mode_row.addWidget(w.generation_type)
@@ -185,8 +191,8 @@ def build_studio(w):
     w.sequence_preview = SequencePreview(w.preview, w); cv.addWidget(w.sequence_preview,1)
     image_bar = QHBoxLayout()
     w.caption = QLabel('尚未选择参考图'); w.caption.setWordWrap(True); image_bar.addWidget(w.caption, 1)
-    save = QPushButton('另存为…'); save.clicked.connect(w.save_as); image_bar.addWidget(save)
-    reuse = QPushButton('继续创作'); reuse.clicked.connect(w.use_current_as_reference); image_bar.addWidget(reuse); cv.addLayout(image_bar)
+    w.image_save = QPushButton('另存为…'); w.image_save.clicked.connect(w.save_as); image_bar.addWidget(w.image_save)
+    w.image_reuse = QPushButton('继续创作'); w.image_reuse.clicked.connect(w.use_current_as_reference); image_bar.addWidget(w.image_reuse); cv.addLayout(image_bar)
     from .animation_player import AnimationPlayer
     w.animation_player = AnimationPlayer(w); cv.addWidget(w.animation_player); w.animation_player.hide()
     w.reference_label = QLabel('可添加参考图'); w.reference_label.setWordWrap(True); cv.addWidget(w.reference_label)
@@ -274,4 +280,6 @@ def build_studio(w):
     w.model_family.currentIndexChanged.connect(w.generation_type_changed)
     from .image_family import save_selection
     w.model_family.activated.connect(lambda _:save_selection(w))
+    from .video_controller import VideoController
+    w.video_controller=VideoController(w)
     w.update_intent_hint()

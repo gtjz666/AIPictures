@@ -1,4 +1,4 @@
-"""Offscreen Qt integration: reference fidelity, explicit style opt-in and custom routes."""
+"""Offscreen Qt: optional skeletal research, no adapters, and archived progress."""
 import json
 import tempfile
 from pathlib import Path
@@ -30,18 +30,14 @@ def main():
             window.model.addItem('sd_xl_base_1.0_0.9vae.safetensors');window.refresh_loras();window.start_next=Mock()
             source=root/'reference.png';Image.new('RGBA',(768,1024),(90,60,130,255)).save(source)
             window.set_reference(source);window.generation_type.setCurrentIndex(1);window.animation_source.setCurrentIndex(0)
+            window.animation_engine.setCurrentIndex(window.animation_engine.findData('animate'))
             assert window.animation_action.count()==7 and not window.animation_style.isChecked()
             window.lora.setCurrentIndex(1)
             assert not window.lora.isEnabled()
             window.animation_action.setCurrentIndex(window.animation_action.findData('attack'))
             window.enqueue_walk();params=window.pending[-1][1]
             assert params['lora']=='' and params['preserve_reference'] and not params['style_reference']
-            window.animation_style.setChecked(True)
-            assert window.lora.isEnabled() and window.model.isEnabled() and not window.motion_mode.isEnabled()
-            assert '重绘风格基准' in window.reference_note.text()
-            window.enqueue_walk();params=window.pending[-1][1]
-            assert params['style_reference'] and params['lora'].endswith('anime-slider-sdxl.safetensors')
-            window.animation_style.setChecked(False)
+            assert not window.animation_style.isVisible() and not window.lora.isVisible()
             window.animation_action.setCurrentIndex(window.animation_action.findData('custom'))
             window.custom_strategy.setCurrentIndex(window.custom_strategy.findData('skeleton'))
             window.custom_description.setPlainText('下蹲1秒，然后出拳1秒')
@@ -52,8 +48,8 @@ def main():
             try:window.enqueue_walk()
             except ValueError:pass
             else:raise AssertionError('Unknown skeleton action must not silently become walking')
-            window.custom_strategy.setCurrentIndex(window.custom_strategy.findData('free'));window.enqueue_walk();params=window.pending[-1][1]
-            assert params['engine']=='custom_free' and not window.motion_mode.isEnabled()
+            # Archived generator remains testable, but new free actions use full-video UX.
+            params=dict(params,engine='custom_free',custom_description='挥手告别')
             captured=[]
             window.launch=lambda worker,callback:(captured.append(callback),worker(lambda *_:None))
             with patch('aipictures.custom_animation.generate') as generate:
@@ -88,7 +84,7 @@ def main():
             assert window.pixmap.height()==1216 and window.output==str(frames[3])
             player.physics.setChecked(False);assert window.pixmap.height()==1024
             window.pending.clear();window.current=None;window.close()
-    print('Qt platformer controls, optional LoRA, custom routing, editor and physics preview passed.')
+    print('Qt research controls, no LoRA, archived progress, editor and physics preview passed.')
 
 
 if __name__=='__main__':main()

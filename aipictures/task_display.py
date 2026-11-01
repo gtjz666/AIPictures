@@ -6,6 +6,7 @@ from PySide6.QtCore import Signal
 
 
 def task_name(params):
+    if params.get('mode')=='video':return '完整动画 · '+('H3' if params.get('engine')=='h3' else 'Wan2.2')
     if params.get('mode')=='smart_image':
         return '云端图片生成' if params.get('backend')=='api' else '智能本地生图' if params.get('smart') else '本地图片生成'
     from .animation_actions import ACTIONS

@@ -41,7 +41,7 @@ class AssetsDialog(QDialog):
         hint.setWordWrap(True); layout.addWidget(hint)
         tabs = QTabWidget(); self.tabs=tabs; layout.addWidget(tabs, 1)
         self.cache_buttons=[]
-        for kind,title,attribute in [('image','图片缓存','gallery'),('walk','动画缓存','animations')]:
+        for kind,title,attribute in [('image','图片缓存','gallery'),('video','完整动画','videos'),('walk','动画帧素材','animations')]:
             page=QWidget(); pv=QVBoxLayout(page)
             listing=QListWidget(); listing.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
             setattr(self,attribute,listing); pv.addWidget(listing,1)
@@ -64,11 +64,11 @@ class AssetsDialog(QDialog):
             button.clicked.connect(lambda _=False, path=path: self.open_folder(path)); fv.addWidget(button)
         fv.addStretch(); tabs.addTab(files, '素材文件夹')
         self.cache_status=QLabel('清理缓存会跳过正在运行和排队的任务，已另存的文件保留。'); self.cache_status.setWordWrap(True); layout.addWidget(self.cache_status)
-        video_import=QPushButton('导入视频制作动画帧…')
+        video_import=QPushButton('导入完整动画预览…')
         def import_video():
-            from .video_import_dialog import open_import
-            open_import(parent)
+            self.hide();parent.video_controller.import_file()
         video_import.clicked.connect(import_video);layout.addWidget(video_import)
+        self.videos.itemDoubleClicked.connect(parent.video_controller.open_history if hasattr(parent,'video_controller') else lambda item:parent.video_controller.open_history(item))
         close = QPushButton('返回创作'); close.clicked.connect(self.close); layout.addWidget(close)
 
     def set_cache_busy(self,busy):

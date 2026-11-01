@@ -10,13 +10,13 @@ from .storage import DATA, write_json
 class ResultCache:
     def __init__(self,data=DATA):
         self.data=Path(data).resolve()
-        self.roots={'image':self.data/'jobs','walk':self.data/'animations'}
+        self.roots={'image':self.data/'jobs','walk':self.data/'animations','video':self.data/'videos'}
         self.saved_index=self.data/'saved-files.json'
 
     def entries(self,kind):
         root=self.roots[kind]
         return sorted((p for p in root.glob('*') if p.is_dir() and
-                       ((p/'job.json').is_file() or (p/'sequence.json').is_file())),reverse=True)
+                       ((p/'job.json').is_file() or (p/'sequence.json').is_file() or (p/'video.json').is_file())),reverse=True)
 
     def validate_export(self,path):
         path=Path(path).resolve()
@@ -44,7 +44,7 @@ class ResultCache:
         for root in self.roots.values():
             if root.is_symlink() or root.is_junction(): continue
             if target.parent==root.resolve() and target!=root.resolve():
-                if not (target/'job.json').is_file() and not (target/'sequence.json').is_file():
+                if not any((target/name).is_file() for name in ('job.json','sequence.json','video.json')):
                     raise ValueError('该目录不是可识别的生成缓存：'+str(target))
                 return target
         raise ValueError('清理范围仅限本软件的生成任务缓存：'+str(path))

@@ -91,55 +91,16 @@ class Window(QMainWindow):
         worker.finished.connect(worker.deleteLater); worker.start()
 
     def refresh_loras(self):
-        selected=self.lora.currentData(); category=self.lora_category.currentText()
-        self.lora.blockSignals(True); self.lora.clear(); self.lora.addItem('不使用 LoRA','')
-        for name in getattr(self,'info',{}).get('loras',[]):
-            if name.replace('\\','/').startswith('AIPictures/animation/'): continue
-            entry=entry_for(name)
-            if category!='全部类型' and (entry['category'] if entry else '未分类')!=category: continue
-            self.lora.addItem(display_name(name),name)
-            if entry: self.lora.setItemData(self.lora.count()-1,entry['description'],Qt.ItemDataRole.ToolTipRole)
-        index=self.lora.findData(selected)
-        self.lora.setCurrentIndex(max(0,index)); self.lora.blockSignals(False)
-        self.update_lora_state()
+        self.lora.clear();self.lora.addItem('不使用 LoRA','');self.update_lora_state()
 
     def lora_changed(self):
-        entry=entry_for(self.lora.currentData())
-        if entry: self.strength.setValue(entry['recommended_strength'])
         self.update_lora_state()
 
     def update_lora_state(self):
-        if not hasattr(self,'lora_details'): return
-        if self.api_controller.cloud:
-            self.api_controller.apply_mode(); return
-        if self.model_family.currentData()=='zimage' and self.generation_type.currentData()!='walk':
-            from .image_family import apply_ui
-            apply_ui(self); return
-        walking=self.generation_type.currentData()=='walk'
-        preserving=self.preserving_reference()
-        enabled=(not walking or (self.animation_engine.currentData() in ('wan','animate') and
-            (self.animation_source.currentData()=='text' or self.animation_style.isChecked()))) and not preserving
-        self.lora.setEnabled(enabled); self.lora_category.setEnabled(enabled)
-        self.strength.setEnabled(enabled and bool(self.lora.currentData()))
-        if hasattr(self,'style_status'):
-            name=self.lora.currentData()
-            scope=('先重绘角色风格，再生成动画' if walking else '本次单张生效') if enabled else ('原图小幅修改时停用' if preserving else '当前动画沿用参考外观')
-            self.style_status.setText(('风格：'+display_name(name)+' · '+scope) if name else '风格：未使用 LoRA（可在“采样与 LoRA”中手动选择）')
-        if not enabled:
-            self.lora_details.setText('优先保留参考图细节：不叠加风格 LoRA。已有选择保留，移除参考图或改为允许重绘后可继续使用。' if preserving else
-                '当前模式不使用 SDXL 风格 LoRA。文字动画可用于角色图；参考图动画沿用参考外观。\n如需改变参考画风，可先用单张 + LoRA 生成，再作为动画参考。')
-            return
-        entry=entry_for(self.lora.currentData())
-        scope='先使用 SDXL LoRA 制作风格基准图，Wan 再沿用基准外观生成动作。' if walking else '本次单图生效，自动接入当前工作流。'
-        if entry:
-            trigger='、'.join(entry['triggers']) or '无需触发词'
-            self.lora_details.setText(f'{entry["description"]}\n适用 SDXL · 推荐强度 {entry["recommended_strength"]:g}\n触发词：{trigger}\n选中后加入对应风格词和触发词。\n'+scope)
-            try: validate_selection(self.lora.currentData(),self.model.currentText())
-            except ValueError: self.lora_details.setText(self.lora_details.text()+'\n当前基础模型未确认兼容，请选择 SDXL。')
-        else:
-            self.lora_details.setText(('未分类本地 LoRA，请核对其基础模型。\n' if self.lora.currentData() else '可按类型选择风格。\n')+scope)
-        if self.custom_graph and any(n['class_type']=='LoraLoader' and not n.get('_meta',{}).get('aipictures_lora') for n in self.custom_graph.values()):
-            self.lora_details.setText(self.lora_details.text()+'\n原工作流另有 LoRA，当前选择会叠加；可在高级编辑器调整原配置。')
+        for name in ('lora','lora_category','strength','lora_details'):
+            control=getattr(self,name,None)
+            if control is not None:control.hide();control.setEnabled(False)
+        if hasattr(self,'style_status'):self.style_status.setText('画风与细节由提示词和参考图控制')
 
     def disconnect_engine(self, message):
         self.connected=False
@@ -303,7 +264,7 @@ class Window(QMainWindow):
     def activate_template(self, graph, title, entry_id=None,preserve_prompts=False):
         mapping = bindings(graph)
         from .image_family import use_reference_route
-        use_reference_route(self)
+        use_reference_route(self,imported=True)
         self.character_profile = None
         self.reference_character=False
         self.context_label.setText(title)
@@ -349,6 +310,8 @@ class Window(QMainWindow):
         self.settings_dialogs[key].show_near(self.settings_buttons[key])
 
     def update_sidebar_summary(self):
+        if hasattr(self,'video_controller') and self.generation_type.currentData()=='walk' and self.video_controller.free():
+            self.video_controller.apply_ui();return
         if self.api_controller.cloud:
             self.api_controller.apply_mode(); return
         walking=self.generation_type.currentData()=='walk'
@@ -489,6 +452,7 @@ class Window(QMainWindow):
         else:
             from .image_family import apply_ui
             apply_ui(self)
+        if hasattr(self,'video_controller'):self.video_controller.apply_ui()
 
     def preserving_reference(self):
         walking=self.generation_type.currentData()=='walk'
@@ -497,6 +461,8 @@ class Window(QMainWindow):
         return weighted and bool(self.reference_path) and (not walking or (self.animation_engine.currentData() in ('wan','animate') and self.animation_source.currentData()=='reference')) and self.reference_policy.currentData()=='preserve'
 
     def update_custom_hint(self):
+        if hasattr(self,'video_controller') and self.video_controller.free():
+            self.custom_hint.setText('动作描述为准；先生成完整动画，再按需拆帧，不需要调整骨骼。');return
         if self.custom_strategy.currentData()=='free':
             self.custom_hint.setText('原文直接进入 AI 动作模型，不使用静态骨骼；复杂接触、动作完成度和循环仍需检查。');return
         try:
@@ -531,6 +497,8 @@ class Window(QMainWindow):
         self.update_intent_hint()
 
     def update_intent_hint(self):
+        if hasattr(self,'video_controller') and self.generation_type.currentData()=='walk' and self.video_controller.free():
+            self.intent_hint.setText('动作以描述为准；先生成完整动画，再按需拆解素材。');return
         if self.api_controller.cloud:
             self.api_controller.apply_mode(); return
         walking = self.generation_type.currentData() == 'walk'
@@ -668,6 +636,10 @@ class Window(QMainWindow):
 
     def clear_reference(self):
         self.reference_path = None
+        if self.model_family.currentData()=='qwen_edit':
+            from . import zimage
+            ready=zimage.available(getattr(self,'info',{}).get('object_info',{}))
+            self.model_family.setCurrentIndex(self.model_family.findData('zimage' if ready else 'sdxl'))
         self.reference_display_name = None
         self.reference_character=False
         self.animation_source.setCurrentIndex(1)
@@ -692,6 +664,9 @@ class Window(QMainWindow):
                 self.editor.sync_inputs(graph)
 
     def graph_snapshot(self, reference_name=''):
+        if self.model_family.currentData()=='qwen_edit':
+            from .image_family import reference_snapshot
+            return reference_snapshot(self,reference_name)
         if self.model_family.currentData()=='zimage':
             from .image_family import snapshot
             return snapshot(self,reference_name)
@@ -721,7 +696,8 @@ class Window(QMainWindow):
         if self.custom_graph is None:
             graph=reference_workflow(r,reference_name,weight)
         else:
-            graph=self.custom_graph
+            from .lora_policy import plain_workflow
+            graph=plain_workflow(self.custom_graph)
         # Weight zero is text-only for the automatic route, including small-edit mode.
         applied_reference=reference_name if self.custom_graph is not None or weight>0 else ''
         preserving=preserving and bool(applied_reference)
@@ -758,6 +734,7 @@ class Window(QMainWindow):
 
     def enqueue(self):
         try:
+            if self.video_controller.intercept():return
             if self.api_controller.intercept(): return
             if not self.connected: raise ValueError('请先连接 ComfyUI')
             if self.preparing: return
@@ -872,7 +849,8 @@ class Window(QMainWindow):
 
     def queue_graph(self, graph, params, editor_workflow=None):
         if not self.connected: raise ValueError('请先连接 ComfyUI')
-        graph = json.loads(json.dumps(graph))
+        from .lora_policy import plain_workflow
+        graph = plain_workflow(graph)
         if not graph: raise ValueError('工作流没有可运行节点')
         missing = {n['class_type'] for n in graph.values()} - set(self.info['nodes'])
         if missing: raise ValueError('缺少节点：' + ', '.join(sorted(missing)))
@@ -884,11 +862,14 @@ class Window(QMainWindow):
         return folder
 
     def start_next(self):
-        if self.current or not self.pending: return
+        if self.current or self.preparing or not self.pending: return
         index = next((i for i,job in enumerate(self.pending) if self.connected or
-            (job[1].get('mode')=='smart_image' and job[1].get('backend')=='api')),None)
+            (job[1].get('mode')=='smart_image' and job[1].get('backend')=='api') or
+            (job[1].get('mode')=='video' and job[1].get('backend')=='standalone')),None)
         if index is None: return
         graph, params, folder, item = self.pending.pop(index)
+        if params.get('mode')=='video':
+            self.video_controller.start(params,folder,item);return
         if params.get('mode')=='smart_image':
             self.api_controller.start(graph,params,folder,item); return
         if params.get('mode') == 'walk':
@@ -1156,7 +1137,7 @@ class Window(QMainWindow):
         else:return
         self.status.setText('正在发送取消请求；后台结束当前计算后停止，可直接关闭窗口。')
         self.progress.setRange(0,0)
-        client=getattr(self,'client',None)
+        client=ticket.get('client',getattr(self,'client',None)) if ticket else getattr(self,'client',None)
         if client:
             def request(_):
                 ids=client.active_prompts()
@@ -1171,7 +1152,7 @@ class Window(QMainWindow):
     def clear_pending(self):
         for _, params, folder, item in self.pending:
             self.api_controller.runtime.pop(str(folder),None)
-            write_json(folder / 'job.json', {'schema_version': 1, 'kind': 'walk' if params.get('mode')=='walk' else 'image', 'status': 'cancelled', 'params': params})
+            write_json(folder / 'job.json', {'schema_version': 1, 'kind': {'walk':'walk','video':'video'}.get(params.get('mode'),'image'), 'status': 'cancelled', 'params': params})
             item.setText(task_name(params) + ' · 已清除')
             if params.get('mode') == 'chat': self.add_chat('软件', '已从队列移除此任务。', job=str(folder))
         self.pending.clear()
@@ -1185,6 +1166,7 @@ class Window(QMainWindow):
         self.launch(action, lambda kind, data: self.log.append('已请求释放显存' if kind == 'result' else str(data)))
 
     def load_gallery(self):
+        if hasattr(self,'video_controller'):self.video_controller.refresh_history()
         self.gallery.clear()
         for folder in self.cache_store.entries('image'):
             images=sorted(folder.glob('image_*.png'))
@@ -1211,13 +1193,16 @@ class Window(QMainWindow):
 
     def clear_result_cache(self,kind,all_cached=False):
         if self.cache_busy: return
-        listing=self.gallery if kind=='image' else self.assets_dialog.animations
+        listing=self.gallery if kind=='image' else self.assets_dialog.videos if kind=='video' else self.assets_dialog.animations
         folders=self.cache_store.entries(kind) if all_cached else [item.data(Qt.ItemDataRole.UserRole+1) for item in listing.selectedItems()]
         if not folders:
             self.assets_dialog.cache_status.setText('暂无可清理缓存。' if all_cached else '请先选中要清除的记录。'); return
         protected=[entry[2] for entry in self.pending]
         if self.current: protected.append(self.current['folder'])
         if getattr(self,'importing_folder',None): protected.append(self.importing_folder)
+        if getattr(self,'importing_source',None):protected.append(Path(self.importing_source).parent)
+        player=getattr(getattr(self,'video_controller',None),'player',None)
+        if player and player.manifest and within_any(player.manifest,folders):player.stop()
         self.cache_busy=True; self.assets_dialog.set_cache_busy(True)
         self.assets_dialog.cache_status.setText('正在清理本地缓存…')
         # Pause a cached sequence before the worker removes its frame files.
@@ -1229,7 +1214,8 @@ class Window(QMainWindow):
             if event=='error': self.assets_dialog.cache_status.setText('清理失败：'+str(data)); return
             removed=data['deleted']
             if self.image_viewer and within_any(self.image_viewer.source_path,removed): self.image_viewer.close()
-            if within_any(self.output,removed) or within_any(self.animation_player.manifest,removed):
+            if player and within_any(player.manifest,removed):player.reset()
+            if within_any(self.output,removed) or within_any(self.preview_path,removed) or within_any(self.animation_player.manifest,removed):
                 self.animation_player.reset(); self.sequence_preview.clear_sequence()
                 self.output=None; self.pixmap=QPixmap(); self.preview.clear(); self.preview.setText('缓存已清除，可继续生成或打开已保存文件。')
                 self.preview_path=None; self.preview_role=None
@@ -1260,6 +1246,7 @@ class Window(QMainWindow):
         self.assets_dialog.close()
 
     def show_image(self, path, allow_zoom=True,role='result'):
+        if hasattr(self,'video_controller'):self.video_controller.player.stop()
         self.animation_player.stop()
         self.sequence_preview.clear_sequence()
         self.pixmap = QPixmap(path); self.output = path if role=='result' else None
@@ -1308,8 +1295,8 @@ class Window(QMainWindow):
         self._closing=True;self.timer.stop();self.prepare_cancel.set()
         if self.current:self.current['cancel'].set()
         client=getattr(self,'client',None)
-        if self.current and self.current.get('api_job'):
-            client=self.current.get('client')
+        if self.current and 'client' in self.current:client=self.current['client']
+        if self.current and self.current.get('owned_job'):self.current['owned_job'].close()
         active=client.active_prompts() if client and hasattr(client,'active_prompts') else []
         ids=list(active) if isinstance(active,(list,tuple,set)) else []
         if self.current and self.current.get('prompt_id') and self.current['prompt_id'] not in ids:ids.append(self.current['prompt_id'])

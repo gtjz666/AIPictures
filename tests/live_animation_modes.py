@@ -32,6 +32,7 @@ def main():
             source=root/'reference.png';image=Image.new('RGBA',(768,1024))
             ImageDraw.Draw(image).rectangle((320,50,440,978),fill=(100,60,150,255));image.save(source)
             window.set_reference(source);window.generation_type.setCurrentIndex(1);window.animation_source.setCurrentIndex(0)
+            window.animation_engine.setCurrentIndex(window.animation_engine.findData('animate'))
             for action in ACTIONS:
                 window.animation_action.setCurrentIndex(window.animation_action.findData(action))
                 window.enqueue_walk();_,params,folder,item=window.pending[-1]
