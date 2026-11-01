@@ -153,6 +153,7 @@ def build_studio(w):
     w.unload_button = QPushButton('空闲时释放显存'); w.unload_button.clicked.connect(w.unload); nf.addRow(w.unload_button)
     clear = QPushButton('清空待执行任务'); clear.clicked.connect(w.clear_pending); nf.addRow(clear)
     settings_button('connection','连接与显存',connection,400)
+    w.api_controller.install_controls(side)
     side.addSpacing(12)
     files = QPushButton('生成记录与缓存…'); files.clicked.connect(w.open_assets); side.addWidget(files)
     bone = QPushButton('动作骨骼…'); bone.clicked.connect(w.open_motion_editor); side.addWidget(bone)

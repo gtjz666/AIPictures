@@ -13,6 +13,7 @@
 - `aipictures/app.py`：独立桌面界面；`run.bat` 启动。
 - `aipictures/engine.py`、`backend_connection.py`：ComfyUI 请求、任务监控和共享后端。
 - `aipictures/general_image.py`：通用单张生成；不要重新强制限定立绘、人物或侧视。
+- `api_config.py` / `api_dialog.py` / `api_controller.py`：用户自带 API 设置、密钥保护及单图队列；`api_generation.py` / `api_transport.py` / `smart_generation.py`：独立云端生图与可选文字整理。不要读取其他软件的 Key，不因超时自动重复付费 POST；聊天 Key 不等于生图权限。
 - `aipictures/pose_animation.py`：完整骨骼序列 → Wan Animate → 原生解码 → 去背景 → 帧/精灵图/GIF。
 - `motion_clip.py`、`motion_kinematics.py`、`natural_motion.py`、`motion_editor.py`：预设、真人曲线适配、逐帧编辑和预览。
 - `animation_style.py`、`lora_catalog.py`：用户主动选择风格、兼容模型及风格基准图。
@@ -30,6 +31,7 @@
 - 生成、训练和 UI 解耦。复用原环境与模型，保留原工作流和参考图片。训练不与推理环境混装。
 - 用户已允许任务范围内自行下载所需模型或资料，结束时报告新增内容；当前指令如收紧授权，以当前指令为准。
 - 当前不做电脑缓存清理、磁盘合并、内存或温度监测。不要恢复这些已停止的历史任务。
+- 用户已明确不再需要在聊天中发送 GIF，用户自行在软件查看再反馈。只有再次明确请求时才展示。云端协议测试通过不等于真实服务画质验收，未配置用户 Key 时如实说明。
 
 ## 长任务与文件规则
 

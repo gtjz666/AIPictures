@@ -6,6 +6,8 @@ from PySide6.QtCore import Signal
 
 
 def task_name(params):
+    if params.get('mode')=='smart_image':
+        return '云端图片生成' if params.get('backend')=='api' else '智能本地生图'
     from .animation_actions import ACTIONS
     if params.get('mode')=='walk': return ACTIONS.get(params.get('action','walk'),('动作',))[0]+'动画'
     return '工作流生成' if params.get('mode')=='workflow_editor' else '图片生成'
@@ -73,7 +75,8 @@ class TaskDisplay(QWidget):
         self.detail.setText(text[:220])
         self.detail.setToolTip(text)
         if self.started is None: return
-        for words,label in ((('透明','分离','抠图'),'透明处理'),(('导出','保存连续帧','打包'),'保存资源'),
+        for words,label in ((('云端图片模型',),'云端生图'),(('整理画面需求',),'理解需求'),
+            (('接收图片',),'保存资源'),(('透明','分离','抠图'),'透明处理'),(('导出','保存连续帧','打包'),'保存资源'),
             (('取消',),'等待后端停止'),(('下载',),'下载结果'),(('解码',),'解码动画帧'),
             (('编码','加载',),'准备模型与条件'),
             (('亮度','偏色','颜色'),'颜色校验'),

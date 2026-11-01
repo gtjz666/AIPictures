@@ -2,7 +2,15 @@
 
 项目独立于 AIGAMING、Godot 和 ComfyUI 源码。界面只依赖轻量客户端环境，不在其中安装 Torch、训练框架或 ComfyUI 自定义节点。
 
-`backend_connection.py` 识别 Comfy Desktop 真实进程对应的本地服务，常规连接优先复用，显式其他端口保持；任务队列固定执行时的客户端。`engine_service.py` 启动后返回实际 URL。高级工作流与生成共用连接，网页按需加载，API 图的连线与参数一同同步。未来 API 路线仅为已调研方案，独立远程适配与能力声明见 [API 方案](API_AND_FRAMERONIN_RESEARCH.md)，当前本地客户端的网络范围限制保持。
+`backend_connection.py` 识别 Comfy Desktop 真实进程对应的本地服务，常规连接优先复用，显式其他端口保持；任务队列固定执行时的客户端。`engine_service.py` 启动后返回实际 URL。高级工作流与生成共用连接，网页按需加载，API 图的连线与参数一同同步。本地 Comfy 客户端的网络范围限制保持；独立的云端单图适配已接入，见 [API 使用](API_GENERATION.md)。
+
+## 云端单图与可选需求整理
+
+`api_config.py` 保存公开 Endpoint 与 DPAPI 保护的 Key；`api_dialog.py` 提供服务、模型、协议和会话密钥配置。`api_controller.py` 冻结界面参数和参考图，在原串行队列中调度 smart_image；认证只存在运行时对象，不进入 job/workflow。断开本地引擎时可执行云端任务，本地待执行任务继续等待连接。云端模式不自动连接 ComfyUI，停用不适用的 LoRA/CFG/采样/尺寸参数。
+
+`smart_generation.py` 组合可选 Chat Completions 需求整理、云端图片调用或原有 Comfy 生成，再接现有素材后处理。`api_generation.py` 的 OpenAI Images 与 Gemini generateContent 原生适配分别处理文字/参考图，保留原生返回像素；反向词转为软性文字约束，不能冒充原生负向参数。只解析简短文本方案，不执行模型返回的模型/LoRA/工具/网络指令，不保存 reasoning_content。整理后的本地文字真正绑定到图节点，已选风格和固定参数保持。
+
+`api_transport.py` 使用有界、可取消的 HTTPX 异步请求，由现有 daemon Worker 与 Qt 信号隔离界面。认证请求拒绝重定向，图片下载不附加 Key；POST 不自动重试。同步平台取消只中止本地等待，远端完成与计费可能未知，记录 api-outcome 与 window-closed，不能凭本地取消声称服务已停止。两类后端共享图片缓存、预览和另存。动画仍由原有本地完整骨骼执行，不把单图接口当成视频/姿态序列接口。
 
 ## 当前完整骨骼动画模块
 

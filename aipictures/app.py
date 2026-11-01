@@ -60,6 +60,8 @@ class Window(QMainWindow):
         self.reference_modes={'image':'redraw','walk':'preserve'}
         self.reference_mode='image'
         self.cache_store=ResultCache(); self.cache_busy=False
+        from .api_controller import ApiController
+        self.api_controller = ApiController(self, DATA)
         from .studio_layout import build_studio
         build_studio(self)
         config = DATA / 'settings.json'
@@ -70,7 +72,12 @@ class Window(QMainWindow):
         self.stats_busy = False
         self.load_gallery()
         self.restore_chat()
-        QTimer.singleShot(200, self.connect_engine)
+        self.api_controller.apply_mode()
+        QTimer.singleShot(200, self.auto_connect_engine)
+
+    def auto_connect_engine(self):
+        if not self.api_controller.cloud:
+            self.connect_engine()
 
     @staticmethod
     def spin(minimum, maximum, value, step=1):
@@ -103,6 +110,8 @@ class Window(QMainWindow):
 
     def update_lora_state(self):
         if not hasattr(self,'lora_details'): return
+        if self.api_controller.cloud:
+            self.api_controller.apply_mode(); return
         walking=self.generation_type.currentData()=='walk'
         preserving=self.preserving_reference()
         enabled=(not walking or (self.animation_engine.currentData() in ('wan','animate') and
@@ -138,7 +147,9 @@ class Window(QMainWindow):
         self.gpu.setText('引擎未连接 · 可启动本地引擎后重试')
         self.status.setText(message)
         self.status.setToolTip(message)
-        for _,params,folder,item in self.pending: item.setText(task_name(params)+' · 等待重新连接')
+        for _,params,folder,item in self.pending:
+            if params.get('backend')!='api': item.setText(task_name(params)+' · 等待重新连接')
+        self.api_controller.apply_mode()
 
     def start_engine(self):
         if self.current or self.preparing or self.connecting or self.engine_starting:
@@ -211,6 +222,7 @@ class Window(QMainWindow):
             self.status.setToolTip(self.status.text())
             write_json(DATA / 'settings.json', {'url': client.url}); self.refresh_stats()
             self.editor.connect_url(client.url,load=self.tabs.currentIndex()==1)
+            self.api_controller.apply_mode()
             QTimer.singleShot(0,self.start_next)
         def discover(_):
             from .backend_connection import shared_backend_url
@@ -221,6 +233,7 @@ class Window(QMainWindow):
         self.launch(discover, done)
 
     def refresh_stats(self):
+        if self.api_controller.cloud: return
         if not self.connected or self.stats_busy or self.current or self.preparing: return
         self.stats_busy = True
         def done(kind, data):
@@ -326,6 +339,8 @@ class Window(QMainWindow):
         self.settings_dialogs[key].show_near(self.settings_buttons[key])
 
     def update_sidebar_summary(self):
+        if self.api_controller.cloud:
+            self.api_controller.apply_mode(); return
         walking=self.generation_type.currentData()=='walk'
         text=(ACTIONS[self.animation_action.currentData()][0]+'动画序列帧' if walking else '单张图片')+'\n'
         if walking:
@@ -446,6 +461,8 @@ class Window(QMainWindow):
         self.update_intent_hint()
         self.update_sidebar_summary()
 
+        if self.api_controller.cloud: self.api_controller.apply_mode()
+
     def preserving_reference(self):
         walking=self.generation_type.currentData()=='walk'
         if walking and self.animation_style.isChecked() and self.animation_source.currentData()=='reference':return False
@@ -485,6 +502,8 @@ class Window(QMainWindow):
         self.update_intent_hint()
 
     def update_intent_hint(self):
+        if self.api_controller.cloud:
+            self.api_controller.apply_mode(); return
         walking = self.generation_type.currentData() == 'walk'
         if not walking:
             self.intent_hint.setText('单张通用创作 · 视角、主体与背景由你的描述决定。'+
@@ -697,6 +716,7 @@ class Window(QMainWindow):
 
     def enqueue(self):
         try:
+            if self.api_controller.intercept(): return
             if not self.connected: raise ValueError('请先连接 ComfyUI')
             if self.preparing: return
             if self.generation_type.currentData() == 'walk':
@@ -822,8 +842,13 @@ class Window(QMainWindow):
         return folder
 
     def start_next(self):
-        if self.current or not self.pending or not self.connected: return
-        graph, params, folder, item = self.pending.pop(0)
+        if self.current or not self.pending: return
+        index = next((i for i,job in enumerate(self.pending) if self.connected or
+            (job[1].get('mode')=='smart_image' and job[1].get('backend')=='api')),None)
+        if index is None: return
+        graph, params, folder, item = self.pending.pop(index)
+        if params.get('mode')=='smart_image':
+            self.api_controller.start(graph,params,folder,item); return
         if params.get('mode') == 'walk':
             self.start_walk(params,folder,item); return
         item.setText(task_name(params) + ' · 执行中')
@@ -1080,6 +1105,7 @@ class Window(QMainWindow):
                 'duration_seconds':round(self.task_display.seconds(),2)})
 
     def cancel_current(self):
+        if self.api_controller.cancel(): return
         ticket=self.current
         if ticket:ticket['cancel'].set()
         elif self.preparing:self.prepare_cancel.set()
@@ -1100,6 +1126,7 @@ class Window(QMainWindow):
 
     def clear_pending(self):
         for _, params, folder, item in self.pending:
+            self.api_controller.runtime.pop(str(folder),None)
             write_json(folder / 'job.json', {'schema_version': 1, 'kind': 'walk' if params.get('mode')=='walk' else 'image', 'status': 'cancelled', 'params': params})
             item.setText(task_name(params) + ' · 已清除')
             if params.get('mode') == 'chat': self.add_chat('软件', '已从队列移除此任务。', job=str(folder))
@@ -1236,6 +1263,8 @@ class Window(QMainWindow):
         self._closing=True;self.timer.stop();self.prepare_cancel.set()
         if self.current:self.current['cancel'].set()
         client=getattr(self,'client',None)
+        if self.current and self.current.get('api_job'):
+            client=self.current.get('client')
         active=client.active_prompts() if client and hasattr(client,'active_prompts') else []
         ids=list(active) if isinstance(active,(list,tuple,set)) else []
         if self.current and self.current.get('prompt_id') and self.current['prompt_id'] not in ids:ids.append(self.current['prompt_id'])
@@ -1243,7 +1272,8 @@ class Window(QMainWindow):
             try:
                 write_json(Path(self.current['folder'])/'window-closed.json',{
                     'cancel_requested':True,'prompt_ids':ids,'url':getattr(client,'url',None),
-                    'note':'窗口已关闭，后台取消由独立的小进程继续发送；原始结果保留。'})
+                    'note':('窗口已关闭，已取消本地 API 等待；云端可能仍在处理并计费。' if self.current.get('api_job') and not client else
+                            '窗口已关闭，后台取消由独立的小进程继续发送；原始结果保留。')})
             except OSError:pass
         if ids and client:
             import subprocess

@@ -1,6 +1,12 @@
 # 面向普通游戏开发者的生成路线与 FrameRonin 调研
 
-调研日期：2026-10-29。本文是方案，不代表 API 已接入，也没有进行付费调用或上传用户素材。
+原始调研日期：2026-10-29；更新：2026-11-01。后文保留当时方案。现已接入用户自带 Key 的单张图片 API（OpenAI Images 兼容、Gemini 原生）及可选 Chat Completions 提示词整理，使用说明和实际边界见 [API_GENERATION.md](API_GENERATION.md)。本轮未进行真实付费调用或向外部服务上传用户素材。
+
+## 本轮核实与落地选择
+
+重新访问 [FrameRonin](https://frameronin.com/) 时线上页面未正常加载，不能声称已经看到最新版本的 Key 设置或完整内置生成逻辑。[公开仓库](https://github.com/systemchester/FrameRonin)当前 README 仍介绍 V3。其 [扩展计划](https://github.com/systemchester/FrameRonin/blob/main/DEV_PLAN_extensions.md)把 Nanobanana 生成器描述为外链 Gemini Gem；[前端 API 层](https://github.com/systemchester/FrameRonin/blob/main/frontend/src/api.ts)主要提供任务创建/轮询、结果、拆帧和抠图。因此可借鉴的是“生成与素材工具分离”，不能推断网站最新线上服务一定使用某个生成模型或私有技术。
+
+本项目据此采用：**用户自己的云端图片模型直接理解中文/参考图 → 本地素材处理 → 预览、保存**。可选理解模型仅在用户主动开启时增加一次请求，默认直接出图；不因为用户填了聊天 Key，就自动切到不存在的生图接口。图片模型由用户根据权限和画质选择，没有进行付费横向评测，因此不排列“最好模型”。本轮协议/Qt 流程使用本机测试 HTTP 服务验收，真实云端画质和延迟仍待用户填 Key 后验证。
 
 ## 建议
 
