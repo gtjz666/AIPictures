@@ -30,9 +30,11 @@ GPT 可借鉴的是公开的 **需求整理 → 生成或参考编辑 → 以结
 | 候选 | 已核实能力 | 本轮决定 |
 |---|---|---|
 | Qwen-Image-2.1 | 官方统一文生图/编辑、原生 RGBA，多图参考；视觉组件 7B，编码器另计 | 保留候选，不替换当前工具。当前后端缺少对应新节点；发布的研究许可限制商业使用，游戏生产场景需另行许可 |
-| MiniMax H3 | 开放基础权重，图生视频、参考视频、首尾帧控制；基础扩散 33B，文本编码器也很大；官方工作流要求较新 ComfyUI | 不把它冒充已接入或保证更好的精灵动画。当前后端 0.20.1，需独立兼容性/输出验收，商用本地输出另需许可。此次不升级并覆盖现有环境 |
+| MiniMax H3 | 开放基础权重，图生视频、参考视频、首尾帧控制；基础扩散 33B，文本编码器也很大；官方工作流要求较新 ComfyUI | 不把它冒充已接入或保证更好的精灵动画。当前后端 0.20.1，需独立兼容性/输出验收。原始社区许可在适用地区允许有条件免版税商用，不能笼统认为所有商用都须付费授权。此次不覆盖现有环境 |
 
 来源：[Qwen 模型卡](https://huggingface.co/Qwen/Qwen-Image-2.1)、[研究许可](https://github.com/QwenLM/Qwen-Image-2.1/blob/main/LICENSE)、[H3 官方仓库](https://github.com/MiniMax-AI/MiniMax-H3)、[H3 模型卡](https://huggingface.co/MiniMaxAI/MiniMax-H3)、[Comfy H3 版本及商用说明](https://docs.comfy.org/tutorials/video/minimax/minimax-h3)。[FreeVideo/VDN](https://github.com/FlashML-org/FreeVideo) 提供低显存优化方向，但没有在本机验收，不用其宣传数字推断本机速度，也不会绕过基础模型许可。
+
+**许可更正（2026-11-01复核）**：Comfy教程对本地商用的概括与MiniMax原始条款不一致。应核对[原始社区许可证](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE)和[MiniMax官方FAQ](https://design.minimax.io/h3)：在适用地区允许有条件免版税商用；年营收超过2000万美元需额外书面授权，使用模型的商业产品/服务有界面标识等要求。原许可还排除美国、欧盟、英国、韩国，并对这些地区使用/展示输出等有限制。因此既不能一概说必须购买许可，也不能视为Apache式全球自由商用。软件集成与游戏资产全球发行应分别核对条款。没有实测证明H3在本项目的角色细节/循环方面优于Wan；低显存优化可行性和画质应单独验收。
 
 即使模型能输出视频，也不自动等于独立游戏素材：固定镜头、完整角色、手脚接触、配色和周期接缝都需要验收。因此精确动作继续保留骨骼路线，自由动作和视频转帧单独使用。没有下载 Qwen-Image-2.1 / H3 权重，未发起付费 API 请求。
 
