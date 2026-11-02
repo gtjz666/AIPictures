@@ -29,7 +29,8 @@ def main():
         assert window.animation_engine.currentData()=='video_wan'
         assert not window.research_bones_button.isVisible()
         window.animation_action.setCurrentIndex(window.animation_action.findData('custom'))
-        assert window.custom_strategy.currentData()=='free' and window.custom_description.isVisible()
+        assert window.custom_strategy.currentData()=='free' and not window.custom_description.isVisible()
+        assert window.positive.isVisible()
         assert not window.custom_loop.isVisible() and not window.motion_mode.isVisible()
         window.generation_type.setCurrentIndex(0)
         assert (window.width.value(),window.height.value())==(896,1152)

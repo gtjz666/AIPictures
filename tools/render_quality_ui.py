@@ -31,7 +31,7 @@ def main() -> None:
         window.grab().save(str(args.output/'single.png'))
         window.generation_type.setCurrentIndex(1)
         window.animation_action.setCurrentIndex(window.animation_action.findData('custom'))
-        window.custom_description.setPlainText('角色挥手，然后转身走开。固定镜头，保持原有服装和配色。')
+        window.positive.setPlainText('角色挥手，然后转身走开。固定镜头，保持原有服装和配色。')
         QTest.qWait(50)
         window.grab().save(str(args.output/'custom-animation.png'))
         window.open_settings('image')

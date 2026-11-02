@@ -79,6 +79,7 @@ def main():
                 write_json(output/'sequence.json',{'status':'completed','title':action,'action':action,'loop':action not in ONE_SHOT_ACTIONS,
                     'fps':8,'frames':[{'image':p.name,'index':i,'stage':action} for i,p in enumerate(frames)],'exports':exports})
                 player=window.animation_player;player.load(output/'sequence.json')
+                player.preview_loop.setChecked(action not in ONE_SHOT_ACTIONS)
                 for _ in range(8):player.advance()
                 assert player.index==(7 if action in ONE_SHOT_ACTIONS else 0)
                 assert player.timer.isActive()==(action not in ONE_SHOT_ACTIONS)

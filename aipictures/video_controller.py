@@ -17,6 +17,7 @@ from .engine import ComfyClient
 class VideoController:
     def __init__(self,window):
         self.window=window;self.data=window.api_controller.data;self.action_drafts={};self.last_action=None
+        self.prompt_mode=False;self.image_prompt='';self.animation_prompt=None;self.inserted_template=''
         from .video_preview import VideoPreview
         self.player=VideoPreview(window)
         window.workspace_layout.insertWidget(window.workspace_layout.indexOf(window.animation_player)+1,self.player)
@@ -45,9 +46,32 @@ class VideoController:
         # Each template has its own draft; switching actions never silently keeps a different move.
         text=text.replace('整体跳跃轨迹由游戏引擎驱动，不烘焙进PNG。','')
         w.custom_description.setPlainText(text);self.last_action=action
+        if self.prompt_mode:
+            content=w.positive.toPlainText()
+            if self.inserted_template and self.inserted_template in content:content=content.replace(self.inserted_template,'',1).strip()
+            new='' if action=='custom' else ACTIONS[action][1].replace('整体跳跃轨迹由游戏引擎驱动，不烘焙进PNG。','')
+            if new and new not in content:content=(content+'\n\n'+new).strip()
+            self.inserted_template=new;w.positive.setPlainText(content)
+
+    def sync_prompt_mode(self,active):
+        if active==self.prompt_mode:return
+        w=self.window
+        if active:
+            self.image_prompt=w.positive.toPlainText()
+            if self.animation_prompt is None:
+                from .animation_actions import ACTIONS
+                action=w.animation_action.currentData()
+                self.inserted_template='' if action=='custom' else ACTIONS[action][1].replace('整体跳跃轨迹由游戏引擎驱动，不烘焙进PNG。','')
+                self.animation_prompt='\n\n'.join(t for t in (self.image_prompt,self.inserted_template) if t)
+            w.positive.setPlainText(self.animation_prompt)
+        else:
+            self.animation_prompt=w.positive.toPlainText();w.positive.setPlainText(self.image_prompt)
+        self.prompt_mode=active
 
     def apply_ui(self):
         w=self.window;walking=w.generation_type.currentData()=='walk';free=self.free()
+        self.sync_prompt_mode(walking and free)
+        w.animation_action_label.setText('动作模板' if free else '动作')
         w.update_lora_state()
         w.settings_buttons['image'].setVisible(not walking or not free)
         for field in (w.steps,w.sampler,w.scheduler):w.sampling_form.setRowVisible(field,not walking)
@@ -60,7 +84,7 @@ class VideoController:
         w.walk_form.setRowVisible(self.seconds,walking and free)
         w.research_bones_button.setVisible(walking and not free)
         w.custom_form.setRowVisible(w.custom_strategy,False)
-        w.custom_settings.setVisible(walking and (free or w.animation_action.currentData()=='custom'))
+        w.custom_settings.setVisible(walking and not free and w.animation_action.currentData()=='custom')
         w.custom_loop.hide();w.animation_style.setChecked(False)
         if not walking:self.player.stop()
         if walking and free:
@@ -68,8 +92,9 @@ class VideoController:
                 w.generate_button.setEnabled(False);w.intent_hint.setText('动画使用本地引擎；请在API设置中切回本地生成。');return
             w.generate_button.setEnabled(not w.preparing and (bool(self.h3) if w.animation_engine.currentData()=='h3' else w.connected))
             w.custom_hint.setText('动作描述为准；生成完整动画后再选择拆帧，不需要调整骨骼。')
+            w.positive.setPlaceholderText('一起描述角色、场景和动作，例如：蓝发角色面向右侧原地跑步，双腿交替迈步，保持参考图配色。')
             w.context_label.setText('动画创作');w.generate_button.setText('生成完整动画')
-            w.intent_hint.setText('提示词与参考图 → 完整动画预览 → 按需处理为动画帧')
+            w.intent_hint.setText('正向提示词统一描述画面与动作 → 完整动画预览 → 自主选帧导出')
             w.creation_summary.setText('自由动画\n'+('MiniMax H3' if w.animation_engine.currentData()=='h3' else 'Wan2.2')+'\n先预览完整片段，再导出素材')
         elif walking:
             w.custom_strategy.setCurrentIndex(w.custom_strategy.findData('skeleton'))
@@ -82,10 +107,10 @@ class VideoController:
         if w.preparing:return True
         engine='h3' if w.animation_engine.currentData()=='h3' else 'wan'
         if engine=='wan' and not w.connected:raise ValueError('请先连接本地 ComfyUI。')
-        description=w.custom_description.toPlainText().strip()
-        if not description:raise ValueError('请填写动作描述。')
+        description=''
         reference=w.reference_path if w.animation_source.currentData()=='reference' else None
         prompt=w.positive.toPlainText().strip()
+        if not prompt:raise ValueError('请在正向提示词中描述画面与动作。')
         if len(prompt)>16000 or len(description)>8000 or len(w.negative.toPlainText())>8000:
             raise ValueError('描述过长，请将画面提示词控制在16000字、动作及反向描述各8000字以内。')
         if w.animation_source.currentData()=='reference' and not reference:raise ValueError('请添加参考图，或选择仅文字描述。')
@@ -96,7 +121,8 @@ class VideoController:
         if reference:
             frozen=folder/('reference'+Path(reference).suffix);shutil.copyfile(reference,frozen);reference=str(frozen)
         params={'mode':'video','engine':engine,'backend':'standalone' if engine=='h3' else 'local',
-            'prompt':prompt,'negative':w.negative.toPlainText(),'action_description':description,
+            'prompt':prompt,'negative':w.negative.toPlainText(),'action_description':description,'prompt_layout':'unified',
+            'seed_mode':w.seed_mode.currentData(),
             'reference':reference,'seed':seed,'seconds':self.seconds.value(),'steps':w.animation_steps.value(),
             'checkpoint':w.model.currentText(),'url':w.client.url if w.connected else None,'lora':''}
         if engine=='h3':
@@ -112,7 +138,9 @@ class VideoController:
     def enqueue(self,params,folder):
         w=self.window;write_json(folder/'job.json',{'schema_version':1,'kind':'video','status':'queued','params':params})
         item=QListWidgetItem('完整动画 · 等待');w.queue_list.addItem(item)
-        w.pending.append((None,params,folder,item));w.add_chat('你',params['action_description'])
+        from .seed_controls import show_seed
+        show_seed(w,params['seed'])
+        w.pending.append((None,params,folder,item));w.add_chat('你',params['prompt'])
         w.add_chat('软件','已加入完整动画生成；生成结束后由你选择是否拆帧。',job=str(folder));w.start_next()
 
     def start(self,params,folder,item):
@@ -154,7 +182,7 @@ class VideoController:
                     try:self.player.load(data['manifest'])
                     except (OSError,ValueError,KeyError) as exc:w.add_chat('软件','动画已生成，但预览读取失败：'+str(exc),job=str(folder))
                     w.load_gallery()
-                    w.add_chat('软件','完整动画已保存。可以先播放，再点击“处理为动画帧”。',job=str(folder))
+                    w.add_chat('软件','完整动画已保存并循环播放。点击“选帧与导出”勾选需要的帧。',job=str(folder))
                 else:w.add_chat('软件','完整动画'+('已取消：' if kind=='cancelled' else '失败：')+str(data),job=str(folder))
                 QTimer.singleShot(0,w.start_next)
         w.launch(lambda emit:generate(client,folder,params,cancel,emit),event)
@@ -165,7 +193,7 @@ class VideoController:
             path=folder/'video.json'
             try:data=json.loads(path.read_text('utf-8'))
             except (OSError,ValueError):continue
-            title=data.get('params',{}).get('action_description','').strip() or data.get('title','完整动画')
+            title=data.get('params',{}).get('prompt','').strip() or data.get('params',{}).get('action_description','').strip() or data.get('title','完整动画')
             title=title[:24]+('…' if len(title)>24 else '')
             status={'completed':'完成','failed':'失败','cancelled':'已取消','preparing':'处理中'}.get(data['status'],data['status'])
             item=QListWidgetItem(title+' · '+status)

@@ -4,7 +4,7 @@
 
 Windows 独立本地 AI 图像与动画创作桌面软件。Python + PySide6，ComfyUI API 推理。
 
-无参考单图使用原生中文Z-Image Turbo；参考修改保留SDXL兼容，已有Qwen编辑模型仅在本机真实验证后开放。自由动画提供现有Wan2.2与可选独立MiniMax H3引擎。先预览完整片段，再选择8帧、16帧或全部源帧制作素材，透明处理放在生成之后。模型选型、安装与边界见[当前流程说明](docs/VIDEO_FIRST.md)，此前实机对照见[质量与稳定性记录](docs/QUALITY_AND_STABILITY.md)。
+无参考单图使用原生中文Z-Image Turbo；参考修改保留SDXL兼容，Qwen编辑候选验证后才开放。自由动画支持Wan2.2及可选独立MiniMax H3，画面和动作统一填写正向提示词。完整片段默认循环预览，用户勾选源帧后一键导出精灵图或独立PNG，选帧导出时才做可选透明处理。种子默认每次随机，实际值可查看、复制/复用，PNG和JSON记录种子。[当前操作说明](docs/VIDEO_FIRST.md)，[此前质量对照](docs/QUALITY_AND_STABILITY.md)。
 
 [横版跳跃、基础攻击与骨骼研究历史](docs/PLATFORMER_ACTIONS.md)保留用于旧结果复现；不再作为默认自定义动作路线。
 

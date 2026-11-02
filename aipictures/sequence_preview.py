@@ -41,7 +41,7 @@ class SequencePreview(QTabWidget):
             item.setData(Qt.ItemDataRole.UserRole,entry['index']); self.frames.addItem(item)
         self.sheet_path=folder/'sprite_sheet.png'; self.sheet_pixmap=QPixmap(str(self.sheet_path))
         self.sheet.set_clickable(not self.sheet_pixmap.isNull())
-        self.setTabEnabled(1,True); self.setTabEnabled(2,True); self.fit_sheet()
+        self.setTabEnabled(1,True); self.setTabEnabled(2,not self.sheet_pixmap.isNull()); self.fit_sheet()
 
     def select_frame(self,item):
         player=self.window.animation_player

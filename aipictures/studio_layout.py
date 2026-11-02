@@ -136,7 +136,8 @@ def build_studio(w):
     advanced, af = form();w.sampling_form=af
     w.steps = w.spin(1, 150, 30); af.addRow('步数', w.steps)
     w.cfg = QDoubleSpinBox(); w.cfg.setRange(0,30); w.cfg.setValue(5.5); w.cfg.setSingleStep(.5)
-    w.seed = QLineEdit('-1'); af.addRow('种子', w.seed)
+    from .seed_controls import install as install_seed
+    install_seed(w,af)
     w.sampler = QComboBox(); w.scheduler = QComboBox(); af.addRow('采样', w.sampler); af.addRow('调度', w.scheduler)
     w.lora_category=QComboBox()
     for category in ('全部类型','动漫','写实','卡通','插画','像素','游戏素材','未分类'): w.lora_category.addItem(category)
@@ -197,6 +198,8 @@ def build_studio(w):
     w.animation_player = AnimationPlayer(w); cv.addWidget(w.animation_player); w.animation_player.hide()
     w.reference_label = QLabel('可添加参考图'); w.reference_label.setWordWrap(True); cv.addWidget(w.reference_label)
     w.reference_label.setObjectName('muted'); w.intent_hint.setObjectName('muted')
+    from .seed_controls import install_notice
+    install_notice(w,cv)
     prompts=QWidget(); prompt_row=QHBoxLayout(prompts); prompt_row.setContentsMargins(0,0,0,0)
     w.positive = QTextEdit(); w.positive.setPlaceholderText('描述人物、物件或场景，以及视角、动作与画风'); w.positive.setMinimumHeight(95); w.positive.setMaximumHeight(130)
     w.negative = QTextEdit(); w.negative.setPlaceholderText('填写不想出现的内容，可留空'); w.negative.setMinimumHeight(95); w.negative.setMaximumHeight(130)

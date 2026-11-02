@@ -498,7 +498,7 @@ class Window(QMainWindow):
 
     def update_intent_hint(self):
         if hasattr(self,'video_controller') and self.generation_type.currentData()=='walk' and self.video_controller.free():
-            self.intent_hint.setText('动作以描述为准；先生成完整动画，再按需拆解素材。');return
+            self.intent_hint.setText('画面与动作统一填写正向提示词；完整动画循环预览，自主选帧导出。');return
         if self.api_controller.cloud:
             self.api_controller.apply_mode(); return
         walking = self.generation_type.currentData() == 'walk'
@@ -551,7 +551,6 @@ class Window(QMainWindow):
             self.set_reference(profile['reference'])
             self.width.setValue(768); self.height.setValue(1024)
             self.denoise.setValue(.3 if mode == 'baseline' else 1.)
-            self.seed.setText('20261026')
             self.positive.setPlaceholderText('输入动作或补充要求；留空可按角色基准生成。')
             self.show_image(profile['reference'],role='reference'); self.caption.setText('角色基准 · 尚未生成')
             missing = None
@@ -868,6 +867,8 @@ class Window(QMainWindow):
             (job[1].get('mode')=='video' and job[1].get('backend')=='standalone')),None)
         if index is None: return
         graph, params, folder, item = self.pending.pop(index)
+        from .seed_controls import show_seed
+        show_seed(self,params.get('seed'))
         if params.get('mode')=='video':
             self.video_controller.start(params,folder,item);return
         if params.get('mode')=='smart_image':
@@ -1201,6 +1202,8 @@ class Window(QMainWindow):
         if self.current: protected.append(self.current['folder'])
         if getattr(self,'importing_folder',None): protected.append(self.importing_folder)
         if getattr(self,'importing_source',None):protected.append(Path(self.importing_source).parent)
+        picker=getattr(self,'frame_selection_dialog',None)
+        if picker:protected.append(picker.manifest.parent)
         player=getattr(getattr(self,'video_controller',None),'player',None)
         if player and player.manifest and within_any(player.manifest,folders):player.stop()
         self.cache_busy=True; self.assets_dialog.set_cache_busy(True)
@@ -1243,9 +1246,14 @@ class Window(QMainWindow):
         if not path:
             self.assets_dialog.cache_status.setText('此任务尚无可预览的图片。'); return
         self.show_image(path)
+        from .seed_controls import from_folder
+        from_folder(self,Path(path).parent)
         self.assets_dialog.close()
 
     def show_image(self, path, allow_zoom=True,role='result'):
+        if role=='result':
+            from .seed_controls import from_folder
+            from_folder(self,Path(path).parent)
         if hasattr(self,'video_controller'):self.video_controller.player.stop()
         self.animation_player.stop()
         self.sequence_preview.clear_sequence()

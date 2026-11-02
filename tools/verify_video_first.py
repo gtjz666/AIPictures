@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PIL import Image
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer,Qt
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QDialog,QFileDialog
 from aipictures.app import Window,create_application
@@ -37,7 +37,7 @@ def main():
         window.animation_engine.setCurrentIndex(window.animation_engine.findData('h3'))
         window.animation_action.setCurrentIndex(window.animation_action.findData('custom'))
         window.custom_description.setPlainText(a.action)
-        window.positive.setPlainText('参考图中的同一角色，保留原本的发型、服装、配色和画风。')
+        window.positive.setPlainText('参考图中的同一角色，保留原本的发型、服装、配色和画风。\n'+a.action)
         window.negative.setPlainText('多余肢体，重影，变色，模糊，裁切，镜头移动')
         window.seed.setText('20261102');window.video_controller.seconds.setValue(a.seconds)
         assert not window.connected and window.video_controller.h3
@@ -58,7 +58,9 @@ def main():
                     player.timer.stop();window.grab().save(str(root/'full-animation-preview.png'))
                     report.update(video_manifest=str(player.manifest),full_frame_count=len(player.frames),fps=player.fps)
                     state['phase']='extract'
-                    with patch.object(QDialog,'exec',return_value=QDialog.DialogCode.Accepted):player.split()
+                    player.split();picker=window.frame_selection_dialog
+                    for i in range(8):picker.grid.item(round(i*(len(player.frames)-1)/7)).setCheckState(Qt.CheckState.Checked)
+                    with patch.object(QFileDialog,'getSaveFileName',return_value=(str(root/'picked_sheet.png'),'PNG')):picker.export('sheet')
                     assert window.preparing
                 elif state['phase']=='extract':
                     manifest=window.animation_player.manifest
@@ -69,7 +71,7 @@ def main():
                     size=tuple(data['canvas']);columns=data['exports']['columns'];alphas=[]
                     with Image.open(folder/'sprite_sheet.png') as sheet:
                         for i,frame in enumerate(data['frames']):
-                            with Image.open(folder/frame['image']) as asset,Image.open(folder/'source_frames'/f"source_{frame['source_frame']:04d}.png") as raw:
+                            with Image.open(folder/frame['image']) as asset,Image.open(window.video_controller.player.frames[frame['source_index']]) as raw:
                                 assert asset.convert('RGB').tobytes()==raw.convert('RGB').tobytes()
                                 assert sheet.crop(((i%columns)*size[0],(i//columns)*size[1],(i%columns+1)*size[0],(i//columns+1)*size[1])).tobytes()==asset.tobytes()
                                 alphas.append(asset.getchannel('A').getextrema())

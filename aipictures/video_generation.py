@@ -23,6 +23,15 @@ def compose_prompt(appearance: str, action: str, reference: bool) -> str:
     return '\n'.join(parts)
 
 
+def generation_prompt(params: dict,reference: bool) -> str:
+    if params.get('prompt_layout')!='unified':
+        return compose_prompt(params['prompt'],params.get('action_description',''),reference)
+    text=params['prompt'].strip()
+    if not text:raise ValueError('请在正向提示词中描述画面与动作。')
+    if reference:text+='\n以参考图保留未要求改变的主体身份、衣着、配色和画风，执行文字明确要求的动作与变化。'
+    return text+'\n完整主体保持在画面内，动作连贯，配色与细节稳定，不切镜、不突然缩放。'
+
+
 def generate(client, folder: Path, params: dict, cancel, emit) -> dict:
     folder=Path(folder);started=time.monotonic()
     manifest={'schema_version':1,'kind':'video','status':'preparing','params':params,
@@ -56,6 +65,7 @@ def generate(client, folder: Path, params: dict, cancel, emit) -> dict:
             if not reference:
                 emit('video_stage',{'message':'按画面描述生成角色基准，不使用骨骼或 LoRA…'})
                 prompt=params['prompt'].strip()
+                if params.get('prompt_layout')=='unified':prompt='根据以下描述制作动画的起始画面，只画一个时间点，不画序列图：\n'+prompt
                 if not prompt:raise ValueError('无参考图时请填写画面或角色描述。')
                 request=ImageRequest(params['checkpoint'],prompt,params['negative'],768,1024,30,5.5,params['seed'],'dpmpp_2m','karras')
                 if zimage.available(info['object_info']):
@@ -75,7 +85,7 @@ def generate(client, folder: Path, params: dict, cancel, emit) -> dict:
                 prepared.save(folder/'reference_rgb.png')
             fps=16;length=4*round(params['seconds']*fps/4)+1
             graph=sampling_workflow(video_workflow(client.upload_image(folder/'reference_rgb.png'),
-                compose_prompt(params['prompt'],params['action_description'],True),params['negative'],
+                generation_prompt(params,True),params['negative'],
                 params['seed'],params['steps'],length,size=(768,1024)))
             if 'AIPicturesWanImageToVideo' in info['object_info']:graph['8']['class_type']='AIPicturesWanImageToVideo'
             sampling=folder/'sampling';sampling.mkdir();write_json(sampling/'workflow.json',graph)

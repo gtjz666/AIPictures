@@ -17,7 +17,8 @@ class AnimationPlayer(QWidget):
         self.label = QLabel(); layout.addWidget(self.label)
         self.physics=QCheckBox('游戏位移预览');self.physics.setToolTip('仅在预览中平移跳跃帧。导出 PNG 不烘焙轨迹，由游戏引擎控制角色移动。')
         self.physics.toggled.connect(lambda _:self.seek(self.index));layout.addWidget(self.physics);self.physics.hide()
-        export = QPushButton('导出动画…'); export.clicked.connect(self.export); layout.addWidget(export)
+        self.preview_loop=QCheckBox('循环');self.preview_loop.setChecked(True);layout.addWidget(self.preview_loop)
+        export = QPushButton('选帧导出…'); export.clicked.connect(self.select_frames); layout.addWidget(export)
         self.pixel_export = QPushButton('导出像素素材…')
         self.pixel_export.setToolTip('像素捕捉、锚点归一化、共享调色板和精灵图；不混合前后帧，原始帧保留。')
         self.pixel_export.clicked.connect(self.export_pixels); layout.addWidget(self.pixel_export)
@@ -38,6 +39,8 @@ class AnimationPlayer(QWidget):
         self.physics.setVisible(bool(self.game_data and self.game_data.get('engine_driven_jump')))
         self.slider.setRange(0,len(frames)-1); self.seek(0); self.show()
         self.window.sequence_preview.load(manifest,path.parent)
+        from .seed_controls import from_folder
+        from_folder(self.window,path.parent)
         self.play.setText('暂停'); self.timer.start(round(1000/self.fps))
 
     def stop(self):
@@ -49,11 +52,11 @@ class AnimationPlayer(QWidget):
     def toggle(self):
         if self.timer.isActive(): self.timer.stop(); self.play.setText('播放')
         elif self.frames:
-            if not self.loop and self.index==len(self.frames)-1:self.slider.setValue(0)
+            if not self.preview_loop.isChecked() and self.index==len(self.frames)-1:self.slider.setValue(0)
             self.timer.start(round(1000/self.fps)); self.play.setText('暂停')
 
     def advance(self):
-        if not self.loop and self.index==len(self.frames)-1:
+        if not self.preview_loop.isChecked() and self.index==len(self.frames)-1:
             self.timer.stop();self.play.setText('重播');return
         self.slider.setValue((self.index+1)%len(self.frames))
 
@@ -77,7 +80,7 @@ class AnimationPlayer(QWidget):
         if not path: return
         try:
             manifest=json.loads(self.manifest.read_text('utf-8'))
-            files=self.frames+[self.manifest.parent/manifest['exports']['sprite_sheet'],self.manifest.parent/manifest['exports']['gif']]
+            files=self.frames+[self.manifest.parent/manifest['exports'][key] for key in ('sprite_sheet','gif') if manifest['exports'].get(key)]
             for key in ('game_metadata','game_preview_gif'):
                 if manifest['exports'].get(key):files.append(self.manifest.parent/manifest['exports'][key])
             target=self.window.cache_store.validate_export(path)
@@ -90,14 +93,21 @@ class AnimationPlayer(QWidget):
                                            for f in manifest['frames']]
                 portable['frame_sampling']=manifest.get('frame_sampling','uniform')
                 portable['warnings']=manifest.get('warnings',[])
+            if manifest.get('seed') is not None:portable['seed']=manifest['seed']
             if manifest.get('game_animation'):portable['game_animation']=manifest['game_animation']
             with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as archive:
                 for file in files: archive.write(file,file.name)
                 archive.writestr('animation.json',json.dumps(portable,ensure_ascii=False,indent=2))
             self.window.cache_store.record_save(target,'animation',self.manifest); self.window.load_gallery()
-            self.window.add_chat('软件','已导出 PNG 序列、透明精灵图和 GIF：'+str(target))
+            self.window.add_chat('软件','已导出素材包：'+str(target))
         except (OSError,ValueError) as exc: QMessageBox.warning(self,'导出失败',str(exc))
 
     def export_pixels(self):
         from .sprite_export import start_export
         start_export(self)
+
+    def select_frames(self):
+        if self.manifest:
+            self.timer.stop();self.play.setText('播放')
+            from .frame_selection import open_selection
+            open_selection(self.window,self.manifest)

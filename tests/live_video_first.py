@@ -36,7 +36,7 @@ def main():
             controller.intercept()
         _,params,folder,_=window.pending[-1]
         assert params['mode']=='video' and params['lora']=='' and params['reference'] is None
-        assert '平躺' in params['action_description']
+        assert params['action_description']=='' and params['prompt_layout']=='unified'
         window.positive.setPlainText('新内容');assert params['prompt']=='蓝发角色'
         window.clear_pending()
         assert json.loads((folder/'job.json').read_text('utf-8'))['kind']=='video'
@@ -51,8 +51,8 @@ def main():
         assert controller.player.isVisible() and len(controller.player.frames)==9
         assert window.preview_role=='video' and window.output is None
         controller.player.slider.setValue(8);assert controller.player.index==8 and '9/9' in controller.player.label.text()
-        with patch('aipictures.video_import_dialog.open_import') as extract:
-            controller.player.split();extract.assert_called_once_with(window,master)
+        with patch('aipictures.frame_selection.open_selection') as extract:
+            controller.player.split();extract.assert_called_once_with(window,manifest)
         assert not (folder/'sequence.json').exists()
         saved=root/'export.mp4'
         with patch.object(QFileDialog,'getSaveFileName',return_value=(str(saved),'')):

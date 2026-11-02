@@ -35,8 +35,8 @@ def generate(folder: Path, params: dict, cancel: threading.Event, emit) -> dict:
             raise ValueError('共享 ComfyUI 正在运行其他任务，请结束后再运行独立 H3。')
         release_idle_models(client)
     except EngineUnavailable:pass
-    from .video_generation import compose_prompt
-    prompt=compose_prompt(params['prompt'],params['action_description'],bool(params.get('reference')))
+    from .video_generation import generation_prompt
+    prompt=generation_prompt(params,bool(params.get('reference')))
     if params['negative'].strip():prompt+='\n避免以下问题：'+params['negative'].strip()
     (folder/'prompt.txt').write_text(prompt,'utf-8')
     target=(folder/'animation.mp4').resolve()
