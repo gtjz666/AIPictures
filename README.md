@@ -5,7 +5,7 @@ Windows 本地游戏美术创作工具，Python + PySide6 独立界面。当前�
 ## 当前生成路线
 
 - **文字生图**：Z-Image Turbo原生理解中文，支持人物、物件、场景、不同画风与视角。另有经过本机验收后才启用的FLUX.2 Klein快速路线；不会因为更快就宣称每项提示执行都更好。
-- **参考图重绘**：Z-Image已接入图生图，复用现有权重；添加参考不会切走Z-Image，“模型与画面”中可调重绘幅度。低幅度更接近原图，高幅度更易修改也更易改变细节；请描述目标画面的最终样子。[用法与真实测试](docs/ZIMAGE_REFERENCE.md)。FLUX独立参考编辑仍可手选，SDXL兼容旧工作流。
+- **自动分流**：默认无参考用Z-Image、有参考用FLUX独立参考编辑，界面显示实际引擎。移除参考回到文字路线，手选引擎不被替换；Z-Image小幅重绘另可手选。SDXL普通入口已退役。[路线、同图比较与使用](docs/REFERENCE_ROUTES.md)。
 - **完整动画**：MiniMax H3独立环境，提示词与可选参考图直接生成完整片段。走路、跑步、跳跃、下蹲、攻击、待机只是可编辑文字模板，也可自行描述动作。**旧骨骼与Wan生成入口已退役**，没有H3时明确提示不可用，不自动切回旧路线。
 - **游戏素材**：动画先完整循环预览，再由用户自主勾选源帧，一键导出精灵PNG+JSON或独立PNG。导出时可选透明背景，先生成RGB再去背景，不混帧、不自动选择关键帧。
 - **用户自带API**：单图支持OpenAI Images兼容与Gemini原生接口。提示词整理是额外可选调用，默认关闭；聊天Key不等于生图权限。[接入说明](docs/API_GENERATION.md)。
@@ -30,7 +30,7 @@ LoRA已停用，不自动选择或重新下载。现有图像模型直接读取�
 
 独立CLI：`python -m sprite_pipeline --help`，支持snap、normalize、palette、assemble、validate、config及run。像素捕捉→统一画布/锚点→共享调色板→精灵图→验收，输出可逐像素切片回读的metadata。[配置与验收](docs/SPRITE_PIPELINE.md)。
 
-不使用时间混合、FXAA/TAA/DLSS或全局自动抗锯齿。像素预览用最近邻，不默认缩放角色。透明处理只改Alpha，保留原生RGB。PNG支持完整透明；GIF二值透明有限制。SDXL可主动选Real-ESRGAN修复，默认不开额外超分。
+不使用时间混合、FXAA/TAA/DLSS或全局自动抗锯齿。像素预览用最近邻，不默认缩放角色。透明处理只改Alpha，保留原生RGB。PNG支持完整透明；GIF二值透明有限制。当前原生生图默认不开额外超分。
 
 ## 安装、模型和稳定性
 
@@ -38,7 +38,7 @@ LoRA已停用，不自动选择或重新下载。现有图像模型直接读取�
 
 FLUX可选组件安装：`python -m tools.prepare_flux_klein --comfy-root "YOUR_COMFY_ROOT"`，复用已有且SHA一致的Qwen3编码器，只新增扩散模型与VAE。需实际生成验收后才注册，不能手工把文件存在等同于验证。[模型比较与来源](docs/MODEL_SELECTION.md)。
 
-管理Wan权重只按安装收据、大小和发布SHA逐文件删除；原有SDXL、ControlNet、IP-Adapter、姿态检测、CLIP Vision和工作流保留。旧Wan/骨骼安装器不再安装。
+管理Wan权重只按安装收据、大小和发布SHA逐文件删除。本轮按用户要求退役核验一致的SDXL主模型，硬链接去重后释放约14.04GB；原ControlNet、IP-Adapter、姿态检测、CLIP Vision、图片和工作流保留。旧SDXL检查点/Wan/骨骼安装器不再安装这些退役权重。
 
 进度连接中断时按原任务标识继续查询，不自动重复提交；Windows短暂占用进度文件时重试原子保存。H3取消/关闭只处理自己的进程树，不重启共享后端。其他程序正在使用GPU时，实际速度会变化。
 

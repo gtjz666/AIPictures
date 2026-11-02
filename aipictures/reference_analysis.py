@@ -14,6 +14,7 @@ from .character_profile import JOINT_NAMES,rig_document,paint_pose
 from .engine import Cancelled
 from .storage import DATA,write_json
 from .workflow_library import digest
+from .reference_input import opaque_reference
 
 SIZE=(768,1024)
 ANALYSIS_VERSION=3
@@ -66,9 +67,6 @@ def normalize_reference(image):
     return canvas,{'source_bbox':list(box),'scale':scale,'offset':list(xy),'subject_bbox':[xy[0],xy[1],xy[0]+new_size[0],978]}
 
 
-def opaque_reference(rgba):
-    image=Image.new('RGB',rgba.size,(242,243,245))
-    image.paste(rgba,mask=rgba.getchannel('A')); return image
 
 
 def detection_workflow(image):

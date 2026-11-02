@@ -129,7 +129,7 @@ class ApiController:
             check_models(graph,w.info['object_info'])
             check_quality_models(w.info['object_info'],params['quality_mode'])
             client = ComfyClient(w.client.url)
-            if w.translate_prompt.isChecked() and not planner and params.get('model_family') not in ('zimage','qwen_edit'):
+            if w.translate_prompt.isChecked() and not planner and params.get('model_family') not in ('zimage','qwen_edit','flux_klein'):
                 from .local_translation import settings
                 config = settings(self.data)
                 if not config:

@@ -86,7 +86,8 @@ def main(url):
             assert len(list((root/'jobs').iterdir()))==count
             window.generation_type.setCurrentIndex(0)
             dialog.backend.setCurrentIndex(0); dialog.save()
-            assert not controller.cloud and window.seed.isEnabled() and window.cfg.isEnabled()
+            assert not controller.cloud and window.seed.isEnabled()
+            assert not window.cfg.isEnabled()  # Native automatic routes use the model's fixed CFG.
             assert not window.generate_button.isEnabled()  # Local still requires connection.
             window.close(); QTest.qWait(30)
             # Corrupt configuration does not prevent launching the local app.

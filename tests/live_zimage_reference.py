@@ -20,7 +20,8 @@ def main():
         root=Path(temp);w=Window();w.timer.stop();w.show();QTest.qWait(20)
         w.info={'object_info':model_info(),'nodes':list(model_info())};w.connected=True
         w.client=Mock(url='http://127.0.0.1:8189');w.client.upload_image.return_value='uploaded_frozen.png'
-        restore(w);assert w.model_family.currentData()=='zimage'
+        restore(w);assert w.model_family.currentData()=='auto'
+        w.model_family.setCurrentIndex(w.model_family.findData('zimage'))
         assert not w.reference_path and w.pixmap.isNull()
         source=root/'character.png';Image.new('RGBA',(500,900),(255,255,255,255)).save(source)
         before=source.read_bytes();w.set_reference(str(source))

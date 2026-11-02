@@ -205,5 +205,5 @@ def test_native_chinese_graph_uses_own_encoder_and_cfg1_constraints():
     assert '动漫人物' in graph['text']['inputs']['text'] and '水印' in graph['text']['inputs']['text']
     assert graph['clip']['inputs']['type']=='lumina2' and graph['sample']['inputs']['steps']==9
     assert graph['negative']['class_type']=='ConditioningZeroOut' and mapping['negative']==[]
-    with pytest.raises(ValueError,match='不使用 SDXL'):
+    with pytest.raises(ValueError,match='不使用.*LoRA'):
         zimage.build(ImageRequest('unused','人物',lora='manual.safetensors'),info)

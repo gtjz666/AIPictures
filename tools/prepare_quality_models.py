@@ -1,4 +1,4 @@
-"""Install one pinned SDXL quality checkpoint and a small offline zh->en translator."""
+"""Historical optional offline translator installer; SDXL weights are retired."""
 import argparse
 from pathlib import Path
 
@@ -32,10 +32,8 @@ def main():
     write_json(DATA/'translator-settings.json',{'model_dir':str(root),
         'python':str(args.translation_python.resolve()),
         'enabled':True,'timeout_seconds':60,'model_revision':TRANSLATOR_REVISION})
-    if not args.translator_only:
-        records.append(install_file(args.models/'models'/'checkpoints'/'AIPictures'/'Juggernaut-XL_v9_RunDiffusionPhoto_v2.safetensors',{
-            'url':f'https://huggingface.co/RunDiffusion/Juggernaut-XL-v9/resolve/{REVISION}/Juggernaut-XL_v9_RunDiffusionPhoto_v2.safetensors',
-            'bytes':7105348188,'sha256':'c9e3e68f89b8e38689e1097d4be4573cf308de4e3fd044c64ca697bdb4aa8bca'}))
+    # SDXL checkpoint installation retired at the user's request. This historical
+    # entry point can still prepare the independent optional CPU translator.
     write_json(DATA/'quality-model-installation.json',{'records':records,'automatic_lora_selection':False})
     print('Pinned quality assets installed.',flush=True)
 

@@ -47,7 +47,7 @@ def prompt_text(positive: str, negative: str) -> str:
 
 
 def build(request: ImageRequest, info: dict, reference: str='', denoise: float=.45) -> tuple[dict,dict]:
-    if request.lora:raise ValueError('Z-Image 不使用 SDXL 风格 LoRA，请切换 SDXL 或移除该选择。')
+    if request.lora:raise ValueError('Z-Image 不使用风格 LoRA，请移除该选择。')
     if any(v<256 or v>2048 or v%16 for v in (request.width,request.height)):
         raise ValueError('Z-Image 画布应为 256–2048，且是 16 的倍数。')
     if not 0<=request.seed<2**64:raise ValueError('请使用有效的实际种子。')

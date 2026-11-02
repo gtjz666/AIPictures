@@ -262,6 +262,8 @@ class Window(QMainWindow):
             self.editor.report_error({'error': str(exc)})
 
     def activate_template(self, graph, title, entry_id=None,preserve_prompts=False):
+        if any(n.get('class_type')=='CheckpointLoaderSimple' for n in graph.values()):
+            raise ValueError('SDXL普通生成已退役。原工作流文件保留，可在高级编辑器查看；主界面请选择自动工作流。')
         mapping = bindings(graph)
         from .image_family import use_reference_route
         use_reference_route(self,imported=True)
@@ -575,7 +577,7 @@ class Window(QMainWindow):
         size = reader.size()
         if size.width() > 0 and size.height() > 0:
             scale = min(1, 1024 / max(size.width(), size.height()))
-            grid=16 if self.model_family.currentData() in ('flux_klein','qwen_edit','zimage') else 8
+            grid=16 if self.model_family.currentData() in ('auto','flux_klein','qwen_edit','zimage') else 8
             self.width.setValue(max(256 if grid==16 else 64, round(size.width() * scale / grid) * grid))
             self.height.setValue(max(256 if grid==16 else 64, round(size.height() * scale / grid) * grid))
         self.reference_label.setText('已添加参考图：' + source.name + ' · 后续发送会使用此图，可随时移除。')
@@ -590,9 +592,7 @@ class Window(QMainWindow):
     def clear_reference(self):
         self.reference_path = None
         if self.model_family.currentData()=='qwen_edit':
-            from . import zimage
-            ready=zimage.available(getattr(self,'info',{}).get('object_info',{}))
-            self.model_family.setCurrentIndex(self.model_family.findData('zimage' if ready else 'sdxl'))
+            self.model_family.setCurrentIndex(self.model_family.findData('auto'))
         self.reference_display_name = None
         self.reference_character=False
         self.animation_source.setCurrentIndex(1)
@@ -617,67 +617,54 @@ class Window(QMainWindow):
                 self.editor.sync_inputs(graph)
 
     def graph_snapshot(self, reference_name=''):
-        if self.model_family.currentData()=='flux_klein':
+        from .image_family import effective_family
+        family=effective_family(self,bool(reference_name))
+        if family=='flux_klein':
             from .image_family import flux_snapshot
             return flux_snapshot(self,reference_name)
-        if self.model_family.currentData()=='qwen_edit':
+        if family=='qwen_edit':
             from .image_family import reference_snapshot
             return reference_snapshot(self,reference_name)
-        if self.model_family.currentData()=='zimage':
+        if family=='zimage':
             from .image_family import snapshot
             return snapshot(self,reference_name)
-        from .general_image import positive_text,reference_workflow,bind_reference_weight
-        from .reference_fidelity import effective_denoise
-        seed=int(self.seed.text())
-        if seed==-1: seed=secrets.randbelow(2**53)
-        if not 0<=seed<2**64: raise ValueError('种子范围为 0–2^64-1，或 -1 随机')
-        user_prompt=self.positive.toPlainText()
-        raw_negative=self.negative.toPlainText()
-        positive,unknown=positive_text(user_prompt)
-        negative,negative_unmatched=negative_text(raw_negative)
-        from .image_constraints import compile_constraints,apply_constraints
-        constraints=compile_constraints(user_prompt)
-        positive,negative=apply_constraints(positive,negative,constraints)
-        if not positive.strip():
-            if reference_name: positive='create an image based on the reference'
-            else: raise ValueError('请先输入画面描述，或添加一张参考图。')
-        weight=self.reference_strength.value()
-        preserving=bool(reference_name) and self.reference_policy.currentData()=='preserve' and (self.custom_graph is not None or weight>0)
-        if preserving:
-            positive+=', preserve reference details except for changes explicitly requested'
-        r=ImageRequest(self.model.currentText(),positive,negative,self.width.value(),self.height.value(),
-            self.steps.value(),self.cfg.value(),seed,self.sampler.currentText(),self.scheduler.currentText(),
-            '' if preserving else (self.lora.currentData() or ''),self.strength.value())
-        r.positive,lora_info=style_prompt(r.positive,r.lora)
-        if self.custom_graph is None:
-            graph=reference_workflow(r,reference_name,weight)
-        else:
-            from .lora_policy import plain_workflow
-            graph=plain_workflow(self.custom_graph)
-        # Weight zero is text-only for the automatic route, including small-edit mode.
-        applied_reference=reference_name if self.custom_graph is not None or weight>0 else ''
-        preserving=preserving and bool(applied_reference)
-        denoise=effective_denoise(self.denoise.value(),preserving)
-        graph,mapping=bind_request(graph,r,applied_reference,denoise,preserve_reference=preserving)
-        bind_reference_weight(graph,weight)
-        from .image_quality import append_quality
-        quality='off' if preserving else self.quality_mode.currentData()
-        append_quality(graph,quality,r.width,r.height)
-        params=asdict(r)
-        params.update(mode='chat',user_prompt=user_prompt,user_negative=raw_negative,
-            prompt_constraints=constraints,
-            template=self.active_title,bindings=mapping,denoise=denoise,
-            reference_policy='preserve' if preserving else 'redraw',
-            reference_strength=weight if self.custom_graph is None else None,
-            output_background=self.output_background.currentData(),
-            intent={'unmatched':unknown},negative_unmatched=negative_unmatched,lora_style=lora_info,
-            quality_mode=quality,edge_smoothing=(entry_for(r.lora) or {}).get('quality')!='pixel')
-        return graph,params
+        raise ValueError('请选择自动、Z-Image或FLUX；SDXL普通生成已退役。')
 
     def load_draft_in_editor(self):
+        if self.preparing:
+            self.status.setText('请等待当前参考图准备完成。'); return
         try:
-            graph, _ = self.graph_snapshot()
-            self.editor.load_graph(graph)
+            reference=self.reference_path
+            graph,params=self.graph_snapshot('__draft_reference__' if reference else '')
+            if not reference:
+                self.editor.load_graph(graph);return
+            # Show the same route as submission, with a real reference upload.
+            self.preparing=True;self.prepare_cancel.clear();self.generate_button.setEnabled(False)
+            self.status.setText('正在准备工作流参考图…')
+            client=self.client
+            def prepare(_):
+                from PIL import Image,ImageOps
+                from .reference_input import opaque_reference
+                with Image.open(reference) as source:
+                    if params['model_family']=='zimage':
+                        from .zimage import prepare_reference
+                        rgb=prepare_reference(source,params['width'],params['height'])
+                    else:rgb=opaque_reference(ImageOps.exif_transpose(source).convert('RGBA'))
+                path=DATA/'references'/(uuid4().hex+'_draft_rgb.png');path.parent.mkdir(parents=True,exist_ok=True)
+                rgb.save(path)
+                if self.prepare_cancel.is_set():raise Cancelled('工作流准备已取消')
+                uploaded=client.upload_image(path)
+                if self.prepare_cancel.is_set():raise Cancelled('工作流准备已取消')
+                return uploaded
+            def done(kind,data):
+                if kind not in ('result','error','cancelled'):return
+                self.preparing=False;self.generation_type_changed()
+                if kind=='result' and not self.prepare_cancel.is_set():
+                    for node in params['bindings']['reference']:graph[node]['inputs']['image']=data
+                    self.editor.load_graph(graph)
+                    self.status.setText('已加载当前参考工作流')
+                elif kind=='error':self.editor.report_error({'error':str(data)})
+            self.launch(prepare,done)
         except Exception as exc:
             self.editor.report_error({'error': str(exc)})
 
@@ -746,10 +733,11 @@ class Window(QMainWindow):
                     params['uploaded_reference'] = data['reference']
                     self.submit_chat_graph(graph, params)
                 def prepare(emit):
-                    from .reference_analysis import prepare_reference,action_rig,opaque_reference,PoseNotApplicable
+                    from .reference_input import opaque_reference
                     from PIL import Image,ImageOps
                     result={}
                     if params.get('adaptive_action'):
+                        from .reference_analysis import prepare_reference,action_rig,PoseNotApplicable
                         from .character_profile import paint_pose
                         from .skin_warp import AdaptiveCutout
                         try:

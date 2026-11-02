@@ -60,7 +60,9 @@ def main():
         assert window.workflow_selector.isEnabled() and '自动选择' in window.model_note.text()
         window.custom_graph=None
         window.model_family.setCurrentIndex(0)
-        assert window.steps.value()==steps and window.cfg.value()==cfg
+        assert window.model_family.currentData()=='auto'
+        assert window.model_family.findData('sdxl')==-1
+        assert window.steps.value()==9 and window.cfg.value()==1.
         window.model_family.setCurrentIndex(1)
         source=Path(temp)/'reference.png'
         Image.new('RGBA',(64,96),(80,120,180,255)).save(source)
@@ -101,7 +103,7 @@ def main():
             assert json.loads(archive.read('animation.json'))['direction']=='source'
             assert archive.read(frames[0].name)==frames[0].read_bytes()
         window.close()
-    print('Quality UI, visible modes, motion conflict, native Chinese and SDXL restore: PASS')
+    print('Quality UI, visible modes, native Chinese and retired SDXL: PASS')
 
 
 if __name__=='__main__':main()

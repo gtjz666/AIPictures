@@ -35,7 +35,9 @@ def available(info: dict) -> bool:
         return False
 
 
-def build(request: ImageRequest, info: dict, reference: str = '') -> tuple[dict, dict]:
+def build(request: ImageRequest, info: dict, reference: str = '', *, style_reference: str = '') -> tuple[dict, dict]:
+    if style_reference and not reference:
+        raise ValueError('风格对照图需要同时提供主体参考图。')
     if request.lora:
         raise ValueError('FLUX.2 Klein 不使用 SDXL LoRA。')
     if not available(info):
@@ -45,6 +47,10 @@ def build(request: ImageRequest, info: dict, reference: str = '') -> tuple[dict,
     if not 0 <= request.seed < 2**64:
         raise ValueError('请使用有效的实际种子。')
     text = prompt_text(request.positive, request.negative)
+    if style_reference:
+        text = ('Image 1 defines the subject identity, design and proportions. '
+                'Image 2 is only a visual style, lighting and atmosphere reference; '
+                'do not copy its subject. Apply that style to the subject from image 1.\n' + text)
     graph = {
         'model': {'class_type': 'UNETLoader', 'inputs': {
             'unet_name': _name(info, 'UNETLoader', 'unet_name', UNET), 'weight_dtype': 'default'}},
@@ -83,9 +89,25 @@ def build(request: ImageRequest, info: dict, reference: str = '') -> tuple[dict,
         })
         positive = ['pos_ref', 0]
         graph['guider']['inputs'].update(positive=positive, negative=['neg_ref', 0])
+        if style_reference:
+            graph.update({
+                'style_reference': {'class_type': 'LoadImage', 'inputs': {'image': style_reference}},
+                'style_scale': {'class_type': 'ImageScaleToTotalPixels', 'inputs': {
+                    'image': ['style_reference', 0], 'upscale_method': 'nearest-exact',
+                    'megapixels': 1., 'resolution_steps': 1}},
+                'style_encode': {'class_type': 'VAEEncode', 'inputs': {
+                    'pixels': ['style_scale', 0], 'vae': ['vae', 0]}},
+                'pos_style': {'class_type': 'ReferenceLatent', 'inputs': {
+                    'conditioning': ['pos_ref', 0], 'latent': ['style_encode', 0]}},
+                'neg_style': {'class_type': 'ReferenceLatent', 'inputs': {
+                    'conditioning': ['neg_ref', 0], 'latent': ['style_encode', 0]}},
+            })
+            positive = ['pos_style', 0]
+            graph['guider']['inputs'].update(positive=positive, negative=['neg_style', 0])
     if 'AIPicturesReleaseCompletedEncoders' in info:
         graph['release'] = {'class_type': 'AIPicturesReleaseCompletedEncoders', 'inputs': {
             'model': ['model', 0], 'conditioning': positive}}
         graph['guider']['inputs']['model'] = ['release', 0]
     return graph, {'positive': [('text', 'text')], 'negative': [],
-                   'reference': ['reference'] if reference else [], 'sampler': 'sample'}
+                   'reference': ['reference'] if reference else [],
+                   'style_reference': ['style_reference'] if style_reference else [], 'sampler': 'sample'}

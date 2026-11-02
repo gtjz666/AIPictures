@@ -31,7 +31,8 @@ def generate(folder: Path, graph: dict, params: dict, planner: AuthEndpoint | No
     if planner:
         emit('api_stage', {'message':'正在整理画面需求；尚未调用生图模型…'})
         plan, metadata = plan_art(planner, prompt, negative, reference,
-            'cloud image' if image else 'local Z-Image Turbo' if params.get('model_family')=='zimage' else 'local SDXL', cancel, secrets)
+            'cloud image' if image else 'local Z-Image Turbo' if params.get('model_family')=='zimage' else
+            'local FLUX.2 Klein' if params.get('model_family')=='flux_klein' else 'local image', cancel, secrets)
         prompt, negative = plan.positive_prompt, plan.negative_prompt
         check()
         write_json(folder/'plan.json', {'positive_prompt':prompt,'negative_prompt':negative,
@@ -56,7 +57,7 @@ def generate(folder: Path, graph: dict, params: dict, planner: AuthEndpoint | No
         reference_name = ''
         if reference and params['bindings']['reference']:
             from PIL import Image, ImageOps
-            from .reference_analysis import opaque_reference
+            from .reference_input import opaque_reference
             emit('api_stage', {'message':'正在准备参考图；保留原始颜色…'})
             with Image.open(reference) as source:
                 if params.get('model_family')=='zimage':
@@ -68,13 +69,13 @@ def generate(folder: Path, graph: dict, params: dict, planner: AuthEndpoint | No
             check()
             reference_name = client.upload_image(prepared)
         check()
-        if params.get('model_family')=='zimage':
+        if params.get('model_family') in ('zimage','flux_klein'):
             from .zimage import prompt_text
             graph=json.loads(json.dumps(graph))
             graph['text']['inputs']['text']=prompt_text(prompt,negative)
             mapping=params['bindings']
             for node in mapping['reference']:
-                if not reference_name:raise ValueError('Z-Image参考图尚未上传，已停止生成。')
+                if not reference_name:raise ValueError('参考图尚未上传，已停止生成。')
                 graph[node]['inputs']['image']=reference_name
         elif params.get('model_family')=='qwen_edit':
             from .reference_edit import build

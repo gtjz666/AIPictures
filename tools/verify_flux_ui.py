@@ -23,7 +23,8 @@ def main() -> None:
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--reference',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
-    parser.add_argument('--family',choices=('flux_klein','zimage'),default='flux_klein')
+    parser.add_argument('--family',choices=('auto','flux_klein','zimage'),default='flux_klein')
+    parser.add_argument('--prompt-json',type=Path,help='Optional explicit positive/negative/seed/width/height for this acceptance run')
     parser.add_argument('--url',default='http://127.0.0.1:8188')
     parser.add_argument('--denoise',type=float,default=.65)
     args=parser.parse_args()
@@ -34,7 +35,7 @@ def main() -> None:
     if queue.get('queue_running') or queue.get('queue_pending'):raise ValueError('共享后端有任务，暂不开始验收。')
     info=client.discover();before=digest(reference)
     root.mkdir(parents=True)
-    if args.family=='flux_klein':shutil.copy2(DATA/'flux-klein-settings.json',root/'flux-klein-settings.json')
+    if args.family in ('auto','flux_klein'):shutil.copy2(DATA/'flux-klein-settings.json',root/'flux-klein-settings.json')
     app=create_application([])
     with patch('aipictures.app.DATA',root),patch('aipictures.storage.DATA',root),\
          patch.object(Window,'auto_connect_engine'),patch.object(Window,'restore_chat'),patch.object(Window,'refresh_stats'):
@@ -50,7 +51,11 @@ def main() -> None:
         if args.family=='zimage':
             from .probe_zimage_reference import CASES
             prompt=CASES['blue'];w.denoise.setValue(args.denoise)
-        w.positive.setPlainText(prompt);w.negative.setPlainText('多余人物，多余肢体，水印，模糊')
+        spec=json.loads(args.prompt_json.read_text('utf-8')) if args.prompt_json else {}
+        prompt=spec.get('positive',prompt)
+        seed=spec.get('seed',20261103)
+        w.seed.setText(str(seed));w.width.setValue(spec.get('width',768));w.height.setValue(spec.get('height',1024))
+        w.positive.setPlainText(prompt);w.negative.setPlainText(spec.get('negative','多余人物，多余肢体，水印，模糊'))
         w.api_controller.apply_mode();w.show();QTest.qWait(20)
         assert w.generate_button.isEnabled()
         QTest.mouseClick(w.generate_button,Qt.MouseButton.LeftButton)
@@ -63,9 +68,10 @@ def main() -> None:
             if status!=last:print(status,flush=True);last=status
         if not w.output or not Path(w.output).is_file():
             raise ValueError('界面未得到图片：'+w.chat.toPlainText()[-2000:])
-        assert w.preview_role=='result' and w.actual_seed.text()=='20261103'
+        assert w.preview_role=='result' and w.actual_seed.text()==str(seed)
         folder=Path(w.output).parent;job=json.loads((folder/'job.json').read_text('utf-8'))
-        assert job['status']=='completed' and job['params']['model_family']==args.family
+        expected_family='flux_klein' if args.family=='auto' else args.family
+        assert job['status']=='completed' and job['params']['model_family']==expected_family
         assert job['params']['user_prompt']==prompt and not job['params']['edge_smoothing']
         if args.family=='zimage':
             assert job['params']['reference_policy']=='img2img' and job['params']['denoise']==args.denoise
@@ -74,15 +80,15 @@ def main() -> None:
         saved=root/'saved_reference_edit.png'
         with patch.object(QFileDialog,'getSaveFileName',return_value=(str(saved),'PNG')):w.save_as()
         with Image.open(saved) as output,Image.open(w.output) as original:
-            assert output.tobytes()==original.tobytes() and output.size==(768,1024)
+            assert output.tobytes()==original.tobytes() and output.size==(spec.get('width',768),spec.get('height',1024))
         assert digest(reference)==before
         w.grab().save(str(root/'image_ui.png'))
         w.open_settings('image');app.processEvents();w.settings_dialogs['image'].grab().save(str(root/'image_settings.png'))
         w.settings_dialogs['image'].hide()
         write_json(root/'acceptance.json',{'status':'passed','actual_qt':True,'actual_inference':True,
-            'model_family':args.family,'denoise':job['params'].get('denoise'),'reference_sha256':before,'original_unchanged':True,
+            'model_family':expected_family,'image_route':args.family,'denoise':job['params'].get('denoise'),'reference_sha256':before,'original_unchanged':True,
             'job':str(folder),'image':str(w.output),'saved':str(saved),'saved_pixels_identical':True,
-            'seed':20261103,'elapsed_seconds':round(time.monotonic()-started,2),
+            'seed':seed,'elapsed_seconds':round(time.monotonic()-started,2),
             'translation':False,'analysis_model':False,'cloud_calls':False})
         w.close();app.processEvents()
     print('REAL_REFERENCE_QT_ACCEPTANCE_PASS',args.family,flush=True)

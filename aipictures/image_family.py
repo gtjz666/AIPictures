@@ -8,99 +8,84 @@ from .storage import write_json
 from . import zimage, flux_klein
 
 
+def effective_family(window, reference=None):
+    """Automatic routing is explicit in the engine choice and frozen per job."""
+    family = window.model_family.currentData()
+    if family == 'auto':
+        return 'flux_klein' if (window.reference_path if reference is None else reference) else 'zimage'
+    return family
+
+
 def restore(window):
-    if getattr(window,'family_restored',False):return
-    window.family_restored=True
-    ready=zimage.available(window.info['object_info'])
-    window.model_family.model().item(1).setEnabled(ready)
-    preferred='zimage' if ready else 'sdxl'
-    flux_ready=flux_klein.enabled(window.info['object_info'],window.api_controller.data)
-    window.model_family.model().item(window.model_family.findData('flux_klein')).setEnabled(flux_ready)
-    if flux_ready and not ready:preferred='flux_klein'
-    path=window.api_controller.data/'image-family.json'
+    if getattr(window, 'family_restored', False): return
+    window.family_restored = True
+    info = window.info['object_info']
+    ready = zimage.available(info)
+    flux_ready = flux_klein.enabled(info, window.api_controller.data)
+    preferred = 'auto' if ready else 'flux_klein' if flux_ready else 'auto'
+    path = window.api_controller.data / 'image-family.json'
     if path.exists():
-        try:preferred=json.loads(path.read_text('utf-8')).get('family',preferred)
-        except (OSError,ValueError):pass
-    if preferred=='qwen_edit':preferred='zimage' if ready else 'sdxl'
-    if preferred=='zimage' and not ready:preferred='sdxl'
-    if preferred=='flux_klein' and not flux_ready:preferred='zimage' if ready else 'sdxl'
-    index=window.model_family.findData(preferred)
-    if index>=0:window.model_family.setCurrentIndex(index)
+        try:
+            saved = json.loads(path.read_text('utf-8'))
+            choice = saved.get('family')
+            if saved.get('routing_version') == 2 and choice in ('auto', 'zimage', 'flux_klein'):
+                preferred = choice
+        except (OSError, ValueError): pass
+    window.model_family.setCurrentIndex(window.model_family.findData(preferred))
+    apply_ui(window)
 
 
 def apply_ui(window):
-    native=window.model_family.currentData()=='zimage' and window.generation_type.currentData()!='walk'
-    editing=window.model_family.currentData()=='qwen_edit' and window.generation_type.currentData()!='walk'
-    flux=window.model_family.currentData()=='flux_klein' and window.generation_type.currentData()!='walk'
-    if window.api_controller.cloud:return
-    flux_ready=flux_klein.enabled(getattr(window,'info',{}).get('object_info',{}),window.api_controller.data)
-    window.model_family.model().item(window.model_family.findData('flux_klein')).setEnabled(flux_ready)
-    window.model_family.model().item(1).setEnabled(
-        (zimage.reference_available if window.reference_path else zimage.available)(getattr(window,'info',{}).get('object_info',{})))
-    previous=getattr(window,'active_image_family','sdxl')
-    current='zimage' if native else 'qwen_edit' if editing else 'flux_klein' if flux else 'sdxl'
-    if current!=previous:
-        if native or editing or flux:
-            if previous=='sdxl':window.sdxl_sampling=(window.steps.value(),window.cfg.value(),window.sampler.currentText(),window.scheduler.currentText())
-            if native:
-                window.sdxl_denoise=window.denoise.value() if previous=='sdxl' else getattr(window,'sdxl_denoise',.6)
-                window.denoise.setValue(getattr(window,'zimage_denoise',.45))
-            window.steps.setValue(9 if native else 4 if flux else 40);window.cfg.setValue(1. if native or flux else 4.)
-            window.sampler.setCurrentText('euler');window.scheduler.setCurrentText('simple')
-        elif hasattr(window,'sdxl_sampling'):
-            steps,cfg,sampler,scheduler=window.sdxl_sampling
-            window.steps.setValue(steps);window.cfg.setValue(cfg)
-            window.sampler.setCurrentText(sampler);window.scheduler.setCurrentText(scheduler)
-            window.denoise.setValue(getattr(window,'sdxl_denoise',.6))
-        window.active_image_family=current
-    window.model.setVisible(not native and not editing and not flux);window.model_label.setVisible(not native and not editing and not flux)
-    for name in ('steps','cfg','sampler','scheduler','reference_strength','denoise','quality_mode'):
-        getattr(window,name).setEnabled(not native and not editing and not flux)
-    for field in (window.denoise,window.quality_mode):
-        window.image_form.setRowVisible(field,not native and not editing and not flux)
+    if window.api_controller.cloud: return
+    info = getattr(window, 'info', {}).get('object_info', {})
+    native = effective_family(window) == 'zimage'
+    flux = effective_family(window) == 'flux_klein'
+    referenced = bool(window.reference_path)
+    for choice, ready in (
+        ('auto', flux_klein.enabled(info, window.api_controller.data) if referenced else zimage.available(info)),
+        ('zimage', (zimage.reference_available if referenced else zimage.available)(info)),
+        ('flux_klein', flux_klein.enabled(info, window.api_controller.data))):
+        window.model_family.model().item(window.model_family.findData(choice)).setEnabled(ready)
+    previous = getattr(window, 'active_image_family', None)
+    current = effective_family(window)
+    if current != previous:
+        window.steps.setValue(9 if native else 4)
+        window.cfg.setValue(1.)
+        window.sampler.setCurrentText('euler'); window.scheduler.setCurrentText('simple')
+        if native: window.denoise.setValue(getattr(window, 'zimage_denoise', .45))
+        window.active_image_family = current
+    window.model.hide(); window.model_label.hide()
+    for name in ('lora', 'lora_category', 'strength', 'steps', 'cfg', 'sampler', 'scheduler',
+                 'reference_strength', 'denoise', 'quality_mode'):
+        getattr(window, name).setEnabled(False)
+    window.image_form.setRowVisible(window.quality_mode, False)
+    window.image_form.setRowVisible(window.denoise, native and referenced)
+    window.denoise.setEnabled(native and referenced)
+    window.translate_prompt.hide(); window.reference_policy.hide(); window.reference_policy_label.hide()
+    window.workflow_selector.setEnabled(window.connected and not window.preparing)
     if flux:
-        window.translate_prompt.hide();window.reference_policy.hide();window.reference_policy_label.hide()
-        window.workflow_selector.setEnabled(window.connected and not window.preparing)
-        window.context_label.setText('FLUX · 参考编辑' if window.reference_path else 'FLUX · 图片创作')
-        window.reference_note.setText('直接描述需要改变与保留的部分。参考图用于外观与布局条件，可改变视角和姿势；不需要骨骼。')
-        window.model_note.setText('FLUX.2 Klein 4B · 4步。直接理解描述和参考图；反向词作为软性排除约束。')
-        if window.custom_graph is not None:
-            window.model_note.setText('请把“后台预设”切回“自动选择”使用FLUX；导入的原工作流仍保留。')
-        window.style_status.setText('画风由描述与参考图决定 · 无需额外分析模型')
-        return
-    if editing:
-        window.translate_prompt.hide();window.reference_policy.hide();window.reference_policy_label.hide()
-        window.context_label.setText('中文参考编辑')
-        window.reference_note.setText('直接描述需要改变的部分，例如改成正视图、换服装或改变背景；未要求改变的细节作为参考保留。')
-        window.model_note.setText('Qwen-Image-Edit 2511：复用已有模型，原生理解中文与参考图。变化较大时仍需检查细节。')
-        window.style_status.setText('画风由描述与参考图决定；无需风格适配器。')
-        return
-    if native:
-        for name in ('lora','lora_category','strength','steps','cfg','sampler','scheduler','reference_strength','denoise','quality_mode'):
-            getattr(window,name).setEnabled(False)
-        # Keep the automatic-preset choice reachable if an imported SDXL graph was active.
-        window.workflow_selector.setEnabled(window.connected and not window.preparing)
-        window.translate_prompt.hide()
-        window.reference_policy.hide();window.reference_policy_label.hide()
-        referenced=bool(window.reference_path)
-        window.denoise.setEnabled(referenced)
-        window.image_form.setRowVisible(window.denoise,referenced)
-        from .ui_hints import tip
-        window.denoise.setToolTip(tip('参考图重绘程度：低值更接近原图，高值更容易改变构图，也更容易改变角色细节。1为完全重新生成。'))
-        window.context_label.setText('Z-Image · 参考重绘' if referenced else 'Z-Image · 中文创作')
-        window.reference_note.setText('以参考图为底图重绘，请描述目标画面的样子，例如“蓝色无袖上衣”。画布等比适配并补边；大幅改视角可能改变角色细节。' if referenced else '可直接用文字创作，也可添加参考图进行重绘。')
-        window.model_note.setText('Z-Image · 同一套本地模型 · 9步。参考图进入图像编码，无需额外分析模型；反向词为软性排除要求。')
-        if window.custom_graph is not None:
-            window.model_note.setText('当前绑定了其他工作流；请将“后台预设”设为“自动选择”，再使用 Z-Image。原工作流文件保留。')
-        window.style_status.setText('Z-Image · 原生中文 · 画风由描述决定 · 反向内容为软性约束')
+        window.context_label.setText('FLUX · 参考编辑' if referenced else 'FLUX · 图片创作')
+        window.reference_note.setText('参考图提供角色与布局，提示词描述目标画风和改动。未要求改变的细节尽量保留；仍需检查输出。')
+        window.model_note.setText('当前使用 FLUX.2 Klein · 4步 · 独立参考条件，重新生成目标画面。')
     else:
-        window.model_note.setText('SDXL 用于单张图片与参考编辑；动画使用独立模型。')
-        from .ui_hints import tip
-        window.denoise.setToolTip(tip('SDXL重绘程度：低值更接近原图；原图小幅修改模式最高0.25。'))
+        window.context_label.setText('Z-Image · 小幅重绘' if referenced else 'Z-Image · 中文创作')
+        window.reference_note.setText('原图小幅重绘适合局部外观调整；换风格或视角请选自动路线或FLUX。' if referenced else
+                                      '无参考图时直接按文字生成；自动路线添加参考图后使用FLUX。')
+        window.model_note.setText('当前使用 Z-Image Turbo · 9步 · 原生中文。' + ('重绘幅度越高，角色细节越容易改变。' if referenced else ''))
+    if window.custom_graph is not None:
+        window.model_note.setText('导入工作流保留在高级编辑器；请将“后台预设”切回“自动选择”，使用当前图片路线。')
+    from .ui_hints import tip
+    window.denoise.setToolTip(tip('只影响Z-Image小幅重绘：低值接近原图，高值容易改变角色。换风格优先使用自动路线。'))
+    window.style_status.setText('反向内容为软性排除要求；不是独立负向引导。')
+    if window.generation_type.currentData() != 'walk':
+        ready = (zimage.reference_available(info) if referenced else zimage.available(info)) if native else flux_klein.enabled(info, window.api_controller.data)
+        window.generate_button.setEnabled(window.connected and ready and not window.preparing)
+        if window.connected and not ready:
+            window.model_note.setText('当前路线的模型或验证记录缺失，请连接已配置的后端或手动选择可用引擎；不会切回SDXL。')
 
 
 def snapshot(window, reference_name=''):
-    if window.custom_graph is not None:raise ValueError('Z-Image 使用独立自动工作流，请恢复自动工作流或切回 SDXL。')
+    if window.custom_graph is not None:raise ValueError('Z-Image 使用独立自动工作流，请把“后台预设”恢复为“自动选择”。')
     seed=int(window.seed.text())
     if seed==-1:seed=secrets.randbelow(2**53)
     if not 0<=seed<2**64:raise ValueError('种子范围应为 0–2^64-1，或 -1 随机。')
@@ -110,7 +95,7 @@ def snapshot(window, reference_name=''):
     graph,mapping=zimage.build(request,window.info['object_info'],reference_name,denoise)
     params=asdict(request)
     params.update(mode='chat',model_family='zimage',user_prompt=positive,user_negative=negative,
-        template='Z-Image Turbo · 参考重绘' if reference_name else 'Z-Image Turbo · 中文直出',
+        image_route=window.model_family.currentData(),template='Z-Image Turbo · 参考重绘' if reference_name else 'Z-Image Turbo · 中文直出',
         bindings=mapping,denoise=denoise,reference_policy='img2img' if reference_name else 'none',reference_strength=None if reference_name else 0.,
         reference_preprocessing='contain_pad_rgb' if reference_name else None,
         output_background=window.output_background.currentData(),intent={'unmatched':''},negative_unmatched='',
@@ -119,7 +104,7 @@ def snapshot(window, reference_name=''):
 
 
 def save_selection(window):
-    write_json(window.api_controller.data/'image-family.json',{'family':window.model_family.currentData()})
+    write_json(window.api_controller.data/'image-family.json',{'family':window.model_family.currentData(),'routing_version':2})
 
 
 def remember_denoise(window, value):
@@ -127,14 +112,11 @@ def remember_denoise(window, value):
 
 
 def use_reference_route(window, *, imported=False) -> None:
-    """A reference or imported SDXL graph needs the supported editor, visibly."""
-    if window.api_controller.cloud:return
-    if not imported and window.model_family.currentData()=='zimage':return
-    if not imported and window.reference_path and window.custom_graph is None and flux_klein.enabled(getattr(window,'info',{}).get('object_info',{}),window.api_controller.data):
-        window.model_family.setCurrentIndex(window.model_family.findData('flux_klein'))
-    elif imported or window.model_family.currentData() in ('zimage','qwen_edit','flux_klein'):
-        window.model_family.setCurrentIndex(window.model_family.findData('sdxl'))
-        window.add_chat('软件','已切换 SDXL 兼容工作流；原始文件保留。')
+    # Automatic is a visible choice, not an invisible replacement of a manual engine.
+    if window.api_controller.cloud: return
+    if imported:
+        window.add_chat('软件', '导入工作流仅供高级编辑；SDXL正常生成路线已退役，原文件保留。')
+    apply_ui(window)
 
 
 def reference_snapshot(window, reference_name):
@@ -166,7 +148,7 @@ def flux_snapshot(window, reference_name=''):
     graph,mapping=flux_klein.build(request,window.info['object_info'],reference_name)
     params=asdict(request)
     params.update(mode='chat',model_family='flux_klein',user_prompt=positive,user_negative=negative,
-        template='FLUX.2 Klein 4B',bindings=mapping,denoise=1.,
+        image_route=window.model_family.currentData(),template='FLUX.2 Klein 4B',bindings=mapping,denoise=1.,
         reference_policy='semantic' if reference_name else 'none',reference_strength=None,
         output_background=window.output_background.currentData(),intent={'unmatched':''},negative_unmatched='',
         lora_style=None,quality_mode='off',edge_smoothing=False,negative_policy='positive_text_constraints_cfg1')
