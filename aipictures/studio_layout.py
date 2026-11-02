@@ -108,7 +108,7 @@ def build_studio(w):
     w.workflow_selector.currentIndexChanged.connect(w.select_chat_workflow)
     bf.addRow('后台预设', w.workflow_selector)
     w.model_family=QComboBox();w.model_family.addItem('SDXL · 兼容工作流','sdxl')
-    w.model_family.addItem('Z-Image Turbo · 中文文字创作','zimage')
+    w.model_family.addItem('Z-Image Turbo · 中文生成 / 参考重绘','zimage')
     w.model_family.addItem('FLUX.2 Klein · 参考编辑 / 快速生图','flux_klein')
     w.model_family.model().item(1).setEnabled(False);w.model_family.model().item(2).setEnabled(False)
     bf.addRow('图片引擎',w.model_family)
@@ -282,6 +282,8 @@ def build_studio(w):
     w.model_family.currentIndexChanged.connect(w.generation_type_changed)
     from .image_family import save_selection
     w.model_family.activated.connect(lambda _:save_selection(w))
+    from .image_family import remember_denoise
+    w.denoise.valueChanged.connect(lambda value:remember_denoise(w,value))
     from .video_controller import VideoController
     w.video_controller=VideoController(w)
     w.update_intent_hint()

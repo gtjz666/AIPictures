@@ -13,7 +13,7 @@
 - `aipictures/app.py`：独立桌面界面；`run.bat` 启动。
 - `aipictures/engine.py`、`backend_connection.py`：ComfyUI 请求、任务监控和共享后端。
 - `aipictures/general_image.py`：通用单张生成；不要重新强制限定立绘、人物或侧视。
-- `zimage.py` / `image_family.py`：原生中文无参考图路线、与 SDXL 的兼容边界；`local_translation.py` 为 SDXL 提供可选独立 CPU 翻译，不得对原生中文或云端重复翻译。SDXL LoRA 不接到 Z-Image。
+- `zimage.py` / `image_family.py`：原生中文文字生图/参考图重绘、与 SDXL 的兼容边界；`local_translation.py` 为 SDXL 提供可选独立 CPU 翻译，不得对原生中文或云端重复翻译。SDXL LoRA 不接到 Z-Image。
 - `comfy_nodes/aipictures_runtime`：可选后端节点，释放完成的编码器后原样调用官方条件计算；不修改 Comfy 核心。启动脚本兼容加载策略须有真实测试依据。
 - `video_frames.py` / `loop_frames.py`：真实视频解码与循环片段选择，先保留 RGB 再处理 Alpha；近似接缝评分不能声称保证无缝，不插帧/混帧。
 - `api_config.py` / `api_dialog.py` / `api_controller.py`：用户自带 API 设置、密钥保护及单图队列；`api_generation.py` / `api_transport.py` / `smart_generation.py`：独立云端生图与可选文字整理。不要读取其他软件的 Key，不因超时自动重复付费 POST；聊天 Key 不等于生图权限。
@@ -31,6 +31,7 @@
 - 自由动画只有一个正向提示词框，统一外观/场景/动作。模板只填入可编辑文字，不用隐藏动作覆盖输入；旧骨骼研究入口已移除。默认循环预览。
 - 种子默认每次随机，-1仅为内部标记。显示本次实际种子，可复制/复用，记录和导出保留真实值；未知种子不得伪造，随机不等于最佳。
 - 完整动画完成后由用户勾选源帧，再一键导出精灵图或独立PNG；默认不选任何帧，不自动改选8/16帧或猜测关键帧。先生成再抠图，旧骨骼与Wan不再作为生成路线。
+- Z-Image参考图使用现有权重的VAE图生图。导入参考时保留用户选择的Z-Image，参考图片先等比适配画布和合成已有Alpha，不提前分割；重绘幅度只在有参考时生效，不能暗中套用SDXL的0.25上限。无参考时必须恢复空潜变量、denoise=1，不能残留旧图。普通图生图不等于已经验收精确换视角/身份编辑，描述局限要依据真实输出。
 - 用户已取消LoRA：停用界面与自动流程，按SHA和安装收据只删除软件管理的权重。不重新下载风格/加速LoRA。原工作流不改，标准节点在工作副本旁路，特殊节点明确提示。
 - 先生成完整 RGB，再去背景。骨骼分析可使用分割，但不能把被删色的分析图冒充原始生成参考。
 - 精灵帧不做时间混合、历史帧融合、FXAA/TAA/DLSS 或全局自动平滑。像素模式使用明确的像素捕捉/调色板管线；预览像素图用最近邻。不要默认缩放角色内容。

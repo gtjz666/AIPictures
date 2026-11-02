@@ -42,7 +42,8 @@ def main():
             'UNETLoader':{'input':{'required':{'unet_name':[[zimage.UNET]]}}},
             'CLIPLoader':{'input':{'required':{'clip_name':[[zimage.ENCODER]]}}},
             'VAELoader':{'input':{'required':{'vae_name':[[zimage.VAE]]}}},
-            'EmptySD3LatentImage':{},'ModelSamplingAuraFlow':{},'ConditioningZeroOut':{}}}
+            'EmptySD3LatentImage':{},'ModelSamplingAuraFlow':{},'ConditioningZeroOut':{},
+            'LoadImage':{},'ImageScale':{},'VAEEncode':{}}}
         steps,cfg=window.steps.value(),window.cfg.value()
         window.model_family.setCurrentIndex(1)
         assert not window.lora.isEnabled() and not window.translate_prompt.isVisible()
@@ -65,13 +66,20 @@ def main():
         Image.new('RGBA',(64,96),(80,120,180,255)).save(source)
         before=source.read_bytes()
         window.set_reference(str(source))
-        assert window.model_family.currentData()=='sdxl'
-        assert not window.model_family.model().item(1).isEnabled()
-        assert window.reference_policy.isVisible() and window.reference_strength.isVisible()
+        assert window.model_family.currentData()=='zimage'
+        assert window.model_family.model().item(1).isEnabled()
+        assert not window.reference_policy.isVisible() and not window.reference_strength.isVisible()
+        assert window.denoise.isEnabled()
+        window.denoise.setValue(.65)
+        graph,params=window.graph_snapshot('uploaded.png')
+        assert graph['latent']['class_type']=='VAEEncode' and graph['reference']['inputs']['image']=='uploaded.png'
+        assert params['denoise']==.65 and params['reference_policy']=='img2img'
         assert window.preview_role=='reference' and not window.pixmap.isNull()
         assert source.read_bytes()==before
         window.clear_reference()
         assert not window.reference_path and not window.reference_policy.isVisible()
+        graph,params=window.graph_snapshot()
+        assert params['denoise']==1. and not params['bindings']['reference']
         from aipictures.walk_cycle import export_sequence
         from aipictures.result_cache import ResultCache
         window.cache_store=ResultCache(Path(temp)/'cache')

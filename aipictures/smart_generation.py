@@ -59,7 +59,10 @@ def generate(folder: Path, graph: dict, params: dict, planner: AuthEndpoint | No
             from .reference_analysis import opaque_reference
             emit('api_stage', {'message':'正在准备参考图；保留原始颜色…'})
             with Image.open(reference) as source:
-                rgb = opaque_reference(ImageOps.exif_transpose(source).convert('RGBA'))
+                if params.get('model_family')=='zimage':
+                    from .zimage import prepare_reference
+                    rgb=prepare_reference(source,request.width,request.height)
+                else:rgb = opaque_reference(ImageOps.exif_transpose(source).convert('RGBA'))
             prepared = folder/'reference_rgb.png'
             rgb.save(prepared)
             check()
@@ -70,6 +73,9 @@ def generate(folder: Path, graph: dict, params: dict, planner: AuthEndpoint | No
             graph=json.loads(json.dumps(graph))
             graph['text']['inputs']['text']=prompt_text(prompt,negative)
             mapping=params['bindings']
+            for node in mapping['reference']:
+                if not reference_name:raise ValueError('Z-Image参考图尚未上传，已停止生成。')
+                graph[node]['inputs']['image']=reference_name
         elif params.get('model_family')=='qwen_edit':
             from .reference_edit import build
             runtime={'AIPicturesReleaseCompletedEncoders':{}} if 'release' in graph else {}

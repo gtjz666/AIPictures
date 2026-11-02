@@ -408,6 +408,7 @@ class Window(QMainWindow):
 
     def preserving_reference(self):
         walking=self.generation_type.currentData()=='walk'
+        if not walking and self.model_family.currentData()!='sdxl':return False
         if walking and self.animation_style.isChecked() and self.animation_source.currentData()=='reference':return False
         weighted=walking or self.custom_graph is not None or self.reference_strength.value()>0
         return weighted and bool(self.reference_path) and (not walking or (self.animation_engine.currentData() in ('wan','animate') and self.animation_source.currentData()=='reference')) and self.reference_policy.currentData()=='preserve'
@@ -780,7 +781,10 @@ class Window(QMainWindow):
                         selected=params.get('prepared_reference') or reference
                         with Image.open(selected) as image:
                             image=ImageOps.exif_transpose(image).convert('RGBA')
-                            opaque=opaque_reference(image)
+                            if params.get('model_family')=='zimage':
+                                from .zimage import prepare_reference
+                                opaque=prepare_reference(image,params['width'],params['height'])
+                            else:opaque=opaque_reference(image)
                         prepared=DATA/'references'/(uuid4().hex+'_rgb.png'); opaque.save(prepared)
                         result['reference']=client.upload_image(prepared)
                     if self.prepare_cancel.is_set(): raise Cancelled('准备已取消')
