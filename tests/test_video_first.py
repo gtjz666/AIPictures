@@ -97,7 +97,7 @@ def test_action_description_not_overridden_by_bones_or_forced_profile():
 def test_missing_wan_models_fail_before_creating_an_anchor_or_submitting_gpu_work(tmp_path):
     from aipictures.video_generation import generate
     client=Mock();client.discover.return_value={'object_info':{}}
-    with pytest.raises(ValueError,match='连续动画缺少节点'):
+    with pytest.raises(ValueError,match='Wan 动画工作流已停用'):
         generate(client,tmp_path/'job',{'engine':'wan'},threading.Event(),lambda *_:None)
     client.generate.assert_not_called()
     assert json.loads((tmp_path/'job/video.json').read_text('utf-8'))['status']=='failed'

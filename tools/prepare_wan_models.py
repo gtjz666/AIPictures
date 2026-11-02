@@ -33,6 +33,7 @@ def read_metadata(url):
 
 
 def install(models, variant, download=False, workers=3):
+    raise ValueError("Wan 模型已停用，不再安装。请使用 MiniMax H3。")
     models = Path(models).resolve()
     metadata = read_metadata(f'https://huggingface.co/api/models/{REPO}')
     revision = metadata['sha']

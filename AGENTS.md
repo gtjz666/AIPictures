@@ -17,10 +17,10 @@
 - `comfy_nodes/aipictures_runtime`：可选后端节点，释放完成的编码器后原样调用官方条件计算；不修改 Comfy 核心。启动脚本兼容加载策略须有真实测试依据。
 - `video_frames.py` / `loop_frames.py`：真实视频解码与循环片段选择，先保留 RGB 再处理 Alpha；近似接缝评分不能声称保证无缝，不插帧/混帧。
 - `api_config.py` / `api_dialog.py` / `api_controller.py`：用户自带 API 设置、密钥保护及单图队列；`api_generation.py` / `api_transport.py` / `smart_generation.py`：独立云端生图与可选文字整理。不要读取其他软件的 Key，不因超时自动重复付费 POST；聊天 Key 不等于生图权限。
-- `aipictures/pose_animation.py`：完整骨骼序列 → Wan Animate → 原生解码 → 去背景 → 帧/精灵图/GIF。
-- `motion_clip.py`、`motion_kinematics.py`、`natural_motion.py`、`motion_editor.py`：预设、真人曲线适配、逐帧编辑和预览。
-- `video_controller.py` / `video_generation.py` / `video_preview.py`：完整自由动画先预览，再显式转素材；`h3_backend.py`为独立可选引擎。
-- `reference_edit.py`：已有Qwen-Image-Edit-2511中文语义参考编辑，不能与Qwen-Image-2.1混淆。
+- `pose_animation.py`、`motion_*`、`natural_motion.py`：旧骨骼/Wan研究档案，正常软件入口已经退役，不重新开放或安装模型。历史结果仍可读。
+- `video_controller.py` / `video_generation.py` / `video_preview.py`：MiniMax H3完整自由动画先预览，再自主选帧导出；没有已验证H3时明确不可用，不切回Wan。`h3_backend.py`使用独立环境。
+- `flux_klein.py`：4步生图与独立参考潜变量编辑，复用既有Qwen3编码器；真实验收记录和模型齐全后才能启用。先比较图像路线，不默认增加额外理解模型。
+- `reference_edit.py`：Qwen-Image-Edit-2511未通过本机稳定性验收的历史候选，不能与Qwen-Image-2.1或Qwen3.8-27B混淆。
 - `animation_style.py`、`lora_catalog.py`仅保留历史复现与删除收据识别；当前停用LoRA，不重新下载。
 - `sprite_pipeline/`：可独立运行的离散精灵素材 CLI，不强制依赖 ComfyUI。
 - `tests/`、`tools/`、`docs/`：自动检查、实机验收工具和使用/研究记录。
@@ -28,16 +28,16 @@
 ## 用户确认过的产品要求
 
 - 面向游戏创作者，界面浅色、简洁；提示词和反向词由用户填写，不自动预填强制角色模板。没有选择参考图时留空，选中后显示该图。
-- 自由动画只有一个正向提示词框，统一外观/场景/动作。模板只填入可编辑文字，不用隐藏动作覆盖输入；旧骨骼研究保留独立编辑逻辑。默认循环预览。
+- 自由动画只有一个正向提示词框，统一外观/场景/动作。模板只填入可编辑文字，不用隐藏动作覆盖输入；旧骨骼研究入口已移除。默认循环预览。
 - 种子默认每次随机，-1仅为内部标记。显示本次实际种子，可复制/复用，记录和导出保留真实值；未知种子不得伪造，随机不等于最佳。
-- 完整动画完成后由用户勾选源帧，再一键导出精灵图或独立PNG；默认不选任何帧，不自动改选8/16帧或猜测关键帧。先生成再抠图，骨骼仅可选研究工具。
+- 完整动画完成后由用户勾选源帧，再一键导出精灵图或独立PNG；默认不选任何帧，不自动改选8/16帧或猜测关键帧。先生成再抠图，旧骨骼与Wan不再作为生成路线。
 - 用户已取消LoRA：停用界面与自动流程，按SHA和安装收据只删除软件管理的权重。不重新下载风格/加速LoRA。原工作流不改，标准节点在工作副本旁路，特殊节点明确提示。
 - 先生成完整 RGB，再去背景。骨骼分析可使用分割，但不能把被删色的分析图冒充原始生成参考。
 - 精灵帧不做时间混合、历史帧融合、FXAA/TAA/DLSS 或全局自动平滑。像素模式使用明确的像素捕捉/调色板管线；预览像素图用最近邻。不要默认缩放角色内容。
 - 单帧须保持独立资产；精灵图切片须与 PNG 逐像素相同。跳跃整体轨迹由游戏引擎驱动，演示 GIF 的位移必须明确标注。
 - 生成、训练和 UI 解耦。复用原环境与模型，保留原工作流和参考图片。训练不与推理环境混装。
 - 用户已允许任务范围内自行下载所需模型或资料，结束时报告新增内容；当前指令如收紧授权，以当前指令为准。
-- 当前不做电脑缓存清理、磁盘合并、内存或温度监测。不要恢复这些已停止的历史任务。
+- 仅按用户明确退役要求核验删除有安装收据且发布SHA一致的管理Wan权重；不删原有ControlNet/姿态检测/IP-Adapter/CLIP Vision。当前不做电脑缓存清理、磁盘合并、内存或温度监测。不要恢复这些已停止的历史任务。
 - 用户已明确不再需要在聊天中发送 GIF，用户自行在软件查看再反馈。只有再次明确请求时才展示。云端协议测试通过不等于真实服务画质验收，未配置用户 Key 时如实说明。
 
 ## 长任务与文件规则
@@ -56,10 +56,11 @@
 ```powershell
 python -m pytest -q
 $env:QT_QPA_PLATFORM='offscreen'
-python -m tests.live_platformer_controls
-python -m tests.live_animation_modes
+python -m tests.live_h3_image_choice
+python -m tests.live_video_first
+python -m tests.live_manual_frames
 ```
 
-针对改动选择必要检查。`tools.probe_h3`、`tools.verify_video_first`、`tools.verify_animation_modes` 会实际消耗较长GPU时间：先看本地状态和既有结果，使用新目录，不能重复运行已成功样本。历史`tools.verify_lora_walks`不再用于新任务，不因其缺权重而重新下载已删除LoRA。
+针对改动选择必要检查。`tools.probe_h3`、`tools.compare_image_models` 会实际消耗较长GPU时间：先看本地状态和既有结果，使用新目录，不能重复运行已成功样本。历史骨骼/Wan/LoRA实测工具不再用于新任务，不因其缺权重而重新下载已删除模型。
 
 最终用中文说明完成内容、运行方式、测试结果、真实 GIF/PNG、已知视觉偏差和新增下载。修改生成逻辑时需查看真实输出，不能只交付模拟界面或伪造图片。未经用户明确要求，不启动其他 agent 并行修改同一项目。

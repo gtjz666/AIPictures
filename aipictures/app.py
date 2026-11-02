@@ -327,58 +327,10 @@ class Window(QMainWindow):
         self.creation_summary.setText(text)
 
     def open_skeleton(self):
-        profile = load_profile()
-        if not profile:
-            self.add_chat('软件', '尚未安装角色基准，请先导入基准图片。'); return
-        self.skeleton_dialog = SkeletonDialog(profile, self)
-        self.skeleton_dialog.show()
+        self.status.setText('旧骨骼编辑已停用；请用提示词生成完整动画。')
 
     def open_motion_editor(self):
-        if self.animation_action.currentData()=='custom' and self.custom_strategy.currentData()=='free':
-            self.status.setText('AI 自由动作不使用骨骼；要逐帧调整，请改选骨骼编排。');return
-        if self.animation_style.isChecked():
-            self.status.setText('换风格请使用自动骨骼；也可先将风格图导入，再手动调整。');return
-        description=self.custom_description.toPlainText()
-        if self.animation_action.currentData()=='custom':
-            try:
-                from .motion_language import parse_plan
-                parse_plan(description)
-            except ValueError as exc:self.status.setText(str(exc));return
-        if not self.reference_path:
-            self.status.setText('先添加参考图，才能按角色比例调整骨骼。文字模式可先自动生成。'); return
-        if self.current or self.preparing:
-            self.status.setText('请等待当前任务结束后调整骨骼。'); return
-        if not self.connected:
-            self.status.setText('请先启动 / 连接本地引擎。'); return
-        if self.generation_type.currentData()!='walk': self.generation_type.setCurrentIndex(1)
-        reference=self.reference_path; action=self.animation_action.currentData()
-        count=self.walk_count.currentData(); fps=self.walk_fps.value(); checksum=digest(reference)
-        self.preparing=True; self.prepare_cancel.clear(); self.generate_button.setEnabled(False)
-        self.status.setText('自动适配动作骨骼…')
-        from .motion_reference import prepare_motion_reference
-        def done(kind,data):
-            if kind=='reference_stage': self.status.setText(data['message']); return
-            if kind not in ('result','error','cancelled'): return
-            self.preparing=False; self.generate_button.setEnabled(self.connected)
-            if kind!='result': self.status.setText('骨骼适配失败：'+str(data)); self.log.append(str(data)); return
-            if self.reference_path!=reference: self.status.setText('参考图已更换，请重新打开骨骼。'); return
-            from .motion_clip import make_clip,clip_path,validate_clip,with_visual_bounds
-            from .motion_editor import MotionDialog
-            base=with_visual_bounds(json.loads(Path(data['rig']).read_text('utf-8')),data)
-            if action=='custom':
-                from .motion_language import make_custom_clip
-                clip=make_custom_clip(base,checksum,description,count,fps)
-            else:clip=make_clip(base,checksum,action,count,fps)
-            saved=clip_path(checksum,action)
-            if saved.is_file():
-                try:
-                    previous=validate_clip(json.loads(saved.read_text('utf-8')))
-                    if previous['frame_count']==count and (action!='custom' or previous['motion_plan']['description']==description.strip()):clip=previous;clip['fps']=fps
-                except (ValueError,KeyError): pass
-            self.motion_dialog=MotionDialog(data,clip,self)
-            self.motion_dialog.accepted.connect(lambda:self.motion_mode.setCurrentIndex(self.motion_mode.findData('manual')))
-            self.motion_dialog.show()
-        self.launch(lambda emit:prepare_motion_reference(reference,self.client,emit,self.prepare_cancel),done)
+        self.status.setText('旧骨骼编辑已停用；请用提示词生成完整动画。')
 
     def character_selection_changed(self, _index=None):
         if self.character_loading: return
@@ -622,8 +574,9 @@ class Window(QMainWindow):
         size = reader.size()
         if size.width() > 0 and size.height() > 0:
             scale = min(1, 1024 / max(size.width(), size.height()))
-            self.width.setValue(max(64, round(size.width() * scale / 8) * 8))
-            self.height.setValue(max(64, round(size.height() * scale / 8) * 8))
+            grid=16 if self.model_family.currentData() in ('flux_klein','qwen_edit','zimage') else 8
+            self.width.setValue(max(256 if grid==16 else 64, round(size.width() * scale / grid) * grid))
+            self.height.setValue(max(256 if grid==16 else 64, round(size.height() * scale / grid) * grid))
         self.reference_label.setText('已添加参考图：' + source.name + ' · 后续发送会使用此图，可随时移除。')
         self.show_image(str(target),role='reference')
         if not self.character_loading: self.generation_type_changed()
@@ -663,6 +616,9 @@ class Window(QMainWindow):
                 self.editor.sync_inputs(graph)
 
     def graph_snapshot(self, reference_name=''):
+        if self.model_family.currentData()=='flux_klein':
+            from .image_family import flux_snapshot
+            return flux_snapshot(self,reference_name)
         if self.model_family.currentData()=='qwen_edit':
             from .image_family import reference_snapshot
             return reference_snapshot(self,reference_name)
@@ -924,205 +880,14 @@ class Window(QMainWindow):
         self.launch(generate, event)
 
     def enqueue_walk(self):
-        from .walk_cycle import new_sequence, frame_workflow
-        profile = self.character_profile
-        engine=self.animation_engine.currentData()
-        action=self.animation_action.currentData()
-        description=self.custom_description.toPlainText().strip() if action=='custom' else ''
-        if action=='custom':
-            if not description:raise ValueError('请在“角色与生成”中填写自定义动作说明。')
-            if self.custom_strategy.currentData()=='free':engine='custom_free'
-            else:
-                from .motion_language import parse_plan
-                parse_plan(description)
-        motion=None
-        reference=self.reference_path if self.animation_source.currentData()=='reference' else None
-        if not reference and self.animation_source.currentData()=='reference': raise ValueError('请添加参考图，或将角色来源切换为“仅文字描述”。')
-        if not reference and not self.positive.toPlainText().strip(): raise ValueError('文字模式请先描述角色外观。')
-        if not profile: profile={'reference':str(reference) if reference else None}
-        seed = int(self.seed.text())
-        if seed == -1: seed = secrets.randbelow(2**53)
-        if not 0 <= seed < 2**64: raise ValueError('种子范围不正确')
-        if engine=='animate':
-            from .pose_animation import check_models as check_pose_models
-            from .background import model_file
-            check_pose_models(self.info['object_info'])
-            if self.animation_sampler.currentData() not in self.info.get('samplers',[]):
-                raise ValueError('当前后端不支持所选动画采样方式，请重新选择后生成。')
-            if 'DWPreprocessor' not in self.info['nodes']: raise ValueError('完整骨骼适配需要本地 DWPose 节点。')
-            if not model_file().is_file(): raise ValueError('透明动画需要本地去背景模型。')
-            if self.motion_mode.currentData()=='manual' and not self.animation_style.isChecked():
-                from .motion_clip import clip_path,validate_clip
-                if not reference: raise ValueError('手动骨骼需要参考图。文字模式请使用自动适配。')
-                path=clip_path(digest(reference),action)
-                if not path.is_file(): raise ValueError('请先打开“动作骨骼”，保存当前角色的完整动作。')
-                motion=validate_clip(json.loads(path.read_text('utf-8')))
-                if motion['frame_count']!=self.walk_count.currentData(): raise ValueError('帧数已改变，请重新保存动作骨骼。')
-                if action=='custom' and motion['motion_plan']['description']!=description:raise ValueError('动作说明已改变，请重新保存自定义骨骼。')
-            if reference is None or self.animation_style.isChecked():validate_selection(self.lora.currentData() or '',self.model.currentText())
-        elif engine in ('wan','custom_free'):
-            from .temporal_animation import check_video_models
-            from .background import model_file
-            from .image_quality import check_quality_models
-            check_video_models(self.info['object_info'])
-            check_quality_models(self.info['object_info'],'off' if self.preserving_reference() else self.quality_mode.currentData())
-            if reference is None: validate_selection(self.lora.currentData() or '',self.model.currentText())
-            if not model_file().is_file(): raise ValueError('透明动画需要本地去背景模型，请先运行 setup.bat。')
-        else:
-            if not reference: raise ValueError('旧版骨骼流程需要人物参考图；仅文字模式请选择 AI 连续动画。')
-            if 'DWPreprocessor' not in self.info['nodes']: raise ValueError('旧版人体骨骼适配需要本地 DWPose 节点。')
-            graph = frame_workflow('__ref__','__pose__','__guide__',seed,'walk',self.model.currentText(),self.steps.value(),self.negative.toPlainText())
-            missing = {node['class_type'] for node in graph.values()}-set(self.info['nodes'])
-            if missing: raise ValueError('缺少节点：'+', '.join(sorted(missing)))
-            check_models(graph,self.info['object_info'])
-        style=bool(reference and self.animation_style.isChecked())
-        if style:
-            if not self.lora.currentData():raise ValueError('请手动选择一个风格 LoRA，或取消“改变参考画风”。')
-            validate_selection(self.lora.currentData(),self.model.currentText())
-            from .animation_style import style_workflow
-            graph=style_workflow('__reference__',self.model.currentText(),self.lora.currentData(),self.strength.value(),seed)
-            missing={node['class_type'] for node in graph.values()}-set(self.info['nodes'])
-            if missing:raise ValueError('风格重绘缺少节点：'+', '.join(sorted(missing)))
-            check_models(graph,self.info['object_info'])
-        folder = new_sequence()
-        params = {'mode':'walk','engine':engine,'source':self.animation_source.currentData(),'profile':profile if engine=='rig' else None,
-                  'reference':str(reference) if reference else None,'prompt':self.positive.toPlainText(),
-                  'checkpoint':self.model.currentText(),'seed':seed,'count':self.walk_count.currentData(),
-                  'fps':self.walk_fps.value(),'steps':self.animation_steps.value() if engine in ('wan','animate','custom_free') else self.steps.value(),
-                  'negative':self.negative.toPlainText(),
-                  'lora':(self.lora.currentData() or '') if reference is None or style else '',
-                  'lora_strength':self.strength.value(),'quality_mode':'off' if self.preserving_reference() else self.quality_mode.currentData(),
-                  'preserve_reference':self.preserving_reference(),'action':action,'motion':motion,
-                  'animation_detail':self.animation_detail.currentData(),'animation_sampler':self.animation_sampler.currentData(),
-                  'animation_color':self.animation_color.currentData(),'style_reference':style,'custom_description':description}
-        params['custom_loop']=bool(engine=='custom_free' and self.custom_loop.isChecked())
-        write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'queued','params':params})
-        item = QListWidgetItem(task_name(params)+' · 等待'); item.setToolTip(str(folder)); self.queue_list.addItem(item)
-        self.pending.append((None,params,folder,item))
-        self.add_chat('你',params['prompt'] or '按参考图生成'+ACTIONS[action][0]+'动画')
-        detail=({'custom_free':'按文字自由生成，不强制骨骼；复杂动作需检查。','wan':'Wan2.2 自由生成。','animate':'按完整骨骼序列生成；手动编辑为可选。','rig':'旧版人体分层与关节局部修复。'}[engine])
-        self.add_chat('软件',f'已选择{ACTIONS[action][0]}动画：{params["count"]} 帧。'+detail,job=str(folder))
-        self.start_next()
+        raise ValueError('旧骨骼与 Wan 路线已停用；请使用 MiniMax H3。')
 
     def start_walk(self, params, folder, item):
-        from .walk_cycle import generate_walk
-        cancel = threading.Event(); self.current={'folder':folder,'cancel':cancel,'params':params}
-        self.task_display.start()
-        self.connect_button.setEnabled(False); self.progress.setRange(0,0)
-        item.setText(task_name(params)+' · 执行中')
-        temporal=params.get('engine') in ('wan','animate','custom_free')
-        self.status.setText('准备参考主体与连续动画…' if temporal else '准备行走骨骼与角色分层…')
-        write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':'running','params':params})
-        def event(kind,data):
-            if kind == 'reference_stage': self.status.setText(data['message'])
-            elif kind=='workflow_ready':
-                if data['url']!=self.client.url:
-                    raise RuntimeError('动作工作流与当前引擎地址不一致。')
-                self.last_chat_graph=json.loads(json.dumps(data['graph']))
-                self.editor_needs_sync=True; self.sync_editor_if_needed()
-            elif kind=='pose_video_event':
-                from .animation_status import monitor_text
-                message=monitor_text(data['event'],data['data'],self.last_chat_graph)
-                if message:self.status.setText(message)
-                if data['event']=='queued': self.current['prompt_id']=data['data']['prompt_id']
-                elif data['event']=='executing':self.current['sampling_node']=str(data['data'].get('node') or '')
-                elif data['event']=='progress':
-                    step=data['data'];fraction=step['value']/max(1,step['max'])
-                    node=(self.last_chat_graph or {}).get(str(step.get('node') or self.current.get('sampling_node','')),{})
-                    if node.get('class_type')=='KSamplerAdvanced':
-                        inputs=node['inputs'];start=inputs['start_at_step'];end=min(inputs['steps'],inputs['end_at_step'])
-                        fraction=(start+(end-start)*fraction)/max(1,inputs['steps'])
-                    self.progress.setRange(0,100);self.progress.setValue(max(self.progress.value(),round(10+70*fraction)))
-                    self.status.setText(f'{task_name(params)} · 采样 {step["value"]}/{step["max"]}')
-            elif kind=='decode_event':
-                from .animation_status import monitor_text
-                if data['event']=='queued':self.current['prompt_id']=data['data']['prompt_id']
-                self.status.setText(monitor_text(data['event'],data['data'],self.last_chat_graph) or '解码原生动画帧…')
-            elif kind=='quality_event':
-                if data['event']=='queued': self.current['prompt_id']=data['data']['prompt_id']
-                self.status.setText('正在进行手动选择的高清修复…')
-            elif kind in ('video_event','character_event'):
-                stage='连续动画' if kind=='video_event' else '角色图片'
-                if data['event']=='monitor_waiting':
-                    self.status.setText(stage+' · 进度连接暂时中断，继续检查同一任务…')
-                elif data['event'] in ('cancel_pending','monitor_status'):
-                    from .animation_status import monitor_text
-                    message=monitor_text(data['event'],data['data'],self.last_chat_graph)
-                    if message:self.status.setText(message)
-                elif data['event']=='progress':
-                    if kind=='video_event': stage='细节完善' if self.current.get('video_expert',0) else '动作生成'
-                    self.progress.setRange(0,100)
-                    step=data['data']; self.status.setText(f'{stage}推理 {step["value"]}/{step["max"]}')
-                    fraction=step['value']/max(1,step['max'])
-                    offset=10 if params.get('source')=='text' else 0
-                    if kind=='character_event': value=10*fraction
-                    else: value=offset+(80-offset)*(self.current.get('video_expert',0)+fraction)/2
-                    self.progress.setValue(max(self.progress.value(),round(value)))
-                elif data['event']=='queued': self.current['prompt_id']=data['data']['prompt_id']
-                elif data['event']=='executing':
-                    node=str(data['data'].get('node') or '')
-                    if kind=='video_event' and node in ('11','12'): self.current['video_expert']=int(node=='12')
-                    labels={'1':'加载模型','2':'加载模型','3':'处理描述','4':'准备图像',
-                        '5':'处理描述','6':'处理描述','7':'读取参考','8':'准备连续帧',
-                        '9':'准备推理','10':'准备推理','11':'动作生成','12':'细节完善',
-                        '13':'解码连续帧','14':'保存连续帧'} if kind=='video_event' else {
-                        '1':'加载模型','2':'处理描述','3':'处理描述','4':'准备画布','5':'绘制角色','6':'解码图片','7':'保存图片'}
-                    self.status.setText(stage+' · '+labels.get(node,'保存结果'))
-            elif kind=='matte_progress':
-                self.progress.setRange(0,100)
-                self.progress.setValue(max(self.progress.value(),round(80+15*data['value']/max(1,data['max']))))
-            elif kind == 'frame_started':
-                self.status.setText(f'行走第 {data["index"]+1}/{data["count"]} 帧 · {data["stage"]}')
-            elif kind == 'frame_event':
-                if data['event'] == 'progress':
-                    step=data['data']; self.status.setText(f'第 {data["index"]+1}/{data["count"]} 帧 · 采样 {step["value"]}/{step["max"]}')
-            elif kind == 'frame_ready':
-                fraction=(data['index']+1)/data['count']
-                value=round(80+18*fraction) if params.get('engine')=='animate' else round(95+4*fraction) if temporal else round(fraction*100)
-                self.progress.setValue(max(self.progress.value(),value))
-                self.show_image(data['image'], allow_zoom=False)
-            elif kind in ('result','error','cancelled'):
-                status={'result':'completed','error':'failed','cancelled':'cancelled'}[kind]
-                self.task_display.finish(status)
-                write_json(folder/'job.json',{'schema_version':1,'kind':'walk','status':status,'params':params,
-                                            'result':data if kind=='result' else None,'error':None if kind=='result' else str(data),
-                                            'duration_seconds':round(self.task_display.seconds(),2)})
-                if kind == 'result':
-                    self.animation_player.load(data['manifest']); self.load_gallery()
-                    last=Path(data.get('workflow') or folder/f'frame_{params["count"]-1:03d}'/'workflow.json')
-                    self.last_chat_graph=json.loads(last.read_text('utf-8')); self.editor_needs_sync=True; self.sync_editor_if_needed()
-                    message=ACTIONS[params.get('action','walk')][0]+'序列已完成，可播放、逐帧查看或导出 PNG / Sprite Sheet / GIF。'
-                    if data.get('warnings'):message+='\n画面检查：'+'；'.join(data['warnings'])
-                else: message=('动作任务已取消。' if kind=='cancelled' else '动作生成失败：'+str(data))+' 已接收的结果与任务记录保留在缓存。'
-                self.add_chat('软件',message,job=str(folder)); self.log.append(folder.name+' · '+status)
-                if kind=='result': self.progress.setValue(100)
-                item.setText(task_name(params)+' · '+{'completed':'完成','failed':'失败','cancelled':'已取消'}[status]); self.status.setText(message)
-                if kind=='error' and is_engine_unavailable(data): self.disconnect_engine(str(data))
-                self.current=None; self.connect_button.setEnabled(True); QTimer.singleShot(0,self.start_next)
-        if params.get('engine')=='animate':
-            from .pose_animation import generate
-            self.launch(lambda emit:generate(self.client,folder,params['prompt'],params['negative'],params['seed'],
-                params['count'],params['fps'],emit,cancel,params['reference'],params['checkpoint'],params['steps'],
-                params.get('action','walk'),params.get('motion'),params.get('lora',''),params.get('lora_strength',.8),
-                preserve_reference=params.get('preserve_reference',True),
-                detail=params.get('animation_detail','preview'),sampler=params.get('animation_sampler','euler'),
-                color_mode=params.get('animation_color','reference'),style_reference=params.get('style_reference',False),
-                custom_description=params.get('custom_description','')),event)
-        elif params.get('engine')=='custom_free':
-            from .custom_animation import generate
-            self.launch(lambda emit:generate(self.client,folder,params['prompt'],params['negative'],params['seed'],
-                params['count'],params['fps'],emit,cancel,params['reference'],params['checkpoint'],params['steps'],
-                custom_description=params['custom_description'],lora=params['lora'],lora_strength=params['lora_strength'],
-                style_reference=params.get('style_reference',False),preserve_reference=params.get('preserve_reference',True),
-                custom_loop=params.get('custom_loop',False)),event)
-        elif params.get('engine')=='wan':
-            from .temporal_animation import generate_temporal
-            self.launch(lambda emit:generate_temporal(self.client,folder,params['prompt'],params['negative'],
-                params['seed'],params['count'],params['fps'],emit,cancel,params['reference'],params['checkpoint'],params['steps'],
-                params.get('lora',''),params.get('lora_strength',.8),params.get('quality_mode','off'),params.get('preserve_reference',True)),event)
-        else:
-            self.launch(lambda emit:generate_walk(self.client,folder,params['profile'],params['prompt'],params['checkpoint'],
-                params['seed'],params['count'],params['fps'],emit,cancel,params['steps'],params['negative'],params['reference']),event)
+        write_json(folder/'job.json',{'schema_version':1,'kind':'animation','status':'failed','params':params,
+            'error':'旧骨骼与 Wan 任务已停用，请用 MiniMax H3 重新创建。'})
+        item.setText('旧动画任务 · 已停用')
+        self.add_chat('软件','旧骨骼与 Wan 任务已停用，历史成品仍可预览和导出。')
+        QTimer.singleShot(0,self.start_next)
 
     def update_job(self, status, error=None):
         if self.current:

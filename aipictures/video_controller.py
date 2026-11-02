@@ -22,20 +22,19 @@ class VideoController:
         self.player=VideoPreview(window)
         window.workspace_layout.insertWidget(window.workspace_layout.indexOf(window.animation_player)+1,self.player)
         window.animation_engine.blockSignals(True);window.animation_engine.clear()
-        window.animation_engine.addItem('Wan2.2 · 自由动画','video_wan')
-        window.animation_engine.addItem('MiniMax H3 · 独立引擎','h3')
-        window.animation_engine.addItem('骨骼动作 · 研究工具','animate')
+        window.animation_engine.addItem('MiniMax H3','h3')
         from .h3_backend import settings
-        self.h3=settings(self.data);window.animation_engine.model().item(1).setEnabled(bool(self.h3))
-        window.animation_engine.setCurrentIndex(1 if self.h3 else 0)
+        self.h3=settings(self.data)
+        window.animation_engine.setCurrentIndex(0)
         window.animation_engine.blockSignals(False)
         window.walk_form.insertRow(0,'动画模型',window.animation_engine)
+        window.animation_engine.setEnabled(False)  # One supported engine, no silent legacy fallback.
         self.seconds=QDoubleSpinBox();self.seconds.setRange(2,8);self.seconds.setSingleStep(1);self.seconds.setValue(4)
         window.walk_form.insertRow(1,'片段时长（秒）',self.seconds)
         window.animation_action.currentIndexChanged.connect(self.action_changed)
         self.action_changed()
 
-    def free(self):return self.window.animation_engine.currentData() in ('video_wan','h3')
+    def free(self):return self.window.animation_engine.currentData()=='h3'
 
     def action_changed(self,*_):
         w=self.window
@@ -74,39 +73,38 @@ class VideoController:
         w.animation_action_label.setText('动作模板' if free else '动作')
         w.update_lora_state()
         w.settings_buttons['image'].setVisible(not walking or not free)
-        for field in (w.steps,w.sampler,w.scheduler):w.sampling_form.setRowVisible(field,not walking)
+        fixed=w.model_family.currentData() in ('zimage','flux_klein','qwen_edit')
+        for field in (w.steps,w.sampler,w.scheduler):w.sampling_form.setRowVisible(field,not walking and not fixed)
         w.sampling_form.setRowVisible(w.cfg,not walking and w.model_family.currentData()=='sdxl')
-        w.animation_steps.setEnabled(walking and w.animation_engine.currentData() in ('video_wan','animate'))
-        w.walk_form.setRowVisible(w.animation_steps,walking and w.animation_engine.currentData()!='h3')
+        w.walk_form.setRowVisible(w.animation_steps,False)
         for field in (w.motion_mode,w.research_motion_button,w.animation_style,w.style_link,
                       w.animation_detail,w.animation_sampler,w.animation_color,w.walk_count,w.walk_fps,w.motion_note):
-            w.walk_form.setRowVisible(field,walking and not free)
+            w.walk_form.setRowVisible(field,False)
         w.walk_form.setRowVisible(self.seconds,walking and free)
-        w.research_bones_button.setVisible(walking and not free)
+        w.research_bones_button.hide()
         w.custom_form.setRowVisible(w.custom_strategy,False)
-        w.custom_settings.setVisible(walking and not free and w.animation_action.currentData()=='custom')
+        w.custom_settings.hide()
         w.custom_loop.hide();w.animation_style.setChecked(False)
         if not walking:self.player.stop()
         if walking and free:
             if w.api_controller.cloud:
                 w.generate_button.setEnabled(False);w.intent_hint.setText('动画使用本地引擎；请在API设置中切回本地生成。');return
-            w.generate_button.setEnabled(not w.preparing and (bool(self.h3) if w.animation_engine.currentData()=='h3' else w.connected))
+            w.generate_button.setEnabled(not w.preparing and bool(self.h3))
             w.custom_hint.setText('动作描述为准；生成完整动画后再选择拆帧，不需要调整骨骼。')
             w.positive.setPlaceholderText('一起描述角色、场景和动作，例如：蓝发角色面向右侧原地跑步，双腿交替迈步，保持参考图配色。')
             w.context_label.setText('动画创作');w.generate_button.setText('生成完整动画')
-            w.intent_hint.setText('正向提示词统一描述画面与动作 → 完整动画预览 → 自主选帧导出')
-            w.creation_summary.setText('自由动画\n'+('MiniMax H3' if w.animation_engine.currentData()=='h3' else 'Wan2.2')+'\n先预览完整片段，再导出素材')
-        elif walking:
-            w.custom_strategy.setCurrentIndex(w.custom_strategy.findData('skeleton'))
+            w.intent_hint.setText('正向提示词描述画面与动作 → 完整动画预览 → 自主选帧导出' if self.h3 else 'MiniMax H3 尚未安装并验证；请先完成独立引擎设置。')
+            w.creation_summary.setText('自由动画\nMiniMax H3\n先预览完整片段，再导出素材')
         w.animation_style.hide();w.style_link.hide()
 
     def intercept(self):
         w=self.window
-        if w.generation_type.currentData()!='walk' or not self.free():return False
+        if w.generation_type.currentData()!='walk':return False
+        if not self.free():raise ValueError('旧骨骼与 Wan 动画路线已停用，请选择 MiniMax H3。')
         if w.api_controller.cloud:return False
         if w.preparing:return True
-        engine='h3' if w.animation_engine.currentData()=='h3' else 'wan'
-        if engine=='wan' and not w.connected:raise ValueError('请先连接本地 ComfyUI。')
+        engine='h3'
+        if not self.h3:raise ValueError('MiniMax H3 尚未安装并验证，不能生成动画；不会切回已停用的 Wan。')
         description=''
         reference=w.reference_path if w.animation_source.currentData()=='reference' else None
         prompt=w.positive.toPlainText().strip()
@@ -120,14 +118,12 @@ class VideoController:
         folder=self.new_folder()
         if reference:
             frozen=folder/('reference'+Path(reference).suffix);shutil.copyfile(reference,frozen);reference=str(frozen)
-        params={'mode':'video','engine':engine,'backend':'standalone' if engine=='h3' else 'local',
+        params={'mode':'video','engine':engine,'backend':'standalone',
             'prompt':prompt,'negative':w.negative.toPlainText(),'action_description':description,'prompt_layout':'unified',
             'seed_mode':w.seed_mode.currentData(),
             'reference':reference,'seed':seed,'seconds':self.seconds.value(),'steps':w.animation_steps.value(),
             'checkpoint':w.model.currentText(),'url':w.client.url if w.connected else None,'lora':''}
-        if engine=='h3':
-            if not self.h3:raise ValueError('H3 独立环境尚未完成验证。')
-            params['h3_settings']=self.h3.copy()
+        params['h3_settings']=self.h3.copy()
         self.enqueue(params,folder)
         return True
 
@@ -166,10 +162,6 @@ class VideoController:
                 w.progress.setRange(0,100);w.progress.setValue(round(80+15*data['done']/max(1,data['total'])))
             elif kind=='progress':
                 fraction=data['value']/max(1,data['max'])
-                if params['engine']=='wan':
-                    node=(w.last_chat_graph or {}).get(str(data.get('node') or w.current.get('sampling_node','')),{})
-                    if node.get('class_type')=='KSamplerAdvanced':
-                        inputs=node['inputs'];fraction=(inputs['start_at_step']+(min(inputs['steps'],inputs['end_at_step'])-inputs['start_at_step'])*fraction)/inputs['steps']
                 w.progress.setRange(0,100);w.progress.setValue(max(w.progress.value(),round(80*fraction)))
                 w.status.setText('制作完整动画 · 模型采样中…')
             elif kind in ('result','error','cancelled'):

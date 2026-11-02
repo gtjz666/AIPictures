@@ -16,7 +16,7 @@ def main():
     app=create_application([])
     with tempfile.TemporaryDirectory() as temp,patch('aipictures.app.DATA',Path(temp)),\
          patch.object(Window,'connect_engine'),patch.object(Window,'restore_chat'),\
-         patch.object(Window,'refresh_stats'):
+         patch.object(Window,'refresh_stats'),patch('aipictures.h3_backend.settings',return_value={'validated':True}):
         root=Path(temp);window=Window();window.timer.stop();window.show();QTest.qWait(25)
         assert not window.reference_path and window.pixmap.isNull()
         assert not window.lora.isVisible() and not window.lora.isEnabled()
@@ -59,8 +59,9 @@ def main():
             controller.player.save()
         assert saved.read_bytes()==master.read_bytes()
         assert window.cache_store.saved_files()[0]['kind']=='video'
-        window.animation_engine.setCurrentIndex(window.animation_engine.findData('animate'))
-        assert not controller.free() and window.research_bones_button.isVisible()
+        assert window.animation_engine.count()==1 and window.animation_engine.currentData()=='h3'
+        assert params['engine']=='h3' and params['backend']=='standalone'
+        assert not window.research_bones_button.isVisible()
         window.close()
     print('Full animation Qt preview / explicit split / no LoRA / frozen queue: PASS')
 

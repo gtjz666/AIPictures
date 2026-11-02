@@ -15,7 +15,8 @@ def main():
     app=create_application([])
     with tempfile.TemporaryDirectory() as temp,patch('aipictures.app.DATA',Path(temp)),\
          patch.object(Window,'connect_engine'),patch.object(Window,'load_gallery'),\
-         patch.object(Window,'restore_chat'),patch.object(Window,'refresh_stats'):
+         patch.object(Window,'restore_chat'),patch.object(Window,'refresh_stats'),\
+         patch('aipictures.h3_backend.settings',return_value={'validated':True}):
         window=Window();window.timer.stop();window.show();QTest.qWait(30)
         assert window.generation_type.isVisible() and not window.animation_action.isVisible()
         assert not window.reference_path and not window.reference_policy.isVisible()
@@ -26,7 +27,7 @@ def main():
         window.generation_type.setCurrentIndex(1)
         assert window.animation_action.isVisible() and not window.reference_policy.isVisible()
         assert '完整动画预览' in window.intent_hint.text()
-        assert window.animation_engine.currentData()=='video_wan'
+        assert window.animation_engine.currentData()=='h3'
         assert not window.research_bones_button.isVisible()
         window.animation_action.setCurrentIndex(window.animation_action.findData('custom'))
         assert window.custom_strategy.currentData()=='free' and not window.custom_description.isVisible()

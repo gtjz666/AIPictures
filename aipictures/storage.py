@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from pathlib import Path
 from datetime import datetime
 from uuid import uuid4
@@ -14,9 +15,19 @@ def write_json(path, value):
     temp = path.with_name(path.name+'.'+uuid4().hex+'.tmp')
     try:
         temp.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
-        os.replace(temp, path)
+        # Windows readers/virus scanners can briefly deny delete-sharing on the
+        # destination. Preserve the old valid JSON and retry the same atomic
+        # replacement; a transient lock must not lose a running GPU task.
+        for attempt in range(7):
+            try:
+                os.replace(temp, path)
+                break
+            except PermissionError:
+                if attempt==6:raise
+                time.sleep(min(.02*2**attempt,.32))
     finally:
-        temp.unlink(missing_ok=True)
+        try:temp.unlink(missing_ok=True)
+        except OSError:pass  # A cleanup lock must not hide the original write error.
 
 
 def new_job(graph, params):

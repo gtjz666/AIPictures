@@ -26,7 +26,7 @@ def generate(folder: Path, params: dict, cancel: threading.Event, emit) -> dict:
     if (folder/'h3-command.json').exists() or (folder/'animation.artifacts').exists():
         raise ValueError('此目录已有生成记录，请先检查旧任务；不会自动重复提交。')
     config=params.get('h3_settings',{})
-    if not config.get('validated'):raise ValueError('H3 环境尚未通过本地验证；请选择 Wan 自由动画。')
+    if not config.get('validated'):raise ValueError('H3 环境尚未通过本地验证；请先完成独立引擎设置。')
     from .engine import ComfyClient,EngineUnavailable
     from .engine_service import release_idle_models
     try:

@@ -16,7 +16,8 @@ from tests.test_manual_frames import fixture
 def main():
     app=create_application([])
     with tempfile.TemporaryDirectory() as temp,patch('aipictures.app.DATA',Path(temp)),\
-         patch.object(Window,'auto_connect_engine'),patch.object(Window,'restore_chat'),patch.object(Window,'refresh_stats'):
+         patch.object(Window,'auto_connect_engine'),patch.object(Window,'restore_chat'),patch.object(Window,'refresh_stats'),\
+         patch('aipictures.h3_backend.settings',return_value={'validated':True}):
         root=Path(temp);w=Window();w.timer.stop();w.show();QTest.qWait(20)
         assert w.seed_mode.currentData()=='random' and w.seed.text()=='-1'
         w.positive.setPlainText('紫发角色，白色上衣')

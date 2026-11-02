@@ -37,6 +37,7 @@ def install_file(target,spec):
     partial=target.with_name(target.name+'.style-download.part')
     for attempt in range(6):
         offset=partial.stat().st_size if partial.exists() else 0
+        if offset>spec['bytes']:raise ValueError('部分文件超过预期大小，已保留供检查：'+str(partial))
         if offset==spec['bytes']: break
         try:
             separator='&' if '?' in spec['url'] else '?'
@@ -46,6 +47,8 @@ def install_file(target,spec):
                     raise ValueError('服务器不支持本次续传，保留部分文件。')
                 with partial.open('ab' if offset else 'wb') as stream:
                     for block in iter(lambda:response.read(4*1024*1024),b''): stream.write(block)
+            if partial.stat().st_size<spec['bytes']:
+                raise OSError('服务器提前结束下载，将从已接收位置继续。')
             break
         except Exception:
             if attempt==5: raise

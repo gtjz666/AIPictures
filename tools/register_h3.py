@@ -32,12 +32,12 @@ def register(root: Path,result: Path,data: Path=DATA) -> dict:
 
 
 def main():
-    parser=argparse.ArgumentParser(description='用真实输出注册可选的独立 H3 引擎，不下载权重。')
+    parser=argparse.ArgumentParser(description='用真实输出注册独立 H3 动画引擎，不下载权重。')
     parser.add_argument('--root',type=Path,required=True)
     parser.add_argument('--result',type=Path,required=True,help='本软件生成的已完成video.json')
     parser.add_argument('--data',type=Path,default=DATA)
     args=parser.parse_args();register(args.root,args.result,args.data)
-    print('H3 已注册。重新打开软件，在“角色与生成”中选择动画模型。')
+    print('H3 已注册。重新打开软件，选择“动画制作”。')
 
 
 if __name__=='__main__':main()

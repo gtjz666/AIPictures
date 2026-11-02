@@ -11,6 +11,7 @@ MODEL_SPEC={'bytes':18401760586,'sha256':'2936b31473a967e7a429a6646bba60e7862d09
 
 
 def main():
+    raise ValueError("旧骨骼与 Wan 模型已停用，不再安装。请使用 MiniMax H3。")
     parser=argparse.ArgumentParser(); parser.add_argument('--models',required=True); args=parser.parse_args()
     root=Path(args.models).resolve()
     # Frozen metadata recorded from the publisher; SHA-256 is verified before install.

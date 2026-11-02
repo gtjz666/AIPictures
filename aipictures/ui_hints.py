@@ -14,7 +14,7 @@ def install_hints(w):
         'animation_style':'主动勾选后，用手动选择的 SDXL LoRA 重绘风格基准图，再生成动作。会改变参考外观；未勾选时不叠加风格。',
         'custom_description':'骨骼编排支持已提供动作的顺序组合和秒数占比；例如：下蹲1秒，然后出拳1秒。其他描述请选择 AI 自由动作。',
         'custom_strategy':'骨骼编排可检查每帧关节；AI 自由动作直接读取说明，没有逐帧姿态保证，复杂动作仍需人工验收。',
-        'animation_engine':'完整骨骼动作把整段姿态序列直接送入模型；自动适配即可生成，手调为可选。',
+        'animation_engine':'MiniMax H3独立生成完整动画，再自主选帧导出。',
         'motion_mode':'自动适配按当前参考图生成完整动作；手动方式使用你保存的逐帧关节调整。',
         'animation_source':'参考图沿用已有角色；仅文字会先绘制角色，再生成动作。生成读取原图颜色，完成后再抠透明背景；骨骼分析使用独立副本。',
         'animation_steps':'动画推理次数。默认 20；增加会更慢，不保证外观更准确。',
@@ -24,7 +24,7 @@ def install_hints(w):
         'walk_count':'从连续动画选出 8 或 16 张帧。16 帧播放更细，但不保证动作更准确。',
         'walk_fps':'每秒播放的帧数。数值越大，播放越快。',
         'workflow_selector':'自动工作流支持人物、物件和场景，不按关键词套入人体骨骼。手动导入预设时沿用其结构。',
-        'model':'用于单张图片与文字动画的角色图；连续动画使用独立的 Wan 模型。',
+        'model':'仅用于SDXL兼容单图；动画由MiniMax H3独立生成，不使用这个基础模型。',
         'width':'单张图片输出宽度；参考图建议保持原比例。动画画布固定。',
         'height':'单张图片输出高度；参考图建议保持原比例。动画画布固定。',
         'denoise':'数值越小越接近参考原图，越大越容易改变外观。保留细节模式最高 0.25。',
@@ -50,7 +50,7 @@ def install_hints(w):
         'generate_button':'按当前设置加入本地生成队列；结果先保存为缓存。',
         'cancel_button':'只取消本软件当前任务；已生成的文件保留。',
     }
-    technical={'animation_style','custom_strategy','animation_engine','motion_mode','animation_steps',
+    technical={'animation_style','custom_strategy','motion_mode','animation_steps',
         'animation_detail','animation_sampler','animation_color','walk_fps','workflow_selector','model',
         'denoise','reference_policy','reference_strength','quality_mode','steps','cfg','seed','sampler',
         'scheduler','lora_category','lora','strength','unload_button'}
@@ -65,10 +65,10 @@ def install_hints(w):
         'connection':'查看引擎连接、启动本地 ComfyUI 和释放空闲显存。',
     }.items(): w.settings_buttons[key].setToolTip('')
     item_hints={
-        'reference_policy':['按描述创作新构图，参考图用于外观条件；可手动选择 LoRA。','沿用原构图进行小幅修改；不叠加风格 LoRA。AI 仍可能改变细节。'],
+        'reference_policy':['按描述创作新构图，参考图用于外观条件。','沿用原构图进行小幅修改；AI仍可能改变细节。'],
         'quality_mode':['只平滑透明边缘和显示缩放，不生成额外纹理。','适合动漫线条；可能重画纹理，耗时增加。','适合照片；可能重画皮肤和材质，耗时增加。'],
         'generation_type':['绘制一张图片，可使用文字或参考图。','按所选动作生成连续帧，可预览并导出精灵图和 GIF。'],
-        'animation_engine':['输入完整的逐帧姿态序列，自动适配或手动调整均可。'],
+        'animation_engine':['MiniMax H3：按描述与可选参考图生成完整动画。'],
         'animation_source':['请主动添加参考图；不会自动使用历史角色图。','无需参考图；先按外观描述生成角色，再制作动作。'],
     }
     for name,texts in item_hints.items():
