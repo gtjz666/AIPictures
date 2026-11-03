@@ -3,6 +3,7 @@ import json
 import math
 import os
 import socket
+import shutil
 import subprocess
 import threading
 import time
@@ -24,7 +25,8 @@ def settings(data: Path) -> dict:
         config=json.loads((Path(data)/'motion-native-settings.json').read_text('utf-8'))
         if not config.get('validated'):return {}
         if not all(Path(config[k]).exists() for k in ('python','source','model_paths')):return {}
-        if not (Path(config['source'])/'custom_nodes/aipictures_motion/__init__.py').is_file():return {}
+        private_nodes=Path(config['source'])/'custom_nodes/aipictures_motion'
+        if not all((private_nodes/name).is_file() for name in ('__init__.py','frames.py','conditioning.py','stream_weights.py')):return {}
         from .motion_native_graph import MODEL,VAE
         if not {MODEL,VAE}.issubset({Path(row['path']).name for row in config['models']}):return {}
         if not all(Path(row['path']).stat().st_size==row['bytes'] for row in config['models']):return {}
@@ -41,6 +43,7 @@ class NativeSession:
 
     def __enter__(self):
         if self.cancel.is_set():raise Cancelled('动作参考生成已取消。')
+        self.folder.mkdir(parents=True,exist_ok=True)
         self.input.mkdir(exist_ok=False);self.output_dir.mkdir(exist_ok=False)
         with socket.socket() as sock:sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
         self.client=ComfyClient(f'http://127.0.0.1:{port}')
@@ -48,12 +51,14 @@ class NativeSession:
                  '--extra-model-paths-config',self.config['model_paths'],'--input-directory',str(self.input.resolve()),
                  '--output-directory',str(self.output_dir.resolve()),'--disable-all-custom-nodes',
                  '--whitelist-custom-nodes','aipictures_motion','--offline','--disable-dynamic-vram',
-                 '--cache-none','--disable-smart-memory','--reserve-vram','1.0']
-        write_json(self.folder/'native-command.json',dict(command=command,cwd=self.config['source']))
+                 '--cache-none','--disable-smart-memory','--reserve-vram','3.0']
+        if os.name=='nt':command+=['--disable-async-offload','--disable-pinned-memory']
+        write_json(self.folder/'native-command.json',dict(command=command,cwd=self.config['source'],
+            environment={'AIPICTURES_STREAM_WEIGHTS':'1'},weights_loader='stream'))
         self.output=(self.folder/'native.log').open('w',encoding='utf-8')
         try:
             self.process=subprocess.Popen(gated_module_command(command),cwd=self.config['source'],
-                env=dict(os.environ,PYTHONUTF8='1',HF_HUB_OFFLINE='1'),stdin=subprocess.PIPE,
+                env=dict(os.environ,PYTHONUTF8='1',HF_HUB_OFFLINE='1',AIPICTURES_STREAM_WEIGHTS='1'),stdin=subprocess.PIPE,
                 stdout=self.output,stderr=subprocess.STDOUT,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
             self.owner=OwnedProcessJob(self.process.pid)
@@ -113,7 +118,7 @@ def release_shared(params:dict):
 
 def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
     from .motion_guide import prepare,prompt
-    from .motion_native_graph import build
+    from .motion_native_graph import encoding,sampling
     from .video_io import encode_pngs
     from .workflow_library import digest
     from PIL import Image,ImageOps
@@ -121,10 +126,11 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
     length=output_frames(params['seconds'])
     if not config.get('validated') and not params.get('_native_probe'):
         raise ValueError('动作参考专用模型尚未通过本机验证；普通提示词动画不受影响。')
-    if (folder/'native-command.json').exists():raise ValueError('此任务已有运行记录，请检查原任务，不重复提交。')
+    if any((folder/p).exists() for p in ('native-command.json','native_encode','native_sample')):
+        raise ValueError('此任务已有运行记录，请检查原任务，不重复提交。')
     release_shared(params)
-    emit('video_stage',{'message':'正在准备动作序列并启动专用参考引擎…'})
-    with NativeSession(config,folder,cancel,emit) as server:
+    emit('video_stage',{'message':'准备并编码角色与动作参考（1/2）…'})
+    with NativeSession(config,folder/'native_encode',cancel,emit) as server:
         motion=prepare(Path(params['motion_reference']),server.input/'motion',math.ceil(params['seconds']*24)/24,
             params.get('motion_start',0.),cancel,emit,max_side=params.get('motion_max_side',512),
             align_h3=True,repeat=params.get('motion_repeat',False),encode_video=False,save_frames=True)
@@ -140,25 +146,44 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
         text=prompt(params['prompt'],bool(image))
         if params.get('negative','').strip():text+='\nAvoid: '+params['negative'].strip()
         (folder/'prompt.txt').write_text(text,'utf-8')
-        graph=build(server.info,text,params['seed'],config.get('width',768),config.get('height',1024),
+        graph=encoding(server.info,text,params['seed'],config.get('width',768),config.get('height',1024),
                     length,'motion/frames.json',image)
         # This graph belongs to the private H3 server, not the shared image editor.
         write_json(folder/'workflow.json',graph)
+        write_json(server.folder/'workflow.json',graph)
         def event(kind,data):
             server.check()
+            if kind=='progress' and graph.get(str(data.get('node')),{}).get('class_type')!='SamplerCustomAdvanced':
+                emit('video_stage',dict(message=f"处理参考或解码动画 · {data.get('value',0)}/{data.get('max',0)}"))
+                return
             if kind=='executing':
                 node=graph.get(str(data.get('node')),{}).get('class_type','')
                 stage={'MiniMaxH3ReferenceToVideo':'正在理解角色与动作参考并编码…',
                        'UNETLoader':'正在加载专用动作参考模型…','VAEDecode':'正在解码完整动画…'}.get(node)
                 if stage:emit('video_stage',dict(message=stage))
             emit(kind,data)
-        try:result=server.client.generate(graph,folder/'native_result',event,cancel)
+        try:server.client.generate(graph,server.folder/'native_result',event,cancel,allow_latent_only=True)
+        except EngineUnavailable:
+            if cancel.is_set():raise Cancelled('动作参考任务已取消；专用后端已停止。')
+            raise
+        packet=server.output_dir/'conditioning'
+        if not (packet/'conditioning.json').is_file():raise ValueError('参考条件未完整保存，日志保留。')
+    # Exiting the encoding process frees its CPU weights, GPU buffers and mappings.
+    emit('video_stage',dict(message='参考编码已保存并释放；正在加载动画模型（2/2）…'))
+    if cancel.is_set():raise Cancelled('已取消，参考条件保留。')
+    write_json(folder/'stages.json',dict(encoding='completed',sampling='preparing',weights_loader='stream',encoder_process_exited=True))
+    with NativeSession(config,folder/'native_sample',cancel,emit) as server:
+        shutil.copytree(packet,server.input/'conditioning')
+        graph=sampling(server.info,params['seed'],config.get('width',768),config.get('height',1024),length)
+        write_json(server.folder/'workflow.json',graph)
+        try:result=server.client.generate(graph,server.folder/'native_result',event,cancel)
         except EngineUnavailable:
             if cancel.is_set():raise Cancelled('动作参考任务已取消；专用后端已停止。')
             raise
         paths=[Path(p) for p in result['images']]
-        if len(paths)!=length:raise ValueError('生成帧数不完整，已保存结果保留，请检查 native_result。')
+        if len(paths)!=length:raise ValueError('生成帧数不完整，已保存结果保留，请检查 native_sample。')
+    write_json(folder/'stages.json',dict(encoding='completed',sampling='completed',weights_loader='stream',encoder_process_exited=True))
     target=folder/'animation_master.mp4';encode_pngs(paths,target,24,cancel)
     return dict(video=str(target.resolve()),native_frames=[str(p.resolve()) for p in paths],
-                backend='ComfyUI/H3-Ref2VA',style_lora=False,motion=motion,
+                backend='ComfyUI/H3-Ref2VA',style_lora=False,motion=motion,staged=True,weights_loader='stream',
                 frame_sha256=[digest(p) for p in paths])

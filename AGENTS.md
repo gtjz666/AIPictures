@@ -20,6 +20,7 @@
 - `pose_animation.py`、`motion_*`、`natural_motion.py`：旧骨骼/Wan研究档案，正常软件入口已经退役，不重新开放或安装模型。历史结果仍可读。
 - `video_controller.py` / `video_generation.py` / `video_preview.py`：MiniMax H3完整自由动画先预览，再自主选帧导出；没有已验证H3时明确不可用，不切回Wan。`h3_backend.py`使用独立环境。
 - `motion_reference_ui.py` / `motion_guide.py` / `frame_motion_input.py`：动画模式独立动作视频/GIF或PNG序列按钮，角色图不混用；PNG自然排序/FPS与GIF逐帧延时入队冻结。`motion_native_backend.py` / `motion_native_graph.py`使用专用Ref2VA及私有Comfy进程，不能用FreeVideo FL2VA/VDN快速权重冒充。新模型/环境经完整生成和目视验收后注册，未通过不开放生成。`motion_reference.py`是原研究模块，不覆盖其历史接口。
+- Windows参考动画使用自有逐张量读取器避免safetensors整文件映射瞬时提交，先完整保存官方编码条件并退出编码进程，再独立采样；条件/嵌套AV潜变量必须原字节保留，不用pickle。私有进程同步卸载、禁锁页传输并reserve-vram3GiB；不凭失败后的RAM数值推断失败瞬间峰值，不擅自改系统分页。详见docs/WINDOWS_MODEL_LOADING.md。
 - `flux_klein.py`：4步生图与独立参考潜变量编辑，复用既有Qwen3编码器；真实验收记录和模型齐全后才能启用。先比较图像路线，不默认增加额外理解模型。
 - `reference_edit.py`：Qwen-Image-Edit-2511未通过本机稳定性验收的历史候选，不能与Qwen-Image-2.1或Qwen3.8-27B混淆。
 - `animation_style.py`、`lora_catalog.py`仅保留历史复现与删除收据识别；当前停用LoRA，不重新下载。

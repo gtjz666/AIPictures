@@ -18,7 +18,9 @@ def register(config_path:Path,result:Path,data:Path=DATA)->dict:
     paths=[folder/row['image'] for row in manifest.get('frames',[])]
     if len(paths)<5 or [digest(p) for p in paths]!=manifest['source_result']['frame_sha256']:
         raise ValueError('生成帧缺失或已修改，请先检查原任务。')
-    command=json.loads((folder/'native-command.json').read_text('utf-8'))
+    command_path=folder/'native-command.json'
+    if manifest['source_result'].get('staged'):command_path=folder/'native_sample/native-command.json'
+    command=json.loads(command_path.read_text('utf-8'))
     graph=json.loads((folder/'workflow.json').read_text('utf-8'))
     actual=graph['references']['inputs']
     if (config['width'],config['height'])!=(actual['width'],actual['height']):raise ValueError('配置分辨率未经过本次验收。')

@@ -29,3 +29,19 @@ def build(info,prompt,seed,width,height,length,manifest,image=''):
         graph['character']={'class_type':'LoadImage','inputs':{'image':image}}
         refs['ref_images.ref_image_0']=['character',0]
     return graph
+
+
+def encoding(info,prompt,seed,width,height,length,manifest,image=''):
+    if 'AIPicturesSaveConditioning' not in info:raise ValueError('专用后端缺少分阶段条件保存节点，请更新私有节点。')
+    full=build(info,prompt,seed,width,height,length,manifest,image)
+    graph={k:v for k,v in full.items() if k in ('clip','vae','motion','references','character')}
+    graph['checkpoint']={'class_type':'AIPicturesSaveConditioning','inputs':{'conditioning':['references',0],'latent':['references',1]}}
+    return graph
+
+
+def sampling(info,seed,width,height,length):
+    if 'AIPicturesLoadConditioning' not in info:raise ValueError('专用后端缺少分阶段条件读取节点，请更新私有节点。')
+    full=build(info,'',seed,width,height,length,'')
+    graph={k:v for k,v in full.items() if k not in ('clip','motion','references')}
+    graph['references']={'class_type':'AIPicturesLoadConditioning','inputs':{'manifest':'conditioning/conditioning.json'}}
+    return graph
