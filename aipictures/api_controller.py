@@ -97,7 +97,10 @@ class ApiController:
 
     def enqueue(self) -> None:
         w = self.window
-        planner = self.settings.auth('planner') if self.settings.smart else None
+        local=getattr(w,'intent_controller',None)
+        reviewed = local and local.current_record and local.applied_context==local.fingerprint(prompts=False)
+        # A reviewed local plan needs neither a paid rewrite nor a planner key.
+        planner = self.settings.auth('planner') if self.settings.smart and not reviewed else None
         image = self.settings.auth('image') if self.cloud else None
         secrets = tuple(auth.key for auth in (planner,image) if auth)
         prompt, negative = w.positive.toPlainText(), w.negative.toPlainText()
@@ -145,6 +148,7 @@ class ApiController:
         # Snapshot the reference, so changing the UI or original file never changes a queued job.
         folder = self.data/'jobs'/(datetime.now().strftime('%Y%m%d_%H%M%S_')+uuid4().hex[:8])
         folder.mkdir(parents=True)
+        if hasattr(w,'intent_controller'):w.intent_controller.record(folder,params)
         frozen = None
         if reference:
             frozen = folder/('reference'+reference.suffix.lower())

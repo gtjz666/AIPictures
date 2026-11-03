@@ -179,6 +179,7 @@ class VideoController:
         return folder
 
     def enqueue(self,params,folder):
+        if hasattr(self.window,'intent_controller'):self.window.intent_controller.record(folder,params)
         w=self.window;write_json(folder/'job.json',{'schema_version':1,'kind':'video','status':'queued','params':params})
         item=QListWidgetItem('完整动画 · 等待');w.queue_list.addItem(item)
         from .seed_controls import show_seed

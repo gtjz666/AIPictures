@@ -307,6 +307,8 @@ class Window(QMainWindow):
         self.load_gallery(); self.assets_dialog.show(); self.assets_dialog.raise_()
 
     def open_settings(self,key):
+        if hasattr(self,'workbench'):
+            self.workbench.open_settings(key);return
         for name,dialog in self.settings_dialogs.items():
             if name!=key: dialog.hide()
         self.settings_dialogs[key].show_near(self.settings_buttons[key])
@@ -582,6 +584,7 @@ class Window(QMainWindow):
             self.height.setValue(max(256 if grid==16 else 64, round(size.height() * scale / grid) * grid))
         self.reference_label.setText('已添加参考图：' + source.name + ' · 后续发送会使用此图，可随时移除。')
         self.show_image(str(target),role='reference')
+        if hasattr(self,'intent_controller'):self.intent_controller.source_changed()
         if not self.character_loading: self.generation_type_changed()
 
     def use_current_as_reference(self):
@@ -677,6 +680,7 @@ class Window(QMainWindow):
 
     def enqueue(self):
         try:
+            if self.intent_controller.intercept():return
             if self.video_controller.intercept():return
             if self.api_controller.intercept(): return
             if not self.connected: raise ValueError('请先连接 ComfyUI')
@@ -802,6 +806,8 @@ class Window(QMainWindow):
         missing = {n['class_type'] for n in graph.values()} - set(self.info['nodes'])
         if missing: raise ValueError('缺少节点：' + ', '.join(sorted(missing)))
         folder = new_job(graph, params)
+        if hasattr(self,'intent_controller'):self.intent_controller.record(folder,params)
+        write_json(folder/'job.json', {'schema_version':1, 'kind':'image', 'status':'created', 'params':params})
         if editor_workflow is not None: write_json(folder / 'editor_workflow.json', editor_workflow)
         item = QListWidgetItem(task_name(params) + ' · 等待'); item.setToolTip(str(folder)); self.queue_list.addItem(item)
         self.pending.append((graph, params, folder, item))
@@ -888,6 +894,7 @@ class Window(QMainWindow):
                 'duration_seconds':round(self.task_display.seconds(),2)})
 
     def cancel_current(self):
+        if self.intent_controller.cancel():return
         if self.api_controller.cancel(): return
         ticket=self.current
         if ticket:ticket['cancel'].set()
@@ -1057,6 +1064,7 @@ class Window(QMainWindow):
             except (OSError,ValueError,KeyError) as exc: QMessageBox.warning(self, '保存失败', str(exc))
 
     def closeEvent(self, event):
+        self.intent_controller.cancel()
         self._closing=True;self.timer.stop();self.prepare_cancel.set()
         if self.current:self.current['cancel'].set()
         client=getattr(self,'client',None)

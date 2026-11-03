@@ -18,14 +18,18 @@ def main():
          patch.object(Window,'restore_chat'),patch.object(Window,'refresh_stats'),\
          patch('aipictures.h3_backend.settings',return_value={'validated':True}):
         window=Window();window.timer.stop();window.show();QTest.qWait(30)
-        assert window.generation_type.isVisible() and not window.animation_action.isVisible()
+        assert window.workbench.modes[0].isVisible() and window.workbench.modes[0].isChecked()
+        assert not window.animation_action.isVisible()
         assert not window.reference_path and not window.reference_policy.isVisible()
         assert not window.generate_button.toolTip() and not window.positive.toolTip()
         assert window.cfg.toolTip() and window.strength.toolTip()
         window.width.setValue(896);window.height.setValue(1152)
         window.positive.setPlainText('角色平躺在地上，白色衬衫')
         window.generation_type.setCurrentIndex(1)
-        assert window.animation_action.isVisible() and not window.reference_policy.isVisible()
+        assert window.workbench.modes[1].isChecked() and not window.reference_policy.isVisible()
+        window.open_settings('creation')
+        assert window.animation_action.isVisible()
+        window.workbench.settings.close()
         assert '完整动画预览' in window.intent_hint.text()
         assert window.animation_engine.currentData()=='h3'
         assert not window.research_bones_button.isVisible()

@@ -21,6 +21,9 @@ def main():
         root=Path(temp);w=Window();w.timer.stop();w.show();QTest.qWait(20)
         assert w.seed_mode.currentData()=='random' and w.seed.text()=='-1'
         w.positive.setPlainText('紫发角色，白色上衣')
+        # Templates are explicit choices; the new workbench defaults to free description.
+        assert w.animation_action.currentData()=='custom'
+        w.animation_action.setCurrentIndex(w.animation_action.findData('walk'))
         w.generation_type.setCurrentIndex(1);assert not w.custom_description.isVisible()
         assert '紫发角色' in w.positive.toPlainText() and '交替' in w.positive.toPlainText()
         w.positive.setPlainText('角色平躺后翻滚，保持参考配色')

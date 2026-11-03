@@ -1,10 +1,21 @@
-"""A quiet light desktop theme: neutral sidebar, white canvas and black primary action."""
+"""Quiet light desktop theme: neutral sidebar, white canvas and indigo actions."""
 from PySide6.QtGui import QColor,QFont,QPalette
 
 
 LIGHT_STYLE = '''
-QWidget { background:#ffffff; color:#242528; font-family:"Microsoft YaHei UI"; font-size:13px; }
-QWidget#sidebar { background:#f7f7f8; border:1px solid #ececee; border-radius:12px; }
+QWidget { background:#fcfcfd; color:#20252d; font-family:"Microsoft YaHei UI"; font-size:13px; }
+QMainWindow { background:#fcfcfd; }
+QWidget#sidebar { background:#f2f3f6; border:1px solid #e7e9ee; border-radius:16px; }
+QLabel#brand { font-size:22px; font-weight:700; letter-spacing:1px; padding:12px 2px 16px; }
+QLabel#pageHeading { font-size:24px; font-weight:700; padding:2px 0; background:transparent; }
+QLabel#dialogHeading { font-size:21px; font-weight:600; padding:10px; }
+QLabel#engineBadge { color:#687183; font-size:11px; background:#f0f2f6; border-radius:8px; padding:5px 10px; }
+QLabel#workflowSteps { color:#8790a0; font-size:12px; padding:8px 0; background:transparent; }
+QPushButton#modeCard { background:#ffffff; color:#70798a; border:1px solid #e3e7ee; border-radius:11px; padding:8px 18px; }
+QPushButton#modeCard:checked { background:#ebefff; color:#4056a1; border:1px solid #adbcec; font-weight:600; }
+QPushButton#modeCard:hover { border-color:#aebde9; }
+QToolButton { background:transparent; border:0; border-radius:6px; padding:7px 4px; color:#67758d; }
+QToolButton:hover { color:#4056a1; background:#eff2fc; }
 QWidget#taskDisplay { background:#ffffff; border:1px solid #e3e4e8; border-radius:10px; }
 QWidget#sidebar QLabel { background:transparent; }
 QWidget#sidebar QPushButton { background:transparent; border:0; border-radius:8px; padding:12px 10px; text-align:left; }
@@ -27,8 +38,8 @@ QPushButton { background:#ffffff; color:#292a2d; border:1px solid #dedfe3; borde
 QPushButton:hover { background:#f3f4f6; border-color:#c7c9ce; }
 QPushButton:pressed { background:#e8eaed; }
 QPushButton:disabled { color:#a6a9b0; background:#f6f7f8; border-color:#ebedf0; }
-QPushButton#primary { background:#202123; color:#ffffff; border:1px solid #202123; font-weight:600; border-radius:10px; }
-QPushButton#primary:hover { background:#3c3e42; border-color:#3c3e42; }
+QPushButton#primary { background:#4056a1; color:#ffffff; border:1px solid #4056a1; font-weight:600; border-radius:10px; }
+QPushButton#primary:hover { background:#344986; border-color:#344986; }
 QPushButton#primary:disabled { background:#bfc1c5; color:#f4f4f4; border-color:#bfc1c5; }
 QLineEdit:disabled,QComboBox:disabled,QSpinBox:disabled,QDoubleSpinBox:disabled { background:#f7f8fa; color:#9ea3ab; }
 QTabWidget::pane { border:1px solid #e5e7eb; border-radius:10px; background:#ffffff; }
@@ -47,6 +58,8 @@ QScrollBar::handle:vertical { background:#d3d6dc; border-radius:4px; min-height:
 QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical { height:0; }
 QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical { background:transparent; }
 QSplitter::handle { background:#ffffff; width:3px; }
+QTableWidget { background:#ffffff; border:1px solid #e3e7ee; border-radius:8px; gridline-color:#eef0f5; }
+QHeaderView::section { background:#f3f5fa; border:0; padding:10px; color:#647089; }
 QToolTip { background:#ffffff; color:#40434a; border:1px solid #dedfe3; border-radius:6px; padding:8px; font-size:12px; }
 '''
 

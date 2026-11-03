@@ -38,6 +38,8 @@ htmlcov/
 *.wan-download.part
 *.style-download.part
 *.style-download.part.range-*
+*.intent-download.part
+*.intent-download.part.range-*
 *.ckpt
 *.pt
 *.pth

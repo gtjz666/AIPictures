@@ -19,17 +19,19 @@ class MotionReferencePanel(QWidget):
     def __init__(self, window, seconds):
         super().__init__(window);self.window=window;self.seconds=seconds;self.path=None;self.meta=None
         self.preview_paths=[];self.preview_dialog=None
-        layout=QVBoxLayout(self);layout.setContentsMargins(10,8,10,8)
+        layout=QVBoxLayout(self);layout.setContentsMargins(0,3,0,3);layout.setSpacing(4)
         self.setObjectName('motionReference')
         layout.addWidget(QLabel('动作参考 · 视频 / GIF / PNG序列'))
-        row=QHBoxLayout();self.poster=QLabel();self.poster.setFixedSize(80,72);self.poster.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        row=QHBoxLayout();self.poster=QLabel();self.poster.setFixedSize(44,44);self.poster.setAlignment(Qt.AlignmentFlag.AlignCenter)
         row.addWidget(self.poster);self.summary=QLabel('可选：用动画指导动作和节奏，角色与画风由参考图片或提示词决定。')
         self.summary.setWordWrap(True);row.addWidget(self.summary,1)
         self.add=QPushButton('＋ 参考动画');self.add.clicked.connect(self.choose);row.addWidget(self.add)
         self.add_frames=QPushButton('＋ 动作帧');self.add_frames.clicked.connect(self.choose_frames);row.addWidget(self.add_frames)
         self.play=QPushButton('预览');self.play.clicked.connect(self.preview);row.addWidget(self.play)
         self.remove=QPushButton('移除');self.remove.clicked.connect(self.clear);row.addWidget(self.remove);layout.addLayout(row)
-        timeline=QHBoxLayout();timeline.addWidget(QLabel('动作起点（秒）'))
+        self.range_dialog=QDialog(window);self.range_dialog.setWindowTitle('动作参考片段');self.range_dialog.resize(480,260)
+        timeline=QVBoxLayout(self.range_dialog);timeline.addWidget(QLabel('动作起点（秒）'))
+        range_button=QPushButton('片段设置');range_button.clicked.connect(self.range_dialog.show);row.addWidget(range_button)
         self.start=QDoubleSpinBox();self.start.setRange(0,0);self.start.setDecimals(2);self.start.setSingleStep(.1)
         timeline.addWidget(self.start);self.range_note=QLabel();self.range_note.setWordWrap(True);timeline.addWidget(self.range_note,1)
         self.detail=QComboBox()
@@ -40,7 +42,7 @@ class MotionReferencePanel(QWidget):
         self.detail.setToolTip('只改变动作参考的编码尺寸，人物参考和输出分辨率不变。高值需要更多资源，可能无法在当前设备运行。')
         timeline.addWidget(self.detail)
         self.repeat=QCheckBox('循环参考动作');self.repeat.toggled.connect(self.update_range);timeline.addWidget(self.repeat)
-        layout.addLayout(timeline);self.start.valueChanged.connect(self.update_range);seconds.valueChanged.connect(self.update_range)
+        self.start.valueChanged.connect(self.update_range);seconds.valueChanged.connect(self.update_range)
         self.clear()
 
     def choose(self):
@@ -86,6 +88,7 @@ class MotionReferencePanel(QWidget):
                     self.path=Path(data['path']);self.meta=data['meta'];self.preview_paths=data['preview']['preview_frames']
                     self.summary.setText(f"{self.meta['name']} · {self.meta['duration']:.2f} 秒 · 仅参考动作")
                     self.poster.setPixmap(QPixmap(self.preview_paths[0]).scaled(self.poster.size(),Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation))
+                    self.poster.show()
                     self.start.setMaximum(max(0.,self.meta['duration']-1.));self.start.setValue(0.)
                     self.seconds.setValue(max(2.,min(8.,math.floor(self.meta['duration']*1000)/1000)))
                     self.repeat.setChecked(self.meta['duration']<2.)
@@ -98,6 +101,7 @@ class MotionReferencePanel(QWidget):
     def clear(self):
         if self.preview_dialog:self.preview_dialog.close();self.preview_dialog=None
         self.path=None;self.meta=None;self.preview_paths=[];self.poster.clear()
+        self.poster.hide()
         self.repeat.setChecked(False)
         self.summary.setText('可选：动画提供动作与节奏；图片提供角色与画风。')
         self.play.setEnabled(False);self.remove.setEnabled(False);self.start.setMaximum(0);self.start.setValue(0)

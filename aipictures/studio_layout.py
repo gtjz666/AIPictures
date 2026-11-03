@@ -26,7 +26,7 @@ def build_studio(w):
     split = QSplitter(); page_layout.addWidget(split); w.tabs.addTab(page, '创作')
     sidebar = QWidget(); sidebar.setObjectName('sidebar'); side = QVBoxLayout(sidebar)
     side.setContentsMargins(12, 10, 12, 10)
-    title = QLabel('AIPictures'); title.setStyleSheet('font-size:19px;font-weight:600;'); side.addWidget(title)
+    title = QLabel('AIPictures'); title.setObjectName('brand'); side.addWidget(title)
     w.creation_summary=QLabel('单张图片\n完整画面 · PNG'); w.creation_summary.setWordWrap(True); side.addWidget(w.creation_summary)
     w.creation_summary.setObjectName('muted')
     w.creation_summary.setMinimumHeight(64); w.creation_summary.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -167,7 +167,7 @@ def build_studio(w):
     import_animation=QPushButton('导入动画…');import_animation.clicked.connect(lambda:w.video_controller.import_file());side.addWidget(import_animation)
     bone = QPushButton('骨骼研究…'); bone.clicked.connect(w.open_motion_editor); side.addWidget(bone);w.research_bones_button=bone;bone.hide()
     edit = QPushButton('高级工作流…'); edit.clicked.connect(lambda: w.tabs.setCurrentIndex(1)); side.addWidget(edit)
-    guide=QLabel('选择生成类型\n→ 填写正向 / 反向提示词\n→ 生成、预览，再另存需要的结果'); guide.setWordWrap(True)
+    guide=QLabel('选择类型 → 添加素材\n描述需求 → 生成预览\n满意后另存或提取动画帧'); guide.setWordWrap(True)
     guide.setObjectName('muted')
     side.addStretch(); side.addWidget(guide)
     from .task_display import TaskDisplay
@@ -236,7 +236,9 @@ def build_studio(w):
     w.cancel_button = QPushButton('取消任务'); w.cancel_button.clicked.connect(w.cancel_current); compose.addWidget(w.cancel_button)
     w.generate_button = QPushButton('发送并生成'); w.generate_button.setObjectName('primary'); w.generate_button.setMinimumWidth(150); w.generate_button.setEnabled(False); w.generate_button.clicked.connect(w.enqueue)
     compose.addWidget(w.generate_button); cv.addLayout(compose)
-    split.addWidget(workspace); split.setStretchFactor(1,1); split.setSizes([240,1170]); w.chat_panel = workspace
+    workspace_scroll = QScrollArea(); workspace_scroll.setWidgetResizable(True)
+    workspace_scroll.setWidget(workspace); split.addWidget(workspace_scroll)
+    split.setStretchFactor(1,1); split.setSizes([240,1170]); w.chat_panel = workspace
     editor_page = QWidget(); ev = QVBoxLayout(editor_page); ev.setContentsMargins(0,0,0,0)
     back = QPushButton('← 返回创作'); back.clicked.connect(lambda: w.tabs.setCurrentIndex(0)); ev.addWidget(back, alignment=Qt.AlignmentFlag.AlignLeft)
     w.editor = WorkflowEditor(); ev.addWidget(w.editor,1); w.tabs.addTab(editor_page,'高级工作流')
@@ -287,4 +289,8 @@ def build_studio(w):
     w.denoise.valueChanged.connect(lambda value:remember_denoise(w,value))
     from .video_controller import VideoController
     w.video_controller=VideoController(w)
+    from .intent_controller import IntentController
+    w.intent_controller=IntentController(w)
+    from .workbench import Workbench
+    w.workbench=Workbench(w)
     w.update_intent_hint()
