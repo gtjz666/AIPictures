@@ -99,6 +99,8 @@ class Workbench:
         self.refresh_reference();QTimer.singleShot(0,self.restore_layout)
 
     def dock(self,title,name,content):
+        if name in ('prompts','animation'):
+            scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(content);content=scroll
         result=WorkspaceDock(title,'workspace_'+name,content,self.workspace);self.docks[name]=result;return result
 
     def make_settings(self,w):
