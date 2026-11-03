@@ -64,7 +64,10 @@ QScrollBar:vertical { background:transparent; width:9px; margin:0; }
 QScrollBar::handle:vertical { background:#d3d6dc; border-radius:4px; min-height:24px; }
 QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical { height:0; }
 QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical { background:transparent; }
-QSplitter::handle { background:#ffffff; width:3px; }
+QSplitter::handle { background:#eef0f5; }
+QSplitter::handle:horizontal { width:6px; }
+QSplitter::handle:vertical { height:6px; }
+QSplitter::handle:hover { background:#d8dff2; }
 QTableWidget { background:#ffffff; border:1px solid #e3e7ee; border-radius:8px; gridline-color:#eef0f5; }
 QHeaderView::section { background:#f3f5fa; border:0; padding:10px; color:#647089; }
 QToolTip { background:#ffffff; color:#40434a; border:1px solid #dedfe3; border-radius:6px; padding:8px; font-size:12px; }

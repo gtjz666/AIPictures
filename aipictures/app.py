@@ -1074,7 +1074,7 @@ class Window(QMainWindow):
             self.workbench.reference_player.stop()
             try:self.workbench.save_layout()
             except OSError:pass
-            for dock in self.workbench.docks.values():dock.hide()
+            self.workbench.settings.hide()
         self.intent_controller.cancel()
         self._closing=True;self.timer.stop();self.prepare_cancel.set()
         if self.current:self.current['cancel'].set()

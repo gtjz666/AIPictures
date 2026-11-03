@@ -23,8 +23,8 @@ def main():
             while w.preparing or w.workers:
                 app.processEvents();QTest.qWait(10)
                 assert time.monotonic()<deadline
-        assert panel.isVisible() and not panel.path
-        w.generation_type.setCurrentIndex(1);assert panel.isVisible()
+        assert not panel.isVisible() and not panel.path
+        w.generation_type.setCurrentIndex(1);w.workbench.right_tabs.setCurrentIndex(1);assert panel.isVisible()
         source=gif(root/'walk.gif');before=source.read_bytes();panel.set_file(source);wait()
         assert panel.path and panel.meta['name']=='walk.gif' and w.animation_action.currentData()=='custom'
         assert 'walk.gif' in panel.summary.text()

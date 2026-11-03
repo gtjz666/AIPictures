@@ -1,28 +1,13 @@
-"""Dockable creation workspace: canvas left, prompts and animation right."""
+"""Fixed, resizable workspace: canvas and task left, tabbed tools right."""
 import json
 from pathlib import Path
-from PySide6.QtCore import Qt, QTimer, QByteArray
-from PySide6.QtGui import QAction, QPixmap
-from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QLabel,QPushButton,QToolButton,
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QLabel,QPushButton,
     QButtonGroup,QDialog,QTabWidget,QScrollArea,QTableWidget,QTableWidgetItem,QHeaderView,
-    QSizePolicy,QMainWindow,QDockWidget,QToolBar,QBoxLayout,QSlider,QCheckBox)
+    QSizePolicy,QToolBar,QSplitter,QSlider,QCheckBox)
 from .storage import write_json
 from .transparent_preview import TransparentPreview
-
-
-class WorkspaceDock(QDockWidget):
-    def __init__(self,title,name,content,parent):
-        super().__init__(title,parent);self.setObjectName(name);self.setWidget(content)
-        self.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
-        self.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable |
-            QDockWidget.DockWidgetFeature.DockWidgetFloatable | QDockWidget.DockWidgetFeature.DockWidgetClosable)
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
-        maximize=QAction('最大化面板',self);maximize.triggered.connect(self.maximize_panel)
-        dock=QAction('停靠面板',self);dock.triggered.connect(lambda:self.setFloating(False))
-        self.addActions([maximize,dock,self.toggleViewAction()])
-
-    def maximize_panel(self):
-        self.setFloating(True);self.showMaximized()
 
 
 class ReferencePlayback(QWidget):
@@ -66,30 +51,39 @@ class Workbench:
         self.window=w;self.data=w.api_controller.data;self.plan=None;self._restored=False
         self.hidden=QWidget(w);self.hidden.hide()
         self.prompts=w.positive.parentWidget().parentWidget()
-        self.prompts.layout().setDirection(QBoxLayout.Direction.TopToBottom)
+        prompt_layout=self.prompts.layout();self.prompt_splitter=QSplitter(Qt.Orientation.Vertical)
+        self.prompt_splitter.setChildrenCollapsible(False)
+        while prompt_layout.count():
+            item=prompt_layout.takeAt(0)
+            if item.widget():self.prompt_splitter.addWidget(item.widget())
+        prompt_layout.addWidget(self.prompt_splitter)
         self.legacy_root=w.takeCentralWidget();self.legacy_root.hide()
         self.legacy_root.setParent(self.hidden)
         w.removeDockWidget(w.diagnostics);w.diagnostics.setParent(self.hidden);w.output_shortcut.setEnabled(False)
         w.tabs.setParent(w);w.setCentralWidget(w.tabs)
         old_page=w.tabs.widget(0);w.tabs.removeTab(0);old_page.setParent(self.hidden)
-        self.workspace=QMainWindow();self.workspace.setDockNestingEnabled(True)
-        self.workspace.setDockOptions(QMainWindow.DockOption.AllowNestedDocks |
-            QMainWindow.DockOption.AllowTabbedDocks | QMainWindow.DockOption.AnimatedDocks)
-        w.tabs.insertTab(0,self.workspace,'创作');w.tabs.setCurrentIndex(0);self.docks={}
+        self.workspace=QSplitter(Qt.Orientation.Horizontal);self.workspace.setChildrenCollapsible(False)
+        self.canvas=QWidget();cv=QVBoxLayout(self.canvas);cv.setContentsMargins(6,6,6,6)
+        self.right_tabs=QTabWidget();self.right_tabs.setMovable(False);self.right_tabs.setTabsClosable(False)
+        self.workspace.addWidget(self.canvas);self.workspace.addWidget(self.right_tabs)
+        self.workspace.setStretchFactor(0,3);self.workspace.setStretchFactor(1,1)
+        w.tabs.insertTab(0,self.workspace,'创作');w.tabs.setCurrentIndex(0)
         for control in (w.creation_summary,w.reference_label,w.context_label,w.intent_hint,w.style_status,w.seed_notice,w.caption):
             control.setParent(self.hidden)
         w.preview.setText('拖入参考素材');w.preview.setMinimumSize(320,240)
         w.preview.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Ignored)
         w.sequence_preview.sheet.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Ignored)
         w.sequence_preview.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Ignored)
-        canvas=QWidget();cv=QVBoxLayout(canvas);cv.setContentsMargins(6,6,6,6);cv.addWidget(w.sequence_preview,1)
+        self.make_reference(w,cv)
+        cv.addWidget(w.sequence_preview,1)
         actions=QHBoxLayout();actions.addStretch();actions.addWidget(w.image_save);actions.addWidget(w.image_reuse);cv.addLayout(actions)
         self.reference_player=ReferencePlayback(w);cv.addWidget(self.reference_player)
         cv.addWidget(w.animation_player);cv.addWidget(w.video_controller.player)
-        self.canvas=self.dock('画布','canvas',canvas)
         w.image_save.setEnabled(False);w.image_reuse.setEnabled(False)
         self.make_settings(w);self.make_prompts(w);self.make_animation(w)
-        w.task_display.setMinimumWidth(240);self.task=self.dock('当前任务','task',w.task_display)
+        self.task=QWidget();task_layout=QVBoxLayout(self.task);task_layout.setContentsMargins(0,3,0,0)
+        task_layout.setSpacing(2);task_layout.addWidget(QLabel('当前任务'));task_layout.addWidget(w.task_display)
+        cv.addWidget(self.task)
         self.make_toolbar(w);self.reset_layout(save=False)
         w.generation_type.hide();w.animation_action.setCurrentIndex(w.animation_action.findData('custom'))
         w.positive.setMinimumHeight(80);w.negative.setMinimumHeight(64)
@@ -98,10 +92,9 @@ class Workbench:
         w.video_controller.motion.changed.connect(self.motion_changed)
         self.refresh_reference();QTimer.singleShot(0,self.restore_layout)
 
-    def dock(self,title,name,content):
-        if name in ('prompts','animation'):
-            scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(content);content=scroll
-        result=WorkspaceDock(title,'workspace_'+name,content,self.workspace);self.docks[name]=result;return result
+    @staticmethod
+    def scroll_page(content):
+        scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(content);return scroll
 
     def make_settings(self,w):
         content=QWidget();layout=QVBoxLayout(content);layout.setContentsMargins(6,6,6,6)
@@ -112,12 +105,13 @@ class Workbench:
             if scroll:
                 page=scroll.takeWidget();container=QScrollArea();container.setWidgetResizable(True);container.setWidget(page)
                 self.sections[key]=self.tabs.addTab(container,title)
-        self.settings=self.dock('创作设置','settings',content)
+        self.settings=QDialog(w);self.settings.setWindowTitle('设置');self.settings.resize(520,660)
+        QVBoxLayout(self.settings).addWidget(content)
         for button in w.settings_buttons.values():button.setParent(self.hidden)
         w.api_controller.button.setParent(self.hidden);w.api_controller.summary.setParent(self.hidden)
 
-    def make_prompts(self,w):
-        c=w.intent_controller;content=QWidget();layout=QVBoxLayout(content);layout.setContentsMargins(8,6,8,6)
+    def make_reference(self,w,layout):
+        c=w.intent_controller
         self.reference_thumb=TransparentPreview();self.reference_thumb.setFixedSize(44,44)
         self.reference_thumb.activated.connect(lambda:w.show_image(str(w.reference_path),role='reference') if w.reference_path else None)
         self.reference_name=QLabel();self.reference_name.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred)
@@ -125,14 +119,16 @@ class Workbench:
         reference.addWidget(w.attach_reference_button)
         w.attach_reference_button.setSizePolicy(QSizePolicy.Policy.Maximum,QSizePolicy.Policy.Preferred)
         remove=QPushButton('移除');remove.clicked.connect(w.clear_reference);reference.addWidget(remove)
-        self.remove_reference=remove;layout.addLayout(reference)
+        self.remove_reference=remove
         remove.setSizePolicy(QSizePolicy.Policy.Maximum,QSizePolicy.Policy.Preferred)
         c.role.setItemText(0,'角色 / 外观');c.role.setItemText(1,'画风 / 布局');c.role.setItemText(2,'编辑底图')
-        layout.addWidget(c.role);layout.addWidget(self.prompts,1)
+        c.role.setMaximumWidth(180);reference.insertWidget(2,c.role);layout.addLayout(reference)
+
+    def make_prompts(self,w):
+        c=w.intent_controller;content=QWidget();layout=QVBoxLayout(content);layout.setContentsMargins(8,6,8,6)
+        layout.addWidget(self.prompts,1)
         c.organize.setText('自动生成提示词');layout.addWidget(c.organize);layout.addWidget(c.note)
-        self.prompt_dock=self.dock('提示词','prompts',content)
-        self.details=QToolButton();self.details.setText('提示词');self.details.setCheckable(True)
-        self.details.toggled.connect(self.prompt_dock.setVisible);self.prompt_dock.visibilityChanged.connect(self.details.setChecked)
+        self.prompt_page=self.scroll_page(content);self.right_tabs.addTab(self.prompt_page,'提示词')
 
     def make_animation(self,w):
         content=QWidget();layout=QVBoxLayout(content);layout.setContentsMargins(8,6,8,6)
@@ -145,7 +141,8 @@ class Workbench:
         def analyze():w.intent_controller.animation_mode();w.intent_controller.start(False)
         self.analyze_motion.clicked.connect(analyze);controls.addWidget(self.analyze_motion)
         self.timeline=QPushButton('动作说明');self.timeline.clicked.connect(self.show_timeline);self.timeline.hide();controls.addWidget(self.timeline)
-        layout.addLayout(controls);self.animation=self.dock('动画','animation',content)
+        layout.addLayout(controls);layout.addStretch()
+        self.animation=self.scroll_page(content);self.right_tabs.addTab(self.animation,'动画')
 
     def make_toolbar(self,w):
         bar=QToolBar('创作');bar.setObjectName('creationToolbar');bar.setMovable(False);w.addToolBar(bar)
@@ -156,7 +153,6 @@ class Workbench:
         w.generation_type.currentIndexChanged.connect(lambda index:self.modes[index].setChecked(True))
         self.modes[w.generation_type.currentIndex()].setChecked(True);bar.addSeparator()
         self.settings_button=QPushButton('创作设置',self.hidden);self.settings_button.clicked.connect(lambda:self.open_settings('image'))
-        self.details.setParent(self.hidden)
         spacer=QWidget();spacer.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Preferred);bar.addWidget(spacer)
         w.cancel_button.setText('取消');bar.addWidget(w.cancel_button);bar.addWidget(w.generate_button)
         w.assets_dialog.setWindowTitle('记录')
@@ -165,43 +161,42 @@ class Workbench:
             w.menuBar().addAction(title,lambda checked=False,section=key:self.open_settings(section))
         w.menuBar().addAction('API',w.api_controller.open_settings)
         view=w.menuBar().addMenu('窗口')
-        for dock in self.docks.values():view.addAction(dock.toggleViewAction())
-        view.addSeparator();view.addAction('恢复默认布局',self.reset_layout);self.view_menu=view
+        view.addAction('恢复默认布局',self.reset_layout);self.view_menu=view
 
     def reset_layout(self,checked=False,*,save=True):
         self._restored=False
-        for dock in self.docks.values():
-            dock.showNormal();dock.setFloating(False);self.workspace.removeDockWidget(dock)
-        self.workspace.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea,self.canvas)
-        self.workspace.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.prompt_dock)
-        self.workspace.splitDockWidget(self.prompt_dock,self.animation,Qt.Orientation.Vertical)
-        self.workspace.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.settings)
-        self.settings.hide();self.prompt_dock.raise_()
-        self.workspace.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,self.task)
-        for dock in (self.canvas,self.prompt_dock,self.animation,self.task):dock.show()
+        self.right_tabs.setCurrentIndex(0)
         QTimer.singleShot(0,lambda:self.fit_default(save))
 
     def fit_default(self,save=False):
         if self._restored:return
-        self.workspace.resizeDocks([self.canvas,self.prompt_dock],[900,420],Qt.Orientation.Horizontal)
-        self.workspace.resizeDocks([self.prompt_dock,self.animation],[480,240],Qt.Orientation.Vertical)
-        self.workspace.resizeDocks([self.task],[54],Qt.Orientation.Vertical)
+        self.workspace.setSizes([900,420]);self.prompt_splitter.setSizes([300,200])
         if save:self.save_layout()
 
+    @staticmethod
+    def valid_sizes(value):
+        return (isinstance(value,list) and len(value)==2 and
+                all(type(n) is int and 0<n<=100000 for n in value))
+
     def save_layout(self):
-        write_json(self.data/'workspace-layout.json',dict(schema_version=1,state=bytes(self.workspace.saveState(1).toBase64()).decode('ascii')))
+        columns=self.workspace.sizes();editors=self.prompt_splitter.sizes()
+        write_json(self.data/'workspace-layout.json',dict(schema_version=2,
+            columns=columns if self.valid_sizes(columns) else [900,420],
+            editors=editors if self.valid_sizes(editors) else [300,200],right_tab=self.right_tabs.currentIndex()))
 
     def restore_layout(self):
         try:
             value=json.loads((self.data/'workspace-layout.json').read_text('utf-8'))
-            if value['schema_version']==1 and isinstance(value['state'],str) and len(value['state'])<200000:
-                self._restored=self.workspace.restoreState(QByteArray.fromBase64(value['state'].encode('ascii')),1)
+            if (value['schema_version']==2 and self.valid_sizes(value.get('columns')) and
+                self.valid_sizes(value.get('editors')) and type(value.get('right_tab')) is int and value['right_tab'] in (0,1)):
+                self.workspace.setSizes(value['columns']);self.prompt_splitter.setSizes(value['editors'])
+                self.right_tabs.setCurrentIndex(value['right_tab']);self._restored=True
         except (OSError,ValueError,KeyError,TypeError):pass
 
     def open_settings(self,key):
         if key in self.sections:self.tabs.setCurrentIndex(self.sections[key])
         self.settings.setWindowTitle({'creation':'生成','image':'画面','sampling':'采样','connection':'连接'}.get(key,'设置'))
-        self.settings.setFloating(True);self.settings.resize(520,660);self.settings.show();self.settings.raise_()
+        self.settings.show();self.settings.raise_();self.settings.activateWindow()
 
     def refresh_reference(self):
         w=self.window;present=bool(w.reference_path)
@@ -216,6 +211,7 @@ class Workbench:
     def motion_changed(self):
         panel=self.window.video_controller.motion
         if panel.path and panel.preview_paths:
+            self.right_tabs.setCurrentIndex(1)
             self.window.video_controller.player.stop();self.window.animation_player.stop()
             self.window.sequence_preview.clear_sequence();self.reference_player.load(panel.preview_paths)
             self.window.image_save.setEnabled(False);self.window.image_reuse.setEnabled(False)
@@ -228,7 +224,7 @@ class Workbench:
                     self.window.pixmap=QPixmap();self.window.preview_path=None;self.window.preview_role=None
 
     def show_plan(self,result):
-        self.plan=result;self.prompt_dock.show();self.prompt_dock.raise_()
+        self.plan=result
         self.timeline.setVisible(bool(result.get('reference_timeline') or result['plan']['timeline']))
 
     def show_timeline(self):

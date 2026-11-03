@@ -55,6 +55,8 @@ class IntentController:
 
     def notify(self, text):
         self.note.setText(text); self.note.setVisible(bool(text))
+        if text and hasattr(self.window,'workbench'):
+            self.window.workbench.right_tabs.setCurrentIndex(0)
 
     def source_changed(self):
         self.applied = self.applied_context = None

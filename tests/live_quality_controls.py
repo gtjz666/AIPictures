@@ -28,8 +28,10 @@ def main():
         window.generation_type.setCurrentIndex(1)
         assert window.workbench.modes[1].isChecked() and not window.reference_policy.isVisible()
         window.open_settings('creation')
+        window.workbench.right_tabs.setCurrentIndex(1)
         assert window.animation_action.isVisible()
         window.workbench.settings.close()
+        window.workbench.right_tabs.setCurrentIndex(0)
         assert '完整动画预览' in window.intent_hint.text()
         assert window.animation_engine.currentData()=='h3'
         assert not window.research_bones_button.isVisible()
