@@ -71,8 +71,8 @@ def inspect(path: Path, cancel: threading.Event | None=None) -> dict:
             s = container.streams.video[0];width, height = s.width, s.height
             duration = float(s.duration * s.time_base) if s.duration and s.time_base else (container.duration or 0) / 1e6
             count = s.frames
-    if not math.isfinite(duration) or not .08 <= duration <= 120:
-        raise ValueError('请选择0.08–120秒的动作片段；较长视频请先裁剪。')
+    if not math.isfinite(duration) or not .08 <= duration <= 7200:
+        raise ValueError('请选择0.08秒至2小时的有效动作素材。')
     if not 1 <= width * height <= 8_500_000:
         raise ValueError('动作参考尺寸过大，请先缩小到4K以内。')
     return dict(path=str(path), width=width, height=height, duration=duration,
@@ -115,15 +115,16 @@ def frames(path: Path, cancel: threading.Event):
 
 def prepare(path: Path, folder: Path, seconds: float, start: float,
             cancel: threading.Event, emit=lambda *_: None, *, max_side: int=1024, align_h3: bool=False, repeat: bool=False,
-            encode_video: bool=True, save_frames: bool=False) -> dict:
+            encode_video: bool=True, save_frames: bool=False, allow_tail_hold: bool=False) -> dict:
     """Stream a bounded, silent 24fps nearest-time guide; no optical flow or frame mixing."""
     meta = inspect(path,cancel)
     if not all(math.isfinite(v) for v in (start, seconds)) or start < 0 or not 1 <= seconds <= 15:
         raise ValueError('动作起点应为非负数，片段时长应为1–15秒。')
     used = seconds if repeat else min(seconds, meta['duration'] - start)
-    if start>=meta['duration']:raise ValueError('动作起点超出片段，请重新选择起点。')
+    if start>=meta['duration'] and not allow_tail_hold:raise ValueError('动作起点超出片段，请重新选择起点。')
+    if allow_tail_hold and not repeat:used=max(1/24,used)
     if not encode_video and not save_frames:raise ValueError('至少需要输出PNG帧或参考视频。')
-    if used < (.08 if meta['duration']<.95 else .95): raise ValueError('所选动作区间不足，请提前起点或换一个片段。')
+    if not allow_tail_hold and used < (.08 if meta['duration']<.95 else .95): raise ValueError('所选动作区间不足，请提前起点或换一个片段。')
     source_count = math.floor(used * 24 + 1e-6)
     count = max(22,source_count + (5-source_count)%17) if align_h3 else source_count
     if max_side not in (256,512,768,1024):raise ValueError('动作参考编码边长应为256、512、768或1024。')

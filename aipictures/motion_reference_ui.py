@@ -24,7 +24,7 @@ class MotionReferencePanel(QWidget):
         row=QHBoxLayout();self.poster=QLabel();self.poster.setFixedSize(44,44);self.poster.setAlignment(Qt.AlignmentFlag.AlignCenter)
         row.addWidget(self.poster);self.summary=QLabel()
         self.summary.setWordWrap(True);row.addWidget(self.summary,1)
-        layout.addLayout(row);buttons=QGridLayout();layout.addLayout(buttons)
+        layout.addLayout(row);buttons=QGridLayout();layout.addLayout(buttons);self.buttons=buttons
         self.add=QPushButton('参考动画');self.add.clicked.connect(self.choose);buttons.addWidget(self.add,0,0)
         self.add_frames=QPushButton('动作帧');self.add_frames.clicked.connect(self.choose_frames);buttons.addWidget(self.add_frames,0,1)
         self.play=QPushButton('预览');self.play.clicked.connect(self.preview);buttons.addWidget(self.play,1,0)
@@ -100,7 +100,7 @@ class MotionReferencePanel(QWidget):
                     self.poster.show()
                     minimum=.08 if self.meta['duration']<.95 else .95
                     self.start.setMaximum(max(0.,self.meta['duration']-minimum));self.start.setValue(0.)
-                    self.seconds.setValue(max(2.,min(8.,math.floor(self.meta['duration']*1000)/1000)))
+                    self.seconds.setValue(max(2.,math.floor(self.meta['duration']*1000)/1000))
                     self.repeat.setChecked(self.meta['duration']<2.)
                     self.play.setEnabled(True);self.remove.setEnabled(True);self.update_range();self.changed.emit()
                     w.status.setText('动作参考已就绪')
@@ -129,9 +129,14 @@ class MotionReferencePanel(QWidget):
         if not self.meta:self.range_note.clear();return
         used=self.seconds.value() if self.repeat.isChecked() else min(self.seconds.value(),self.meta['duration']-self.start.value())
         text=f'参考 {self.start.value():.2f}–{self.start.value()+used:.2f}s'
-        requested=math.ceil(self.seconds.value()*24)
-        aligned=requested+(5-requested)%17
-        text+=f' · 输出约 {aligned/24:.2f}s'
+        if self.seconds.value()>8:
+            from .video_chain import plan
+            parts=plan(self.seconds.value())
+            text+=f' · {len(parts)}段 · 输出约 {parts[-1]["end"]:.2f}s'
+        else:
+            requested=math.ceil(self.seconds.value()*24)
+            aligned=requested+(5-requested)%17
+            text+=f' · 输出约 {aligned/24:.2f}s'
         self.range_note.setText(text)
 
     def preview(self):

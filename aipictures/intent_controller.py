@@ -61,8 +61,7 @@ class IntentController:
     def source_changed(self):
         self.applied = self.applied_context = None
         if hasattr(self.window,'workbench'):
-            workbench=self.window.workbench;workbench.plan=None;workbench.timeline.hide()
-            if getattr(workbench,'timeline_dialog',None):workbench.timeline_dialog.close()
+            workbench=self.window.workbench;workbench.plan=None;workbench.timeline.clear_plan()
 
     def fingerprint(self, *, prompts=True) -> str:
         w = self.window; motion = w.video_controller.motion
@@ -70,7 +69,7 @@ class IntentController:
         stamps = [(str(p), Path(p).stat().st_size, Path(p).stat().st_mtime_ns) if p and Path(p).exists() else None for p in paths]
         value = [self.input.toPlainText(), w.positive.toPlainText() if prompts else None, w.negative.toPlainText() if prompts else None,
                  w.generation_type.currentData(), self.role.currentData(), stamps, motion.start.value(),
-                 w.video_controller.seconds.value(), w.model_family.currentData(), w.custom_graph is not None]
+                 w.video_controller.seconds.value(), motion.repeat.isChecked(), w.model_family.currentData(), w.custom_graph is not None]
         return hashlib.sha256(json.dumps(value, ensure_ascii=False).encode()).hexdigest()
 
     def intercept(self) -> bool:
@@ -88,7 +87,7 @@ class IntentController:
         if w.custom_graph is not None:
             self.notify('请先将后台预设恢复为自动选择。'); return
         manual = w.positive.toPlainText().strip()
-        brief = self.input.toPlainText().strip() or (manual if manual != self.generated_positive else '')
+        brief = manual or self.input.toPlainText().strip()
         if not brief and (w.reference_path or w.video_controller.motion.path):
             brief = '依据已提供素材制作动画，外观与动作各按其参考用途。' if w.generation_type.currentData()=='walk' else '依据参考图整理主体外观、画风与构图，生成单张图片。'
         if not brief:
@@ -100,6 +99,9 @@ class IntentController:
         kwargs = dict(selected_kind='animation' if w.generation_type.currentData()=='walk' else 'image',
                       role=self.role.currentData(), start=motion.start.value(), seconds=w.video_controller.seconds.value(),
                       output_seconds=w.video_controller.seconds.value())
+        if motion_path and motion.repeat.isChecked():
+            # A cycle wraps to source time zero, so observe the complete source once.
+            kwargs.update(start=0.,seconds=motion.meta['duration'])
         negative = w.negative.toPlainText()
         if negative == self.generated_negative:
             negative = self.original_negative

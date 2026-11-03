@@ -56,6 +56,11 @@ def generate(folder: Path, params: dict, cancel: threading.Event, emit) -> dict:
         media={'version':1,'conditioning_info':reuse['info']}
         (folder/'media.json').write_text(json.dumps(media,ensure_ascii=False),'utf-8')
         command+=['--task',reuse['info']['task'],'--media',str((folder/'media.json').resolve())]
+    elif params.get('continuation_frame'):
+        # The generated endpoint already has the target canvas; do not shrink it again.
+        media={'version':1,'first':str(Path(params['continuation_frame']).resolve())}
+        (folder/'media.json').write_text(json.dumps(media,ensure_ascii=False),'utf-8')
+        command+=['--task','i2va','--media',str((folder/'media.json').resolve())]
     elif params.get('reference'):
         from PIL import Image,ImageOps
         with Image.open(params['reference']) as source:

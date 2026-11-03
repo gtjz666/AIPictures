@@ -4,7 +4,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QLabel,QPushButton,
-    QButtonGroup,QDialog,QTabWidget,QScrollArea,QTableWidget,QTableWidgetItem,QHeaderView,
+    QButtonGroup,QDialog,QTabWidget,QScrollArea,
     QSizePolicy,QToolBar,QSplitter,QSlider,QCheckBox)
 from .storage import write_json
 from .transparent_preview import TransparentPreview
@@ -71,6 +71,8 @@ class Workbench:
         for control in (w.creation_summary,w.reference_label,w.context_label,w.intent_hint,w.style_status,w.seed_notice,w.caption):
             control.setParent(self.hidden)
         w.preview.setText('拖入参考素材');w.preview.setMinimumSize(320,240)
+        # Splitter/tab/footer changes resize the preview without resizing the main window.
+        w.preview.resized.connect(w.fit_preview)
         w.preview.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Ignored)
         w.sequence_preview.sheet.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Ignored)
         w.sequence_preview.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Ignored)
@@ -137,11 +139,12 @@ class Workbench:
         taken=w.walk_form.takeRow(w.video_controller.seconds)
         if taken.labelItem:taken.labelItem.widget().hide()
         duration=QHBoxLayout();duration.addWidget(QLabel('时长 / 秒'));duration.addWidget(w.video_controller.seconds,1);layout.addLayout(duration)
-        controls=QHBoxLayout();self.analyze_motion=QPushButton('分析动作');self.analyze_motion.setEnabled(bool(w.intent_controller.config))
+        self.analyze_motion=QPushButton('分析动作');self.analyze_motion.setEnabled(bool(w.intent_controller.config))
         def analyze():w.intent_controller.animation_mode();w.intent_controller.start(False)
-        self.analyze_motion.clicked.connect(analyze);controls.addWidget(self.analyze_motion)
-        self.timeline=QPushButton('动作说明');self.timeline.clicked.connect(self.show_timeline);self.timeline.hide();controls.addWidget(self.timeline)
-        layout.addLayout(controls);layout.addStretch()
+        self.analyze_motion.clicked.connect(analyze)
+        w.video_controller.motion.buttons.addWidget(self.analyze_motion,0,2)
+        from .animation_timeline import ActionTimeline
+        self.timeline=ActionTimeline(w);layout.addWidget(self.timeline,1)
         self.animation=self.scroll_page(content);self.right_tabs.addTab(self.animation,'动画')
 
     def make_toolbar(self,w):
@@ -214,6 +217,7 @@ class Workbench:
             self.right_tabs.setCurrentIndex(1)
             self.window.video_controller.player.stop();self.window.animation_player.stop()
             self.window.sequence_preview.clear_sequence();self.reference_player.load(panel.preview_paths)
+            QTimer.singleShot(0,self.window.fit_preview)
             self.window.image_save.setEnabled(False);self.window.image_reuse.setEnabled(False)
         else:
             self.reference_player.stop()
@@ -225,15 +229,8 @@ class Workbench:
 
     def show_plan(self,result):
         self.plan=result
-        self.timeline.setVisible(bool(result.get('reference_timeline') or result['plan']['timeline']))
+        self.timeline.load_plan(result)
 
     def show_timeline(self):
-        if not self.plan:return
-        dialog=QDialog(self.window);dialog.setWindowTitle('动作说明');dialog.resize(720,440);layout=QVBoxLayout(dialog)
-        rows=self.plan.get('reference_timeline') or self.plan['plan']['timeline'];table=QTableWidget(len(rows),3)
-        table.setHorizontalHeaderLabels(['开始 / 秒','结束 / 秒','动作']);table.horizontalHeader().setSectionResizeMode(2,QHeaderView.ResizeMode.Stretch)
-        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        for i,row in enumerate(rows):
-            for j,value in enumerate((row['start'],row['end'],row['description'])):table.setItem(i,j,QTableWidgetItem(str(value)))
-        table.resizeRowsToContents();layout.addWidget(table);done=QPushButton('关闭');done.clicked.connect(dialog.close);layout.addWidget(done)
-        self.timeline_dialog=dialog;dialog.show()
+        self.right_tabs.setCurrentIndex(1)
+        if self.plan:self.timeline.show();self.timeline.table.setFocus()

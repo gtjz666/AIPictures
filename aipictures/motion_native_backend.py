@@ -15,7 +15,7 @@ from .storage import write_json
 
 
 def output_frames(seconds:float)->int:
-    if not math.isfinite(seconds) or not 2<=seconds<=8:raise ValueError('参考动画输出时长应为2–8秒。')
+    if not math.isfinite(seconds) or not 2<=seconds<=15:raise ValueError('单段参考动画应为2–15秒；较长动画请使用分段生成。')
     requested=math.ceil(seconds*24)
     return max(22,requested+(5-requested)%17)
 
@@ -133,7 +133,8 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
     with NativeSession(config,folder/'native_encode',cancel,emit) as server:
         motion=prepare(Path(params['motion_reference']),server.input/'motion',math.ceil(params['seconds']*24)/24,
             params.get('motion_start',0.),cancel,emit,max_side=params.get('motion_max_side',512),
-            align_h3=True,repeat=params.get('motion_repeat',False),encode_video=False,save_frames=True)
+            align_h3=True,repeat=params.get('motion_repeat',False),encode_video=False,save_frames=True,
+            allow_tail_hold=bool(params.get('continuation_frame')))
         expected=params.get('motion_source',{}).get('sha256')
         if expected and expected!=motion['source']['sha256']:raise ValueError('动作参考与入队记录不一致。')
         image=''
@@ -148,6 +149,10 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
         (folder/'prompt.txt').write_text(text,'utf-8')
         graph=encoding(server.info,text,params['seed'],config.get('width',768),config.get('height',1024),
                     length,'motion/frames.json',image)
+        if params.get('continuation_frame'):
+            from .motion_native_graph import anchor_continuation
+            shutil.copyfile(params['continuation_frame'],server.input/'continuation.png')
+            anchor_continuation(graph,server.info,'continuation.png')
         # This graph belongs to the private H3 server, not the shared image editor.
         write_json(folder/'workflow.json',graph)
         write_json(server.folder/'workflow.json',graph)

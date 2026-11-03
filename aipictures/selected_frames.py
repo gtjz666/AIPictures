@@ -15,7 +15,7 @@ def read_source(manifest: Path) -> tuple[dict,list[Path]]:
     manifest=Path(manifest).resolve();data=json.loads(manifest.read_text('utf-8'))
     if data.get('status')!='completed':raise ValueError('请先等待完整动画生成完成。')
     paths=[(manifest.parent/f['image']).resolve() for f in data.get('frames',[])]
-    if not paths or len(paths)>480 or any(not p.is_file() for p in paths):raise ValueError('源帧缺失或超过480张，请重新打开完整动画。')
+    if not paths or len(paths)>7200*120 or any(not p.is_file() for p in paths):raise ValueError('源帧缺失或超过2小时预览范围，请重新打开完整动画。')
     if not 0<float(data.get('fps',0))<=120:raise ValueError('源动画帧率无效。')
     return data,paths
 

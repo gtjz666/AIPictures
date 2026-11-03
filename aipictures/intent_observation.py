@@ -13,7 +13,7 @@ def observe(session, content: list, evidence: dict, folder: Path) -> dict:
     if any(a['id'] == 'appearance' for a in evidence['assets']):
         fields = ['identity', 'clothing_colors', 'style', 'layout', 'uncertainties']
         schema = {'type': 'object', 'additionalProperties': False,
-                  'properties': {key: {'type': 'string'} for key in fields}, 'required': fields}
+                  'properties': {key: {'type': 'string','maxLength':100} for key in fields}, 'required': fields}
         task = ('独立观察这张参考图。identity只写主体与发色眼睛等外观，clothing_colors只写衣物款式配色，'
                 'style只写绘画风格，layout只写姿势视角布局，uncertainties写不确定内容。每栏60字以内，'
                 '只描述可见细节，灰色分析底不属于场景；这些字段均省略背景。')
@@ -33,13 +33,13 @@ def observe(session, content: list, evidence: dict, folder: Path) -> dict:
         schema = {'type': 'object', 'additionalProperties': False,
             'properties': {'frames': {'type': 'array', 'minItems': len(times), 'maxItems': len(times),
                 'items': {'type': 'object', 'additionalProperties': False,
-                    'properties': {'index': {'type': 'integer', 'enum': list(range(len(times)))}, 'pose': {'type': 'string'}},
-                    'required': ['index', 'pose']}}, 'camera': {'type': 'string'}, 'uncertainties': {'type': 'string'}},
+                    'properties': {'index': {'type': 'integer', 'enum': list(range(len(times)))}, 'pose': {'type': 'string','maxLength':80}},
+                    'required': ['index', 'pose']}}, 'camera': {'type': 'string','maxLength':80}, 'uncertainties': {'type': 'string','maxLength':80}},
             'required': ['frames', 'camera', 'uncertainties']}
         task = ('这是同一动作的连续采样帧，不是多张外观参考。按时间逐帧观察主体的肢体：'
                 '手/前肢在脸、胸、镜头的哪个方向，伸出还是弯曲，头和躯干的姿态。'
                 '避免笼统重复“挥爪/挥手”。只能用画面左/右，遮挡不清写不确定。'
-                '描述实际拍摄范围与镜头变化，不推测未见的起始动作。每帧用0开始的index，pose限制80字。'
+                'pose只写身体动作，每帧用0开始的index，最多40字。camera用一句话概括取景与运镜，最多40字。uncertainties一句话或空串。'
                 '时间戳依次为：'+json.dumps([round(t, 6) for t in times]))
         raw, stats = session.complete([{'role': 'system', 'content': system}, {'role': 'user', 'content':
             [*content[offset:], {'type': 'text', 'text': task}]}], schema=schema, max_tokens=2400)

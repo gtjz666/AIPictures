@@ -45,3 +45,12 @@ def sampling(info,seed,width,height,length):
     graph={k:v for k,v in full.items() if k not in ('clip','motion','references')}
     graph['references']={'class_type':'AIPicturesLoadConditioning','inputs':{'manifest':'conditioning/conditioning.json'}}
     return graph
+
+
+def anchor_continuation(graph:dict,info:dict,image:str)->None:
+    """Official H3 guide at frame zero, preserving Ref2VA text/visual blocks."""
+    if 'MiniMaxH3AddGuide' not in info:raise ValueError('参考后端缺少官方H3首帧引导节点，不能续接。')
+    graph['continuation']={'class_type':'LoadImage','inputs':{'image':image}}
+    graph['anchor']={'class_type':'MiniMaxH3AddGuide','inputs':{'positive':['references',0],
+        'latent':['references',1],'vae':['vae',0],'image':['continuation',0],'frame_idx':0}}
+    graph['checkpoint']['inputs']['conditioning']=['anchor',0]

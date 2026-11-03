@@ -151,7 +151,7 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
         details['analysis_matte_is_not_background'] = any(a.get('analysis_matte_only') for a in evidence['assets'])
         task = ('按时间对比动作帧，分解可见的准备、伸展/接触、回收阶段。时间轴与正向词都要具体描述肢体、头和躯干的变化，不能只写模仿动作。'
                 if motion else '按需求整理单张画面；明确请求的视角、风格与背景变化必须保留。')
-        task += ' 外观图与动作图用途独立。输出成品描述，排除词只用用户明确排除的内容；未指定的背景省略。'
+        task += ' 外观图与动作图用途独立。正反提示词都必须生成，反向词补充与本次目标相关的异常约束，保留用户排除项；未指定的背景省略，不把动作素材的背景搬入成品。'
         messages = [{'role': 'system', 'content': SYSTEM},
                     {'role': 'user', 'content': [{'type': 'text', 'text': json.dumps(details, ensure_ascii=False)}, *content,
                                                  {'type': 'text', 'text': task}]}]
@@ -164,7 +164,7 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
                 details['visual_observations'] = observations
                 messages[1]['content'] = [{'type': 'text', 'text': json.dumps(details, ensure_ascii=False)},
                                           {'type': 'text', 'text': task}]
-            output, stats = session.complete(messages)
+            output, stats = session.complete(messages,max_tokens=3000) if evidence['assets'] else session.complete(messages)
             if evidence['assets']:
                 # Validate structure before any optional, bounded text-only repair.
                 parse_plan(output, {a['id'] for a in evidence['assets']}, evidence['duration'])
@@ -194,6 +194,12 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
         if negative.strip() and negative.strip() not in plan.negative_prompt:
             from dataclasses import replace
             plan = replace(plan, negative_prompt=(plan.negative_prompt+'\n'+negative.strip()).strip())
+        if not plan.negative_prompt.strip():
+            from dataclasses import replace
+            # Small fail-safe for a valid JSON reply that ignored the negative field.
+            fallback = ('主体身份突变，配色无故变化，画面闪烁，动作突然跳变' if selected_kind=='animation'
+                        else '主体无故重复，局部结构破损，非预期文字水印')
+            plan = replace(plan, negative_prompt=fallback)
         selected_route = None if plan.questions else route(plan, reference=bool(reference), motion=bool(motion))
         result = dict(schema_version=1, plan=plan.to_dict(), route=selected_route, evidence=evidence,
             request=dict(brief=brief, negative=negative, selected_kind=selected_kind, reference_role=role),

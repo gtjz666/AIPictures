@@ -1,5 +1,6 @@
 """Full-animation preview media; sprite extraction is a separate user operation."""
 from pathlib import Path
+import math
 import threading
 
 import av
@@ -36,7 +37,7 @@ def preview_frames(source: Path, folder: Path, cancel: threading.Event, emit) ->
             raise ValueError('动画尺寸或帧率超出预览范围，请先裁剪。')
         for i,frame in enumerate(container.decode(stream)):
             if cancel.is_set():raise Cancelled('已取消预览准备，原视频保留。')
-            if i>=480:raise ValueError('片段超过480帧，请先裁剪再预览。')
+            if i>=math.ceil(7200*fps):raise ValueError('动画超过2小时，请先裁剪再预览。')
             path=folder/f'frame_{i:04d}.png'
             Image.fromarray(frame.to_ndarray(format='rgba')).save(path);paths.append(path)
             if i%12==0:emit('video_stage',{'message':f'准备完整动画预览 · {i+1} 帧'})

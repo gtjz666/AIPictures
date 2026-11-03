@@ -31,7 +31,7 @@ class VideoController:
         window.animation_engine.blockSignals(False)
         window.walk_form.insertRow(0,'动画模型',window.animation_engine)
         window.animation_engine.setEnabled(False)  # One supported engine, no silent legacy fallback.
-        self.seconds=QDoubleSpinBox();self.seconds.setRange(2,8);self.seconds.setDecimals(3);self.seconds.setSingleStep(1);self.seconds.setValue(4)
+        self.seconds=QDoubleSpinBox();self.seconds.setRange(2,7200);self.seconds.setDecimals(3);self.seconds.setSingleStep(1);self.seconds.setValue(4)
         window.walk_form.insertRow(1,'片段时长（秒）',self.seconds)
         from .motion_reference_ui import MotionReferencePanel
         self.motion=MotionReferencePanel(window,self.seconds)
@@ -136,6 +136,7 @@ class VideoController:
             raise ValueError('描述过长，请将画面提示词控制在16000字、动作及反向描述各8000字以内。')
         if w.animation_source.currentData()=='reference' and not reference:raise ValueError('请添加参考图，或选择仅文字描述。')
         if not reference and not prompt:raise ValueError('无参考图时，请填写画面或角色描述。')
+        timeline=w.workbench.timeline.effective_rows() if hasattr(w,'workbench') else []
         seed=int(w.seed.text());seed=secrets.randbelow(2**53) if seed==-1 else seed
         if not 0<=seed<2**64:raise ValueError('种子范围不正确。')
         folder=self.new_folder()
@@ -146,7 +147,8 @@ class VideoController:
             'seed_mode':w.seed_mode.currentData(),
             'reference':reference,'seed':seed,'seconds':self.seconds.value(),'steps':w.animation_steps.value(),
             'checkpoint':w.model.currentText(),'url':w.client.url if w.connected else None,'lora':''}
-        params['h3_settings']=self.h3.copy()
+        params['h3_settings']=self.h3.copy();params['motion_timeline']=timeline
+        params['motion_timeline_clock']=w.workbench.timeline.clock if hasattr(w,'workbench') else 'output'
         if self.motion.path:
             params['motion_native_settings']=self.motion_settings.copy()
             params.update(motion_reference=str(self.motion.path),motion_start=self.motion.start.value(),
@@ -179,7 +181,7 @@ class VideoController:
         return folder
 
     def enqueue(self,params,folder):
-        if hasattr(self.window,'intent_controller'):self.window.intent_controller.record(folder,params)
+        if hasattr(self.window,'intent_controller') and not params.get('resume_chain'):self.window.intent_controller.record(folder,params)
         w=self.window;write_json(folder/'job.json',{'schema_version':1,'kind':'video','status':'queued','params':params})
         item=QListWidgetItem('完整动画 · 等待');w.queue_list.addItem(item)
         from .seed_controls import show_seed
@@ -196,7 +198,10 @@ class VideoController:
         w.task_display.start();w.progress.setRange(0,0)
         write_json(folder/'job.json',{'schema_version':1,'kind':'video','status':'running','params':params})
         def event(kind,data):
-            if kind=='workflow_ready':
+            if kind=='chain_progress':
+                w.progress.setRange(0,100);w.progress.setValue(round(data['fraction']*95))
+                w.status.setText(data['message'])
+            elif kind=='workflow_ready':
                 w.last_chat_graph=data['graph'];w.editor_needs_sync=True;w.sync_editor_if_needed()
             elif kind=='executing':w.current['sampling_node']=str(data.get('node') or '')
             elif kind in ('video_stage','reference_stage','condition_stage','monitor_waiting','cancel_pending'):
@@ -223,7 +228,9 @@ class VideoController:
                     except (OSError,ValueError,KeyError) as exc:w.add_chat('软件','动画已生成，但预览读取失败：'+str(exc),job=str(folder))
                     w.load_gallery()
                     w.add_chat('软件','完整动画已保存并循环播放。点击“选帧与导出”勾选需要的帧。',job=str(folder))
-                else:w.add_chat('软件','完整动画'+('已取消：' if kind=='cancelled' else '失败：')+str(data),job=str(folder))
+                else:
+                    w.add_chat('软件','完整动画'+('已取消：' if kind=='cancelled' else '失败：')+str(data),job=str(folder))
+                    w.load_gallery()
                 QTimer.singleShot(0,w.start_next)
         w.launch(lambda emit:generate(client,folder,params,cancel,emit),event)
 
@@ -277,5 +284,19 @@ class VideoController:
         w.launch(prepare,event)
 
     def open_history(self,item):
-        try:self.player.load(item.data(Qt.ItemDataRole.UserRole));self.window.assets_dialog.close()
+        try:
+            path=Path(item.data(Qt.ItemDataRole.UserRole));data=json.loads(path.read_text('utf-8'))
+            if data['status']!='completed' and (path.parent/'chain.json').is_file():
+                self.resume_chain(path,data);return
+            self.player.load(path);self.window.assets_dialog.close()
         except Exception as exc:self.window.add_chat('软件',str(exc))
+
+    def resume_chain(self,path,data):
+        from PySide6.QtWidgets import QMessageBox
+        w=self.window
+        if w.current or w.pending or w.preparing:raise ValueError('请先结束当前任务再继续长动画。')
+        chain=json.loads((path.parent/'chain.json').read_text('utf-8'))
+        completed=sum(r['status']=='completed' for r in chain['parts'])
+        if QMessageBox.question(w,'继续长动画',f'已完成{completed}/{len(chain["plan"])}段。保留完成部分，继续未完成的片段？')!=QMessageBox.StandardButton.Yes:return
+        params=dict(data['params'],resume_chain=True)
+        w.assets_dialog.close();self.enqueue(params,path.parent)

@@ -1,5 +1,6 @@
 """Task name, progress and monotonic elapsed time, independent of worker events."""
 import time
+import re
 from PySide6.QtWidgets import QWidget,QHBoxLayout,QLabel,QProgressBar,QSizePolicy,QMessageBox
 from PySide6.QtCore import Qt,QTimer
 from PySide6.QtCore import Signal
@@ -27,6 +28,8 @@ class TaskLabel(QLabel):
         current=getattr(self.owner,'current',None)
         if current:
             value=task_name(current['params'])
+            part=re.match(r'第\d+/\d+段',text)
+            if part:value+=' · '+part.group()
             if self.failure: value+=' · 失败'
             elif '取消' in text: value+=(' · 取消中' if '正在' in text else ' · 已取消')
             elif '完成' in text or '已保存' in text: value+=' · 完成'

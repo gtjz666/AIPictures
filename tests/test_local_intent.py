@@ -144,3 +144,26 @@ def test_species_leak_repaired_without_changing_timing_or_requested_transformati
     assert fixed['timeline']==[dict(start=0,end=.5,description='手臂伸展')]
     assert fixed['negative_prompt']==data['negative_prompt'] and session.count==1
     assert repair_anatomy(session,original,obs,'变成猫',tmp_path)==original and session.count==1
+
+
+def test_negative_prompt_never_silently_empty_and_retains_user_words(tmp_path):
+    class Session:
+        def __init__(self,*args):pass
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def complete(self,messages):
+            data=plan();data['negative_prompt']='';return json.dumps(data),{}
+    result=analyze({'name':'test'},'梦幻模糊光晕的物件','',None,None,tmp_path/'empty',threading.Event(),session_factory=Session)
+    assert result['plan']['negative_prompt'] and '模糊' not in result['plan']['negative_prompt']
+    result=analyze({'name':'test'},'梦幻光晕','不要文字，保留柔光',None,None,tmp_path/'explicit',threading.Event(),session_factory=Session)
+    assert result['plan']['negative_prompt']=='不要文字，保留柔光'
+
+
+def test_cross_species_check_includes_timeline_and_front_limbs(tmp_path):
+    from aipictures.intent_quality import repair_anatomy
+    data=plan();data['timeline']=[dict(start=0,end=.5,description='少女前肢伸出，爪子朝镜头')]
+    class Session:
+        def complete(self,*args,**kwargs):
+            return json.dumps(dict(positive_prompt='少女抬起右手',descriptions=['右臂伸展，手掌朝向镜头'])),{}
+    fixed=json.loads(repair_anatomy(Session(),json.dumps(data),{'appearance':{'identity':'少女'}},'模仿参考动作',tmp_path))
+    assert fixed['timeline'][0]['description']=='右臂伸展，手掌朝向镜头'

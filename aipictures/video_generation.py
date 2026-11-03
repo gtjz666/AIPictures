@@ -34,7 +34,9 @@ def generate(client, folder: Path, params: dict, cancel, emit) -> dict:
     save()
     try:
         if params['engine']=='h3':
-            if params.get('motion_reference'):
+            if params['seconds']>8 or params.get('resume_chain'):
+                from .video_chain import generate as h3_generate
+            elif params.get('motion_reference'):
                 from .motion_native_backend import generate as h3_generate
             else:
                 from .h3_backend import generate as h3_generate
@@ -43,7 +45,7 @@ def generate(client, folder: Path, params: dict, cancel, emit) -> dict:
             from .video_io import preview_frames,native_rgb_frames,encode_pngs
             if result.get('native_frames'):
                 paths=[Path(p) for p in result['native_frames']];fps=24
-                manifest.update(native_rgb_preserved=True,native_frame_sha256=result['frame_sha256'])
+                manifest.update(native_rgb_preserved=result.get('native_rgb_preserved',True),native_frame_sha256=result['frame_sha256'],warnings=result.get('warnings',[]))
             elif result.get('native_rgb'):
                 paths=native_rgb_frames(Path(result['native_rgb']),folder/'preview_frames',cancel,emit);fps=24
                 result['delivery_video']=str(source)
