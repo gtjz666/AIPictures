@@ -6,7 +6,7 @@ from uuid import uuid4
 from PIL import Image
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QLabel,QPushButton,QDoubleSpinBox,QFileDialog,QDialog,QComboBox,QInputDialog,QCheckBox
+from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QLabel,QPushButton,QDoubleSpinBox,QFileDialog,QDialog,QComboBox,QInputDialog,QCheckBox,QGridLayout,QSlider
 
 from . import motion_guide as motion_reference
 from .storage import write_json
@@ -21,19 +21,22 @@ class MotionReferencePanel(QWidget):
         self.preview_paths=[];self.preview_dialog=None
         layout=QVBoxLayout(self);layout.setContentsMargins(0,3,0,3);layout.setSpacing(4)
         self.setObjectName('motionReference')
-        layout.addWidget(QLabel('动作参考 · 视频 / GIF / PNG序列'))
         row=QHBoxLayout();self.poster=QLabel();self.poster.setFixedSize(44,44);self.poster.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        row.addWidget(self.poster);self.summary=QLabel('可选：用动画指导动作和节奏，角色与画风由参考图片或提示词决定。')
+        row.addWidget(self.poster);self.summary=QLabel()
         self.summary.setWordWrap(True);row.addWidget(self.summary,1)
-        self.add=QPushButton('＋ 参考动画');self.add.clicked.connect(self.choose);row.addWidget(self.add)
-        self.add_frames=QPushButton('＋ 动作帧');self.add_frames.clicked.connect(self.choose_frames);row.addWidget(self.add_frames)
-        self.play=QPushButton('预览');self.play.clicked.connect(self.preview);row.addWidget(self.play)
-        self.remove=QPushButton('移除');self.remove.clicked.connect(self.clear);row.addWidget(self.remove);layout.addLayout(row)
+        layout.addLayout(row);buttons=QGridLayout();layout.addLayout(buttons)
+        self.add=QPushButton('参考动画');self.add.clicked.connect(self.choose);buttons.addWidget(self.add,0,0)
+        self.add_frames=QPushButton('动作帧');self.add_frames.clicked.connect(self.choose_frames);buttons.addWidget(self.add_frames,0,1)
+        self.play=QPushButton('预览');self.play.clicked.connect(self.preview);buttons.addWidget(self.play,1,0)
+        self.remove=QPushButton('移除');self.remove.clicked.connect(self.clear);buttons.addWidget(self.remove,1,1)
         self.range_dialog=QDialog(window);self.range_dialog.setWindowTitle('动作参考片段');self.range_dialog.resize(480,260)
         timeline=QVBoxLayout(self.range_dialog);timeline.addWidget(QLabel('动作起点（秒）'))
-        range_button=QPushButton('片段设置');range_button.clicked.connect(self.range_dialog.show);row.addWidget(range_button)
+        self.range_button=QPushButton('时间轴');self.range_button.clicked.connect(self.range_dialog.show);buttons.addWidget(self.range_button,1,2)
         self.start=QDoubleSpinBox();self.start.setRange(0,0);self.start.setDecimals(2);self.start.setSingleStep(.1)
-        timeline.addWidget(self.start);self.range_note=QLabel();self.range_note.setWordWrap(True);timeline.addWidget(self.range_note,1)
+        timeline.addWidget(self.start)
+        self.range_slider=QSlider(Qt.Orientation.Horizontal);self.range_slider.setRange(0,1000);timeline.addWidget(self.range_slider)
+        self.range_slider.valueChanged.connect(lambda value:self.start.setValue(value/1000*self.start.maximum()))
+        self.range_note=QLabel();self.range_note.setWordWrap(True);timeline.addWidget(self.range_note,1)
         self.detail=QComboBox()
         for title,value in [('动作参考 · 512',512),('更精细 · 768',768),('高精细 · 1024',1024)]:self.detail.addItem(title,value)
         for i in (1,2):
@@ -63,8 +66,11 @@ class MotionReferencePanel(QWidget):
         w=self.window
         if w.preparing:
             w.status.setText('请等待当前素材准备完成。');return
+        if hasattr(w,'workbench'):w.intent_controller.animation_mode()
         w.preparing=True;w.prepare_cancel.clear();self.add.setEnabled(False);self.add_frames.setEnabled(False);self.remove.setEnabled(False)
         w.generate_button.setEnabled(False);w.status.setText('正在准备动作参考…')
+        track_progress=w.current is None
+        if track_progress:w.task_display.start();w.progress.setRange(0,0)
         folder=w.api_controller.data/'references'/'motion'/uuid4().hex
         folder.mkdir(parents=True)
         def prepare(emit):
@@ -84,40 +90,48 @@ class MotionReferencePanel(QWidget):
             if kind=='video_stage':w.status.setText(data['message'])
             elif kind in ('result','error','cancelled'):
                 w.preparing=False;self.add.setEnabled(True);self.add_frames.setEnabled(True);self.remove.setEnabled(bool(self.path))
+                if track_progress:
+                    w.progress.setRange(0,100);w.progress.setValue(100 if kind=='result' else 0)
+                    w.task_display.finish('completed' if kind=='result' else 'cancelled' if kind=='cancelled' else 'failed')
                 if kind=='result':
                     self.path=Path(data['path']);self.meta=data['meta'];self.preview_paths=data['preview']['preview_frames']
-                    self.summary.setText(f"{self.meta['name']} · {self.meta['duration']:.2f} 秒 · 仅参考动作")
+                    self.summary.setText(f"{self.meta['name']} · {self.meta['duration']:.2f}s");self.summary.show()
                     self.poster.setPixmap(QPixmap(self.preview_paths[0]).scaled(self.poster.size(),Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation))
                     self.poster.show()
-                    self.start.setMaximum(max(0.,self.meta['duration']-1.));self.start.setValue(0.)
+                    minimum=.08 if self.meta['duration']<.95 else .95
+                    self.start.setMaximum(max(0.,self.meta['duration']-minimum));self.start.setValue(0.)
                     self.seconds.setValue(max(2.,min(8.,math.floor(self.meta['duration']*1000)/1000)))
                     self.repeat.setChecked(self.meta['duration']<2.)
                     self.play.setEnabled(True);self.remove.setEnabled(True);self.update_range();self.changed.emit()
                     w.status.setText('动作参考已就绪')
-                else:w.add_chat('软件','动作参考导入未完成：'+str(data))
+                else:
+                    message='动作参考导入失败：'+str(data);w.status.setText(message);w.add_chat('软件',message)
                 w.generation_type_changed();QTimer.singleShot(0,w.start_next)
         w.launch(prepare,event)
 
     def clear(self):
         if self.preview_dialog:self.preview_dialog.close();self.preview_dialog=None
+        self.range_dialog.close()
         self.path=None;self.meta=None;self.preview_paths=[];self.poster.clear()
         self.poster.hide()
         self.repeat.setChecked(False)
-        self.summary.setText('可选：动画提供动作与节奏；图片提供角色与画风。')
+        self.summary.clear();self.summary.hide()
         self.play.setEnabled(False);self.remove.setEnabled(False);self.start.setMaximum(0);self.start.setValue(0)
         self.update_range();self.changed.emit()
 
     def update_range(self,*_):
         self.start.setEnabled(bool(self.path))
         self.detail.setEnabled(bool(self.path))
-        if not self.meta:self.range_note.setText('未选择时按提示词生成。');return
+        self.range_button.setEnabled(bool(self.path));self.range_slider.setEnabled(bool(self.path))
+        self.range_slider.blockSignals(True)
+        self.range_slider.setValue(round(1000*self.start.value()/self.start.maximum()) if self.start.maximum() else 0)
+        self.range_slider.blockSignals(False)
+        if not self.meta:self.range_note.clear();return
         used=self.seconds.value() if self.repeat.isChecked() else min(self.seconds.value(),self.meta['duration']-self.start.value())
-        text=f'本次参考 {self.start.value():.2f}–{self.start.value()+used:.2f} 秒；原声不参与。'
+        text=f'参考 {self.start.value():.2f}–{self.start.value()+used:.2f}s'
         requested=math.ceil(self.seconds.value()*24)
         aligned=requested+(5-requested)%17
-        text+=f' 模型输出约 {aligned/24:.2f} 秒。'
-        if self.repeat.isChecked():text+=' 循环使用动作片段。'
-        if used<self.seconds.value()-.05:text+=' 参考较短，后续动作由模型延展。'
+        text+=f' · 输出约 {aligned/24:.2f}s'
         self.range_note.setText(text)
 
     def preview(self):

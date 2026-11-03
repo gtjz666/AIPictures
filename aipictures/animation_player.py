@@ -25,6 +25,7 @@ class AnimationPlayer(QWidget):
         self.timer = QTimer(self); self.timer.timeout.connect(self.advance)
 
     def load(self,path):
+        if hasattr(self.window,'workbench'):self.window.workbench.reference_player.stop()
         if hasattr(self.window,'video_controller'):self.window.video_controller.player.stop()
         path=Path(path); manifest=json.loads(path.read_text('utf-8'))
         if manifest.get('status') != 'completed': raise ValueError('此序列尚未完成，部分帧可在结果目录查看')

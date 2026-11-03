@@ -5,6 +5,13 @@ from PySide6.QtGui import QColor,QFont,QPalette
 LIGHT_STYLE = '''
 QWidget { background:#fcfcfd; color:#20252d; font-family:"Microsoft YaHei UI"; font-size:13px; }
 QMainWindow { background:#fcfcfd; }
+QMenuBar { background:#fafbfc; border-bottom:1px solid #e5e7ed; }
+QMenuBar::item { padding:6px 10px; background:transparent; }
+QMenuBar::item:selected { background:#ebefff; color:#4056a1; }
+QMenu { background:#ffffff; border:1px solid #e3e7ee; padding:4px; }
+QMenu::item { padding:7px 22px; }
+QMenu::item:selected { background:#ebefff; color:#4056a1; }
+QToolBar { background:#fcfcfd; border:0; border-bottom:1px solid #e5e7ed; spacing:6px; padding:4px; }
 QWidget#sidebar { background:#f2f3f6; border:1px solid #e7e9ee; border-radius:16px; }
 QLabel#brand { font-size:22px; font-weight:700; letter-spacing:1px; padding:12px 2px 16px; }
 QLabel#pageHeading { font-size:24px; font-weight:700; padding:2px 0; background:transparent; }

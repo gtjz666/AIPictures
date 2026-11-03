@@ -47,7 +47,7 @@ class FrameSelectionDialog(QDialog):
         options.addWidget(QLabel('精灵图列数'));self.columns=QSpinBox();self.columns.setRange(1,16);self.columns.setValue(4);options.addWidget(self.columns)
         self.transparent=QCheckBox('透明背景');self.transparent.setChecked(True);options.addWidget(self.transparent)
         self.loop=QCheckBox('循环播放');self.loop.setChecked(True);options.addWidget(self.loop);options.addStretch();layout.addLayout(options)
-        self.status=QLabel('勾选缩略图或点击“选取此帧”；按源顺序导出，不会自动猜测或补帧。')
+        self.status=QLabel()
         self.status.setWordWrap(True);layout.addWidget(self.status)
         buttons=QHBoxLayout();self.sheet_button=QPushButton('导出精灵图…');self.png_button=QPushButton('导出所选 PNG…')
         self.sheet_button.clicked.connect(lambda:self.export('sheet'));self.png_button.clicked.connect(lambda:self.export('pngs'))
@@ -89,8 +89,8 @@ class FrameSelectionDialog(QDialog):
         self.grid.blockSignals(False);self.selection_changed()
 
     def selection_changed(self,*_):
-        count=len(self.selected());seed=f' · 实际种子：{self.seed}' if isinstance(self.seed,int) and self.seed>=0 else ' · 种子未知'
-        self.summary.setText(f'已选 {count} / {len(self.paths)} 帧 · 按原动画顺序'+seed)
+        count=len(self.selected())
+        self.summary.setText(f'已选 {count} / {len(self.paths)} 帧')
         for button in (self.sheet_button,self.png_button):button.setEnabled(bool(count) and not self.busy)
 
     def play(self,selected):

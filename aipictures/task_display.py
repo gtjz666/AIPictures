@@ -1,6 +1,6 @@
 """Task name, progress and monotonic elapsed time, independent of worker events."""
 import time
-from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QLabel,QProgressBar,QSizePolicy
+from PySide6.QtWidgets import QWidget,QHBoxLayout,QLabel,QProgressBar,QSizePolicy,QMessageBox
 from PySide6.QtCore import Qt,QTimer
 from PySide6.QtCore import Signal
 
@@ -16,24 +16,36 @@ def task_name(params):
 
 class TaskLabel(QLabel):
     def __init__(self,owner):
-        super().__init__('等待生成'); self.owner=owner; self.setWordWrap(True)
+        super().__init__('等待生成'); self.owner=owner; self.setWordWrap(False);self.failure=''
 
     def setText(self,text):
-        self.setToolTip(str(text))
+        text=str(text)
+        self.failure=text if any(word in text for word in ('失败','错误','无法','未完成')) else ''
+        self.setCursor(Qt.CursorShape.PointingHandCursor if self.failure else Qt.CursorShape.ArrowCursor)
         display=getattr(self.owner,'task_display',None)
         if display: display.record_stage(str(text))
         current=getattr(self.owner,'current',None)
         if current:
             value=task_name(current['params'])
-            if '失败' in text: value+=' · 失败'
+            if self.failure: value+=' · 失败'
             elif '取消' in text: value+=(' · 取消中' if '正在' in text else ' · 已取消')
             elif '完成' in text or '已保存' in text: value+=' · 完成'
             elif '断开' in text: value+=' · 引擎断开'
         else:
-            value=('引擎已连接' if str(text).startswith('已连接') else
-                   '引擎未连接' if any(word in str(text) for word in ('未连接','连接失败','已断开')) else str(text))
-            if len(value)>26: value=value[:25]+'…'
+            value=super().text()
+            for words,name in ((('导出','选帧','精灵图'),'导出素材'),(('识别','需求'),'需求识别'),
+                (('云端',),'云端图片生成'),(('动画',),'动画生成'),(('图片','生图'),'图片生成'),
+                (('参考','上传','准备素材'),'准备素材'),(('连接','断开'),'引擎连接')):
+                if any(word in text for word in words):value=name;break
+            if self.failure:value=value.split(' · ')[0]+' · 失败'
+            elif '取消' in text:value=value.split(' · ')[0]+' · 已取消'
+            elif '完成' in text or '已导出' in text or '已保存' in text:value=value.split(' · ')[0]+' · 完成'
         super().setText(value)
+
+    def mouseReleaseEvent(self,event):
+        if event.button()==Qt.MouseButton.LeftButton and self.failure:
+            QMessageBox.warning(self.owner,'任务未完成',self.failure)
+        else:super().mouseReleaseEvent(event)
 
 
 class TaskProgress(QProgressBar):
@@ -45,20 +57,18 @@ class TaskProgress(QProgressBar):
 class TaskDisplay(QWidget):
     def __init__(self,owner):
         super().__init__(owner); self.setObjectName('taskDisplay')
-        layout=QVBoxLayout(self); layout.setContentsMargins(10,10,10,10)
-        heading=QLabel('当前任务'); heading.setObjectName('muted'); layout.addWidget(heading)
-        row=QHBoxLayout(); self.status=TaskLabel(owner); self.percent=QLabel('0%')
-        self.status.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred)
+        layout=QHBoxLayout(self); layout.setContentsMargins(10,4,10,4)
+        self.status=TaskLabel(owner); self.percent=QLabel('0%')
+        self.status.setSizePolicy(QSizePolicy.Policy.Preferred,QSizePolicy.Policy.Preferred)
         self.percent.setFixedWidth(45); self.percent.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
-        row.setSpacing(4)
-        row.addWidget(self.status,1); row.addWidget(self.percent); layout.addLayout(row)
+        self.status.setMinimumWidth(150);layout.addWidget(self.status)
         self.progress=TaskProgress(); self.progress.setRange(0,100); self.progress.setValue(0)
         self.progress.setMinimumWidth(0)
-        self.progress.setTextVisible(False); self.progress.setMaximumHeight(5); layout.addWidget(self.progress)
+        self.progress.setTextVisible(False); self.progress.setMaximumHeight(5); layout.addWidget(self.progress,1);layout.addWidget(self.percent)
         self.progress.valueChanged.connect(self.update_percent); self.progress.rangeChanged.connect(self.update_percent)
-        self.elapsed=QLabel('尚未开始'); self.elapsed.setWordWrap(True); self.elapsed.setObjectName('muted'); layout.addWidget(self.elapsed)
-        self.detail=QLabel();self.detail.setWordWrap(True)
-        self.detail.setMaximumHeight(self.detail.fontMetrics().lineSpacing()*3+4);layout.addWidget(self.detail)
+        self.elapsed=QLabel('00:00'); self.elapsed.setObjectName('muted'); layout.addWidget(self.elapsed)
+        self.detail=QLabel(self);self.detail.hide()
+        self.setMaximumHeight(40)
         self.started=None; self.finished_seconds=0.; self.stage='准备'
         self.clock=QTimer(self); self.clock.setInterval(250); self.clock.timeout.connect(self.update_elapsed)
 
@@ -89,7 +99,7 @@ class TaskDisplay(QWidget):
     def update_elapsed(self):
         seconds=int(self.seconds()); hours,remaining=divmod(seconds,3600); minutes,seconds=divmod(remaining,60)
         duration=f'{hours:02d}:{minutes:02d}:{seconds:02d}' if hours else f'{minutes:02d}:{seconds:02d}'
-        self.elapsed.setText(('已用时 ' if self.started is not None else '耗时 ')+duration+' · '+self.stage)
+        self.elapsed.setText(duration)
 
     def update_percent(self,*_):
         p=self.progress

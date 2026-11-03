@@ -6,39 +6,13 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPlainTextEdit, QLabel,
                               QPushButton, QCheckBox, QComboBox, QMessageBox, QInputDialog)
 
 from .local_intent import analyze, settings
 from .storage import write_json
-
-
-class BriefInput(QPlainTextEdit):
-    files_dropped = Signal(list)
-
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls() and all(u.isLocalFile() for u in event.mimeData().urls()):
-            event.acceptProposedAction()
-        else:
-            super().dragEnterEvent(event)
-
-    def dragMoveEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-        else:
-            super().dragMoveEvent(event)
-
-    def dropEvent(self, event):
-        if event.mimeData().hasUrls():
-            urls = event.mimeData().urls()
-            if not urls or len(urls) > 1501 or not all(u.isLocalFile() for u in urls):
-                event.ignore(); return
-            self.files_dropped.emit([Path(u.toLocalFile()) for u in urls])
-            event.acceptProposedAction()
-        else:
-            super().dropEvent(event)
 
 
 class IntentController:
@@ -61,16 +35,16 @@ class IntentController:
         top.addWidget(self.role); top.addStretch()
         self.organize = QPushButton('整理提示词'); self.organize.clicked.connect(lambda: self.start(False)); top.addWidget(self.organize)
         layout.addLayout(top)
-        self.input = BriefInput(); self.input.setMinimumHeight(56); self.input.setMaximumHeight(80)
-        self.input.setPlaceholderText('描述想要的结果，可拖入角色图片、动作视频或 GIF。例如：让这个角色模仿视频的动作，保持自己的服装与配色。')
-        self.input.files_dropped.connect(self.import_files); layout.addWidget(self.input)
+        self.input = QPlainTextEdit(); self.input.setMinimumHeight(56)
+        self.input.setAcceptDrops(False); self.input.setPlaceholderText('描述你想创作的内容…')
+        window.preview.enable_file_drop();window.preview.files_dropped.connect(self.import_files)
+        layout.addWidget(self.input,1)
         self.send_shortcut = QShortcut(QKeySequence('Ctrl+Return'), self.input)
         self.send_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.send_shortcut.activated.connect(window.enqueue)
-        self.note = QLabel('本地理解素材并整理正反提示词；可直接发送生成，也可先整理后修改。' if self.config else
-                           '本地识别模型尚未安装或验收；手动提示词生成仍可使用。')
+        self.note = QLabel()
         self.note.setWordWrap(True); self.note.setTextFormat(Qt.TextFormat.PlainText)
-        self.note.setObjectName('muted'); layout.addWidget(self.note)
+        self.note.setObjectName('muted'); layout.addWidget(self.note); self.note.hide()
         self.organize.setEnabled(bool(self.config)); self.enabled.setEnabled(bool(self.config))
         self.role.setEnabled(bool(self.config))
         self.role.currentIndexChanged.connect(self.source_changed)
@@ -79,16 +53,14 @@ class IntentController:
         self.panel = panel
         window.video_controller.motion.changed.connect(self.source_changed)
 
-    def source_changed(self):
-        if self.enabled.isChecked() and not self.running:
-            QTimer.singleShot(250, self.auto_organize)
+    def notify(self, text):
+        self.note.setText(text); self.note.setVisible(bool(text))
 
-    def auto_organize(self):
-        w = self.window
-        if (self.enabled.isChecked() and not self.running and not w.preparing and not w.current and not w.pending
-                and (w.reference_path or w.video_controller.motion.path)
-                and self.applied_context != self.fingerprint(prompts=False)):
-            self.start(False)
+    def source_changed(self):
+        self.applied = self.applied_context = None
+        if hasattr(self.window,'workbench'):
+            workbench=self.window.workbench;workbench.plan=None;workbench.timeline.hide()
+            if getattr(workbench,'timeline_dialog',None):workbench.timeline_dialog.close()
 
     def fingerprint(self, *, prompts=True) -> str:
         w = self.window; motion = w.video_controller.motion
@@ -100,31 +72,25 @@ class IntentController:
         return hashlib.sha256(json.dumps(value, ensure_ascii=False).encode()).hexdigest()
 
     def intercept(self) -> bool:
-        if not self.enabled.isChecked():
-            return False
-        if self.applied == self.fingerprint():
-            return False
-        if self.applied_context == self.fingerprint(prompts=False):
-            return False  # A reviewed prompt edit is authoritative, never silently rewritten.
-        self.start(True)
-        return True
+        # Analysis is an explicit action. Generation uses the visible prompts.
+        return self.running
 
     def start(self, generate: bool):
         w = self.window
         if self.running or w.preparing:
-            self.note.setText('请等待素材准备或识别结束。'); return
+            self.notify('请等待素材准备或识别结束。'); return
         if w.current or w.pending:
-            self.note.setText('请等待当前生成队列完成，再识别新需求；识别和生成串行使用显卡。'); return
+            self.notify('请等待当前任务完成。'); return
         if not self.config:
-            self.note.setText('本地识别模型尚未完成验收。'); return
+            self.notify('本地识别模型不可用。'); return
         if w.custom_graph is not None:
-            self.note.setText('请先将后台预设恢复为自动选择，再使用创作助手。'); return
+            self.notify('请先将后台预设恢复为自动选择。'); return
         manual = w.positive.toPlainText().strip()
         brief = self.input.toPlainText().strip() or (manual if manual != self.generated_positive else '')
         if not brief and (w.reference_path or w.video_controller.motion.path):
             brief = '依据已提供素材制作动画，外观与动作各按其参考用途。' if w.generation_type.currentData()=='walk' else '依据参考图整理主体外观、画风与构图，生成单张图片。'
         if not brief:
-            self.note.setText('请描述想生成的内容。'); return
+            self.notify('请描述想生成的内容。'); return
         folder = self.data/'intent'/(datetime.now().strftime('%Y%m%d_%H%M%S_')+uuid4().hex[:8])
         reference = Path(w.reference_path) if w.reference_path else None
         motion = w.video_controller.motion
@@ -140,7 +106,7 @@ class IntentController:
         self.running = w.preparing = True; self.cancel_event.clear(); self.current_record = folder
         w.generate_button.setEnabled(False); self.organize.setEnabled(False)
         w.task_display.start(); w.progress.setRange(0, 0)
-        self.note.setText('正在识别…'); w.status.setText('正在识别生成需求…')
+        self.notify(''); w.status.setText('正在识别生成需求…')
         def run(emit):
             if w.connected:
                 queue = w.client.request('/queue')
@@ -151,7 +117,7 @@ class IntentController:
             return analyze(self.config, brief, negative, reference, motion_path, folder, self.cancel_event, emit, **kwargs)
         def finish(kind, data):
             if kind == 'intent_stage':
-                self.note.setText(data['message']); w.status.setText(data['message']); return
+                w.status.setText(data['message']); return
             if kind not in ('result', 'error', 'cancelled'):
                 return
             unchanged = self.fingerprint() == initial
@@ -160,22 +126,22 @@ class IntentController:
             w.task_display.finish('completed' if kind=='result' else 'cancelled' if self.cancel_event.is_set() else 'failed')
             w.generation_type_changed()
             if kind != 'result':
-                self.note.setText('识别已取消，原输入保留。' if self.cancel_event.is_set() else '识别未完成：'+str(data))
+                self.notify('识别已取消，原输入保留。' if self.cancel_event.is_set() else '识别未完成：'+str(data))
                 w.status.setText(self.note.text()); w.add_chat('软件', self.note.text())
             elif self.cancel_event.is_set():
-                self.note.setText('已取消；识别结果未应用，未提交生成。')
+                self.notify('已取消；识别结果未应用。')
             elif not unchanged:
-                self.note.setText('识别期间输入已修改，结果已保存但没有覆盖新输入，请重新整理。')
+                self.notify('输入已修改，请重新整理。')
             elif data['plan']['questions']:
-                self.note.setText('需要补充：'+'；'.join(data['plan']['questions']))
+                self.notify('需要补充：'+'；'.join(data['plan']['questions']))
                 w.add_chat('软件', self.note.text()); w.status.setText('请在需求栏补充后重新发送。')
             else:
                 self.original_negative = negative
                 self.apply(data)
-                self.note.setText(data['plan']['summary']+f" · 识别用时 {data['elapsed_seconds']:.1f} 秒")
+                self.notify('')
                 w.add_chat('你', brief, str(reference) if reference else None)
-                w.add_chat('软件', self.note.text(), job=str(folder))
-                w.status.setText('需求已整理，可修改提示词或直接生成。')
+                w.add_chat('软件', data['plan']['summary'], job=str(folder))
+                w.status.setText('需求识别完成')
                 if generate:
                     QTimer.singleShot(0, w.enqueue)
             QTimer.singleShot(0, w.start_next)
@@ -202,7 +168,7 @@ class IntentController:
     def cancel(self) -> bool:
         if not self.running:
             return False
-        self.cancel_event.set(); self.note.setText('正在取消本地识别，未提交生成。')
+        self.cancel_event.set(); self.window.status.setText('正在取消需求识别')
         return True
 
     def record(self, folder: Path, params: dict):
@@ -217,7 +183,7 @@ class IntentController:
     def import_files(self, paths: list[Path]):
         w = self.window
         if self.running or w.preparing:
-            self.note.setText('请等待当前素材准备或识别结束，再添加素材。'); return
+            self.notify('请等待素材准备或识别结束。'); return
         try:
             from .motion_guide import EXTENSIONS
             if any(not p.is_file() for p in paths):
@@ -243,7 +209,7 @@ class IntentController:
             self.applied = None
             self.source_changed()
         except (OSError, ValueError) as exc:
-            self.note.setText(str(exc))
+            self.notify(str(exc))
 
     def animation_mode(self):
         w = self.window

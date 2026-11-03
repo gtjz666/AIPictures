@@ -33,7 +33,7 @@ def main():
         w=Window();w.timer.stop();w.resize(1440,900);w.show();QTest.qWait(30)
         c=w.intent_controller
         assert c.config and c.enabled.isChecked() and not w.reference_path
-        c.input.setPlainText('制作一个红色玻璃药水瓶，俯视角，放在深色木桌上，写实游戏道具图标。只要一个瓶子，不要人物，不要文字。')
+        w.positive.setPlainText('制作一个红色玻璃药水瓶，俯视角，放在深色木桌上，写实游戏道具图标。只要一个瓶子，不要人物，不要文字。')
         if previous:
             c.current_record=previous[-1].parent
             c.apply(json.loads(previous[-1].read_text('utf-8')))

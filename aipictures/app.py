@@ -30,7 +30,7 @@ from .background_worker import Worker
 class Window(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('AIPictures · 本地创作工作室')
+        self.setWindowTitle('AlI')
         self.resize(1440, 940)
         self.workers = []
         self._closing = False
@@ -369,7 +369,7 @@ class Window(QMainWindow):
         self.custom_loop.setVisible(walking and custom and free)
         self.update_custom_hint()
         self.animation_style.setEnabled(walking and self.animation_source.currentData()=='reference')
-        self.generate_button.setText('生成'+action_title+'动画' if walking else '发送并生成')
+        self.generate_button.setText('生成动画' if walking else '生成')
         self.positive.setPlaceholderText('描述角色外观和需要保留的细节；动作在上方选择' if walking else
             '描述人物、物件或场景，以及视角、姿势与画风')
         for control in (self.width,self.height,self.denoise,self.cfg,self.lora,self.strength):
@@ -586,6 +586,7 @@ class Window(QMainWindow):
         self.show_image(str(target),role='reference')
         if hasattr(self,'intent_controller'):self.intent_controller.source_changed()
         if not self.character_loading: self.generation_type_changed()
+        if hasattr(self,'workbench'):self.workbench.refresh_reference()
 
     def use_current_as_reference(self):
         if self.output:
@@ -606,6 +607,9 @@ class Window(QMainWindow):
             self.caption.setText('尚未选择参考图')
         self.reference_label.setText('已移除参考图：仅按文字描述生成，可重新添加参考图。')
         self.generation_type_changed()
+        if hasattr(self,'workbench'):
+            self.workbench.refresh_reference()
+            if self.pixmap.isNull():self.preview.setText('拖入参考素材')
 
     def tab_changed(self, index):
         if index == 1 and self.connected:
@@ -1015,6 +1019,7 @@ class Window(QMainWindow):
         self.assets_dialog.close()
 
     def show_image(self, path, allow_zoom=True,role='result'):
+        if hasattr(self,'workbench'):self.workbench.reference_player.stop()
         if role=='result':
             from .seed_controls import from_folder
             from_folder(self,Path(path).parent)
@@ -1023,6 +1028,7 @@ class Window(QMainWindow):
         self.sequence_preview.clear_sequence()
         self.pixmap = QPixmap(path); self.output = path if role=='result' else None
         self.preview_path=path; self.preview_role=role
+        self.image_save.setEnabled(role=='result');self.image_reuse.setEnabled(role=='result')
         self.preview.set_clickable(allow_zoom and not self.pixmap.isNull() and Path(path).suffix.lower() != '.gif')
         self.caption.setText('参考图 · '+(self.reference_display_name or Path(path).name) if role=='reference' else
             '生成图片 · 点击查看原图' if allow_zoom else '动作帧预览')
@@ -1064,6 +1070,11 @@ class Window(QMainWindow):
             except (OSError,ValueError,KeyError) as exc: QMessageBox.warning(self, '保存失败', str(exc))
 
     def closeEvent(self, event):
+        if hasattr(self,'workbench'):
+            self.workbench.reference_player.stop()
+            try:self.workbench.save_layout()
+            except OSError:pass
+            for dock in self.workbench.docks.values():dock.hide()
         self.intent_controller.cancel()
         self._closing=True;self.timer.stop();self.prepare_cancel.set()
         if self.current:self.current['cancel'].set()
@@ -1099,6 +1110,7 @@ class Window(QMainWindow):
 
 def create_application(args=None):
     app = QApplication(sys.argv if args is None else args)
+    app.setApplicationName('AlI');app.setApplicationDisplayName('AlI')
     from .theme import apply_light_theme
     apply_light_theme(app)
     return app

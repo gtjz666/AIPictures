@@ -34,6 +34,7 @@ class VideoPreview(QWidget):
 
     def seek(self,index):
         if not self.frames:return
+        if hasattr(self.window,'workbench'):self.window.workbench.reference_player.stop()
         self.index=index;w=self.window;w.pixmap=QPixmap(str(self.frames[index]))
         w.output=None;w.preview_path=str(self.frames[index]);w.preview_role='video';w.preview.set_clickable(False)
         w.image_save.hide();w.image_reuse.hide()

@@ -26,7 +26,7 @@ def build_studio(w):
     split = QSplitter(); page_layout.addWidget(split); w.tabs.addTab(page, '创作')
     sidebar = QWidget(); sidebar.setObjectName('sidebar'); side = QVBoxLayout(sidebar)
     side.setContentsMargins(12, 10, 12, 10)
-    title = QLabel('AIPictures'); title.setObjectName('brand'); side.addWidget(title)
+    title = QLabel('AlI'); title.setObjectName('brand'); side.addWidget(title)
     w.creation_summary=QLabel('单张图片\n完整画面 · PNG'); w.creation_summary.setWordWrap(True); side.addWidget(w.creation_summary)
     w.creation_summary.setObjectName('muted')
     w.creation_summary.setMinimumHeight(64); w.creation_summary.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -200,8 +200,8 @@ def build_studio(w):
     from .seed_controls import install_notice
     install_notice(w,cv)
     prompts=QWidget(); prompt_row=QHBoxLayout(prompts); prompt_row.setContentsMargins(0,0,0,0)
-    w.positive = QTextEdit(); w.positive.setPlaceholderText('描述人物、物件或场景，以及视角、动作与画风'); w.positive.setMinimumHeight(95); w.positive.setMaximumHeight(130)
-    w.negative = QTextEdit(); w.negative.setPlaceholderText('填写不想出现的内容，可留空'); w.negative.setMinimumHeight(95); w.negative.setMaximumHeight(130)
+    w.positive = QTextEdit(); w.positive.setPlaceholderText('描述想要的画面或动作…'); w.positive.setMinimumHeight(95); w.positive.setMaximumHeight(130)
+    w.negative = QTextEdit(); w.negative.setPlaceholderText('不希望出现的内容…'); w.negative.setMinimumHeight(95); w.negative.setMaximumHeight(130)
     for label,control,stretch in [('正向提示词',w.positive,3),('反向提示词',w.negative,2)]:
         column=QWidget(); column_layout=QVBoxLayout(column); column_layout.setContentsMargins(0,0,0,0)
         column_layout.addWidget(QLabel(label)); column_layout.addWidget(control); prompt_row.addWidget(column,stretch)

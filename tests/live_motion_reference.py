@@ -23,11 +23,11 @@ def main():
             while w.preparing or w.workers:
                 app.processEvents();QTest.qWait(10)
                 assert time.monotonic()<deadline
-        assert not panel.isVisible()
+        assert panel.isVisible() and not panel.path
         w.generation_type.setCurrentIndex(1);assert panel.isVisible()
         source=gif(root/'walk.gif');before=source.read_bytes();panel.set_file(source);wait()
         assert panel.path and panel.meta['name']=='walk.gif' and w.animation_action.currentData()=='custom'
-        assert '仅参考动作' in panel.summary.text()
+        assert 'walk.gif' in panel.summary.text()
         panel.preview();app.processEvents();assert panel.preview_dialog.isVisible();panel.preview_dialog.close()
         image=root/'character.png';Image.new('RGBA',(64,96),(20,100,220,255)).save(image)
         w.set_reference(str(image));w.positive.setPlainText('保持蓝色衣服，跟随动作参考');w.seed.setText('1234')
@@ -57,7 +57,7 @@ def main():
         assert data['fps']==12 and len(frames)==3 and Image.open(frames[0]).getpixel((0,0))==(255,0,0)
         assert w.pending[0][1]['motion_repeat']
         w.clear_pending();w.generation_type.setCurrentIndex(0)
-        assert not panel.isVisible() and not panel.path and not w.reference_path
+        assert panel.isVisible() and not panel.path and not w.reference_path
         w.close();app.processEvents()
     print('Motion/character separation, GIF + PNG buttons/FPS, preview, frozen queues, clear: PASS')
 

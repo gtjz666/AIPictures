@@ -39,7 +39,7 @@ def show_seed(window,seed):
     value=str(seed) if isinstance(seed,int) and 0<=seed<2**64 else ''
     window.actual_seed.setText(value)
     window.seed_notice.setText('实际种子：'+value+' · 可在生成参数中复制或复用' if value else '此素材没有记录生成种子')
-    window.seed_notice.show()
+    # The current seed is available with copy/reuse in the sampling panel.
 
 
 def copy_seed(window):

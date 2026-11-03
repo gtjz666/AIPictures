@@ -82,7 +82,7 @@ class VideoController:
     def apply_ui(self):
         w=self.window;walking=w.generation_type.currentData()=='walk';free=self.free()
         self.sync_prompt_mode(walking and free)
-        self.motion.setVisible(walking and free)
+        self.motion.setVisible(hasattr(w,'workbench') or walking and free)
         w.animation_action.setEnabled(not self.motion.path)
         if not walking and self.motion.preview_dialog:self.motion.preview_dialog.close()
         if hasattr(w,'attach_reference_button'):
@@ -97,7 +97,7 @@ class VideoController:
         for field in (w.motion_mode,w.research_motion_button,w.animation_style,w.style_link,
                       w.animation_detail,w.animation_sampler,w.animation_color,w.walk_count,w.walk_fps,w.motion_note):
             w.walk_form.setRowVisible(field,False)
-        w.walk_form.setRowVisible(self.seconds,walking and free)
+        if w.walk_form.getWidgetPosition(self.seconds)[0]>=0:w.walk_form.setRowVisible(self.seconds,walking and free)
         w.research_bones_button.hide()
         w.custom_form.setRowVisible(w.custom_strategy,False)
         w.custom_settings.hide()
@@ -109,8 +109,8 @@ class VideoController:
             available=self.motion_settings if self.motion.path else self.h3
             w.generate_button.setEnabled(not w.preparing and bool(available))
             w.custom_hint.setText('动作描述为准；生成完整动画后再选择拆帧，不需要调整骨骼。')
-            w.positive.setPlaceholderText('一起描述角色、场景和动作，例如：蓝发角色面向右侧原地跑步，双腿交替迈步，保持参考图配色。')
-            w.context_label.setText('动画创作');w.generate_button.setText('生成完整动画')
+            w.positive.setPlaceholderText('描述想要的动作…')
+            w.context_label.setText('动画创作');w.generate_button.setText('生成动画')
             w.intent_hint.setText('正向提示词描述画面与动作 → 完整动画预览 → 自主选帧导出' if self.h3 else 'MiniMax H3 尚未安装并验证；请先完成独立引擎设置。')
             if self.motion.path:
                 w.generate_button.setEnabled(not w.preparing and bool(self.motion_settings))
