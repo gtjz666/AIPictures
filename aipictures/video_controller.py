@@ -25,16 +25,28 @@ class VideoController:
         window.animation_engine.addItem('MiniMax H3','h3')
         from .h3_backend import settings
         self.h3=settings(self.data)
+        from .motion_native_backend import settings as motion_settings
+        self.motion_settings=motion_settings(self.data)
         window.animation_engine.setCurrentIndex(0)
         window.animation_engine.blockSignals(False)
         window.walk_form.insertRow(0,'动画模型',window.animation_engine)
         window.animation_engine.setEnabled(False)  # One supported engine, no silent legacy fallback.
-        self.seconds=QDoubleSpinBox();self.seconds.setRange(2,8);self.seconds.setSingleStep(1);self.seconds.setValue(4)
+        self.seconds=QDoubleSpinBox();self.seconds.setRange(2,8);self.seconds.setDecimals(3);self.seconds.setSingleStep(1);self.seconds.setValue(4)
         window.walk_form.insertRow(1,'片段时长（秒）',self.seconds)
+        from .motion_reference_ui import MotionReferencePanel
+        self.motion=MotionReferencePanel(window,self.seconds)
+        window.workspace_layout.insertWidget(window.workspace_layout.indexOf(window.intent_hint),self.motion)
+        self.motion.changed.connect(self.motion_changed)
+        self.motion.hide()
         window.animation_action.currentIndexChanged.connect(self.action_changed)
         self.action_changed()
 
     def free(self):return self.window.animation_engine.currentData()=='h3'
+
+    def motion_changed(self):
+        if self.motion.path:
+            self.window.animation_action.setCurrentIndex(self.window.animation_action.findData('custom'))
+        self.apply_ui()
 
     def action_changed(self,*_):
         w=self.window
@@ -70,6 +82,11 @@ class VideoController:
     def apply_ui(self):
         w=self.window;walking=w.generation_type.currentData()=='walk';free=self.free()
         self.sync_prompt_mode(walking and free)
+        self.motion.setVisible(walking and free)
+        w.animation_action.setEnabled(not self.motion.path)
+        if not walking and self.motion.preview_dialog:self.motion.preview_dialog.close()
+        if hasattr(w,'attach_reference_button'):
+            w.attach_reference_button.setText('＋ 角色 / 风格图' if walking else '＋ 参考图')
         w.animation_action_label.setText('动作模板' if free else '动作')
         w.update_lora_state()
         w.settings_buttons['image'].setVisible(not walking or not free)
@@ -89,11 +106,15 @@ class VideoController:
         if walking and free:
             if w.api_controller.cloud:
                 w.generate_button.setEnabled(False);w.intent_hint.setText('动画使用本地引擎；请在API设置中切回本地生成。');return
-            w.generate_button.setEnabled(not w.preparing and bool(self.h3))
+            available=self.motion_settings if self.motion.path else self.h3
+            w.generate_button.setEnabled(not w.preparing and bool(available))
             w.custom_hint.setText('动作描述为准；生成完整动画后再选择拆帧，不需要调整骨骼。')
             w.positive.setPlaceholderText('一起描述角色、场景和动作，例如：蓝发角色面向右侧原地跑步，双腿交替迈步，保持参考图配色。')
             w.context_label.setText('动画创作');w.generate_button.setText('生成完整动画')
             w.intent_hint.setText('正向提示词描述画面与动作 → 完整动画预览 → 自主选帧导出' if self.h3 else 'MiniMax H3 尚未安装并验证；请先完成独立引擎设置。')
+            if self.motion.path:
+                w.generate_button.setEnabled(not w.preparing and bool(self.motion_settings))
+                w.intent_hint.setText('动作跟随参考动画或PNG帧；图片与文字指定角色和画风。' if self.motion_settings else '动作素材已就绪；专用参考引擎尚未完成本机验证，暂不能生成。移除动作参考可继续普通动画。')
             w.creation_summary.setText('自由动画\nMiniMax H3\n先预览完整片段，再导出素材')
         w.animation_style.hide();w.style_link.hide()
 
@@ -104,10 +125,12 @@ class VideoController:
         if w.api_controller.cloud:return False
         if w.preparing:return True
         engine='h3'
-        if not self.h3:raise ValueError('MiniMax H3 尚未安装并验证，不能生成动画；不会切回已停用的 Wan。')
+        if not self.motion.path and not self.h3:raise ValueError('MiniMax H3 尚未安装并验证，不能生成动画；不会切回已停用的 Wan。')
+        if self.motion.path and not self.motion_settings:raise ValueError('专用动作参考引擎尚未完成本机验证，请先移除动作参考以使用普通动画。')
         description=''
         reference=w.reference_path if w.animation_source.currentData()=='reference' else None
         prompt=w.positive.toPlainText().strip()
+        if not prompt and self.motion.path and reference:prompt='按动作参考生成动画，保留角色参考图的主体、衣着、配色与画风。'
         if not prompt:raise ValueError('请在正向提示词中描述画面与动作。')
         if len(prompt)>16000 or len(description)>8000 or len(w.negative.toPlainText())>8000:
             raise ValueError('描述过长，请将画面提示词控制在16000字、动作及反向描述各8000字以内。')
@@ -124,6 +147,30 @@ class VideoController:
             'reference':reference,'seed':seed,'seconds':self.seconds.value(),'steps':w.animation_steps.value(),
             'checkpoint':w.model.currentText(),'url':w.client.url if w.connected else None,'lora':''}
         params['h3_settings']=self.h3.copy()
+        if self.motion.path:
+            params['motion_native_settings']=self.motion_settings.copy()
+            params.update(motion_reference=str(self.motion.path),motion_start=self.motion.start.value(),
+                          motion_max_side=self.motion.detail.currentData(),
+                          motion_repeat=self.motion.repeat.isChecked(),
+                          motion_source=self.motion.meta.copy(),user_prompt=w.positive.toPlainText())
+            w.preparing=True;w.prepare_cancel.clear();w.importing_folder=folder
+            write_json(folder/'job.json',{'kind':'video','status':'preparing','params':params})
+            from .workflow_library import digest
+            def freeze(_):
+                from .frame_motion_input import freeze as freeze_input
+                source=Path(params['motion_reference']);target=freeze_input(source,folder/'motion_inputs',w.prepare_cancel)
+                if digest(target)!=params['motion_source']['sha256']:raise ValueError('动作参考已被修改，请重新导入。')
+                return str(target.resolve())
+            def ready(kind,data):
+                if kind not in ('result','error','cancelled'):return
+                w.preparing=False;w.importing_folder=None
+                if kind=='result':params['motion_reference']=data;self.enqueue(params,folder)
+                else:
+                    write_json(folder/'job.json',{'kind':'video','status':'failed' if kind=='error' else 'cancelled','params':params,'error':str(data)})
+                    w.add_chat('软件','动作参考准备未完成：'+str(data))
+                self.apply_ui();QTimer.singleShot(0,w.start_next)
+            w.launch(freeze,ready)
+            return True
         self.enqueue(params,folder)
         return True
 
@@ -142,7 +189,7 @@ class VideoController:
     def start(self,params,folder,item):
         from .video_generation import generate
         w=self.window;cancel=threading.Event()
-        client=ComfyClient(params['url']) if params.get('url') else None
+        client=ComfyClient(params['url']) if params.get('url') and not params.get('motion_reference') else None
         w.current={'folder':folder,'params':params,'cancel':cancel,'client':client}
         w.connect_button.setEnabled(False);item.setText('完整动画 · 制作中')
         w.task_display.start();w.progress.setRange(0,0)

@@ -1,0 +1,42 @@
+{
+  "repo": "Comfy-Org/MiniMax-H3",
+  "revision": "912b6e38b2092ec4d2e86d24183e0d59ea059d48",
+  "files": [
+    {
+      "type": "file",
+      "oid": "7d456c7b17fc9ba27722ddc4971bfb6e46bf831a",
+      "size": 20970379616,
+      "lfs": {
+        "oid": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779",
+        "size": 20970379616,
+        "pointerSize": 136
+      },
+      "xetHash": "06cd9af20fdf280d804d14c30560f6bb3b93f94274fe31235485b18107dd88ba",
+      "path": "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors"
+    },
+    {
+      "type": "file",
+      "oid": "90bf58595930e7d56cbe9fecb4ea647d5c0e3aec",
+      "size": 605254808,
+      "lfs": {
+        "oid": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+        "size": 605254808,
+        "pointerSize": 134
+      },
+      "xetHash": "d132ce0297fda95139762b689c22de3507581b897c03f766964a9edfee8c8d3c",
+      "path": "vae/minimax_h3_audio_vae_fp32.safetensors"
+    },
+    {
+      "type": "file",
+      "oid": "6f2cfdd92cc282a93a288b0dad6b58fb833f5b74",
+      "size": 2811065184,
+      "lfs": {
+        "oid": "52a2c8c73583c86e4f41cdcce3a6ad0ea562987bc0bf3d60a0cef5f5c8e60c0e",
+        "size": 2811065184,
+        "pointerSize": 135
+      },
+      "xetHash": "702c89b26d42d714a57c498351f74db638b609fd059b5e590b7ce599e50d81c7",
+      "path": "vae/minimax_h3_video_vae_int8_convrot.safetensors"
+    }
+  ]
+}

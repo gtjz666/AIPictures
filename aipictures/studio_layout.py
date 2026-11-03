@@ -230,6 +230,7 @@ def build_studio(w):
     w.positive.textChanged.connect(w.update_intent_hint)
     compose = QHBoxLayout()
     attach = QPushButton('＋ 参考图'); attach.clicked.connect(w.choose_reference); compose.addWidget(attach)
+    w.attach_reference_button=attach
     remove = QPushButton('移除'); remove.clicked.connect(w.clear_reference); compose.addWidget(remove)
     compose.addStretch()
     w.cancel_button = QPushButton('取消任务'); w.cancel_button.clicked.connect(w.cancel_current); compose.addWidget(w.cancel_button)

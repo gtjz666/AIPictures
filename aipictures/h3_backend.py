@@ -21,6 +21,7 @@ def settings(data: Path) -> dict:
 
 
 def generate(folder: Path, params: dict, cancel: threading.Event, emit) -> dict:
+    if params.get('motion_reference'):raise ValueError('动作参考需要专用Ref2VA引擎，不能使用静态参考的快速权重。')
     folder=Path(folder)
     if cancel.is_set():raise Cancelled('动画已取消，尚未启动独立引擎。')
     if (folder/'h3-command.json').exists() or (folder/'animation.artifacts').exists():

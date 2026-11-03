@@ -19,6 +19,7 @@
 - `api_config.py` / `api_dialog.py` / `api_controller.py`：用户自带 API 设置、密钥保护及单图队列；`api_generation.py` / `api_transport.py` / `smart_generation.py`：独立云端生图与可选文字整理。不要读取其他软件的 Key，不因超时自动重复付费 POST；聊天 Key 不等于生图权限。
 - `pose_animation.py`、`motion_*`、`natural_motion.py`：旧骨骼/Wan研究档案，正常软件入口已经退役，不重新开放或安装模型。历史结果仍可读。
 - `video_controller.py` / `video_generation.py` / `video_preview.py`：MiniMax H3完整自由动画先预览，再自主选帧导出；没有已验证H3时明确不可用，不切回Wan。`h3_backend.py`使用独立环境。
+- `motion_reference_ui.py` / `motion_guide.py` / `frame_motion_input.py`：动画模式独立动作视频/GIF或PNG序列按钮，角色图不混用；PNG自然排序/FPS与GIF逐帧延时入队冻结。`motion_native_backend.py` / `motion_native_graph.py`使用专用Ref2VA及私有Comfy进程，不能用FreeVideo FL2VA/VDN快速权重冒充。新模型/环境经完整生成和目视验收后注册，未通过不开放生成。`motion_reference.py`是原研究模块，不覆盖其历史接口。
 - `flux_klein.py`：4步生图与独立参考潜变量编辑，复用既有Qwen3编码器；真实验收记录和模型齐全后才能启用。先比较图像路线，不默认增加额外理解模型。
 - `reference_edit.py`：Qwen-Image-Edit-2511未通过本机稳定性验收的历史候选，不能与Qwen-Image-2.1或Qwen3.8-27B混淆。
 - `animation_style.py`、`lora_catalog.py`仅保留历史复现与删除收据识别；当前停用LoRA，不重新下载。
