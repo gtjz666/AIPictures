@@ -1,7 +1,7 @@
 """Native desktop presentation: four clear stages, one settings hub, editable plans."""
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QToolButton,
-    QButtonGroup, QDialog, QTabWidget, QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView)
+    QButtonGroup, QDialog, QTabWidget, QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QSizePolicy)
 
 
 class Workbench:
@@ -37,6 +37,11 @@ class Workbench:
         side.insertWidget(3, self.settings_button)
         # Large result area, compact composer, optional technical prompt details.
         w.preview.setMinimumSize(360, 240)
+        # A loaded pixmap must not enlarge the scrollable workspace to its native
+        # size. Otherwise reference previews push the composer below the screen.
+        w.preview.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        w.sequence_preview.sheet.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        w.sequence_preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
         if w.pixmap.isNull():
             w.preview.setText('创作从一个想法开始\n\n添加素材、描述需求，结果会显示在这里')
         w.inspector.setMaximumWidth(240)

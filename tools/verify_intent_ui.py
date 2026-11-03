@@ -17,7 +17,7 @@ def main():
     app = create_application([])
     output = Path('data/acceptance/intent-ui').resolve(); output.mkdir(parents=True, exist_ok=True)
     root = output/'isolated'; root.mkdir(exist_ok=True)
-    png = root/'source.png'; Image.new('RGBA', (120, 180), (150, 100, 210, 255)).save(png)
+    png = root/'source.png'; Image.new('RGBA', (1200, 1800), (150, 100, 210, 255)).save(png)
     plan = dict(kind='image', summary='红色玻璃药水瓶，俯视，保留用户排除项。', positive_prompt='A single red glass potion bottle, top view, no lettering.',
                 negative_prompt='watermark, text', observations=[], timeline=[], questions=[])
     result = dict(schema_version=1, plan=plan, route='zimage', elapsed_seconds=.25, model='protocol fixture',
@@ -58,6 +58,7 @@ def main():
         before = png.read_bytes(); c.import_files([png]); QTest.qWait(20)
         assert w.reference_path and Path(w.reference_path)!=png and png.read_bytes()==before
         assert w.preview_role=='reference' and not w.pixmap.isNull()
+        assert w.preview.size().height()<550, 'A large source image must not push the composer off screen.'
         QTest.mouseClick(w.workbench.modes[1], Qt.MouseButton.LeftButton)
         assert w.generation_type.currentData()=='walk' and w.video_controller.motion.isVisible()
         animation = dict(result, plan=dict(plan, kind='animation', timeline=[{'start':0.,'end':.4,'description':'抬手并挥向镜头。'}]))
