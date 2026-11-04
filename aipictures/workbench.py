@@ -134,17 +134,26 @@ class Workbench:
 
     def make_animation(self,w):
         content=QWidget();layout=QVBoxLayout(content);layout.setContentsMargins(8,6,8,6)
-        action=QHBoxLayout();action.addWidget(w.animation_action_label);action.addWidget(w.animation_action,1);layout.addLayout(action)
-        layout.addWidget(w.video_controller.motion)
+        self.animation_header=QWidget();header=QVBoxLayout(self.animation_header);header.setContentsMargins(0,0,0,0)
+        self.animation_header.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
+        action=QHBoxLayout();action.addWidget(w.animation_action_label);action.addWidget(w.animation_action,1);header.addLayout(action)
+        w.video_controller.motion.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
+        header.addWidget(w.video_controller.motion)
         taken=w.walk_form.takeRow(w.video_controller.seconds)
         if taken.labelItem:taken.labelItem.widget().hide()
-        duration=QHBoxLayout();duration.addWidget(QLabel('时长 / 秒'));duration.addWidget(w.video_controller.seconds,1);layout.addLayout(duration)
+        duration=QHBoxLayout();duration.addWidget(QLabel('时长 / 秒'));duration.addWidget(w.video_controller.seconds,1);header.addLayout(duration)
+        layout.addWidget(self.animation_header,0,Qt.AlignmentFlag.AlignTop)
         self.analyze_motion=QPushButton('分析动作');self.analyze_motion.setEnabled(bool(w.intent_controller.config))
         def analyze():w.intent_controller.animation_mode();w.intent_controller.start(False)
         self.analyze_motion.clicked.connect(analyze)
         w.video_controller.motion.buttons.addWidget(self.analyze_motion,0,2)
         from .animation_timeline import ActionTimeline
-        self.timeline=ActionTimeline(w);layout.addWidget(self.timeline,1)
+        # The empty region remains present before analysis and after removing a
+        # source; hiding the editor must never stretch the header's inner rows.
+        self.timeline_region=QWidget();self.timeline_region.setMinimumHeight(200)
+        region=QVBoxLayout(self.timeline_region);region.setContentsMargins(0,0,0,0)
+        self.timeline=ActionTimeline(w);region.addWidget(self.timeline,1)
+        layout.addWidget(self.timeline_region,1)
         self.animation=self.scroll_page(content);self.right_tabs.addTab(self.animation,'动画')
 
     def make_toolbar(self,w):

@@ -27,6 +27,7 @@ def main():
         w=Window();w.timer.stop();w.resize(1440,940);w.show();QTest.qWait(80)
         drop(app,w.preview,[a.motion]);wait_until(lambda:not w.preparing,40);QTest.qWait(50)
         assert not w.pixmap.isNull() and not w.preview.pixmap().isNull() and not w.reference_path
+        assert w.workbench.timeline_region.isVisible() and w.workbench.animation_header.height()<270
         w.grab().save(str(root/'video-only.png'))
         drop(app,w.preview,[a.image]);QTest.qWait(80)
         w.intent_controller.current_record=a.plan.parent;w.intent_controller.apply(result)

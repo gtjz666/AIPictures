@@ -28,6 +28,11 @@ def main():
         assert w.preview.pixmap() and not w.preview.pixmap().isNull() and b.reference_player.isVisible()
         assert vc.motion.buttons.count()==6 and vc.motion.buttons.itemAtPosition(0,2).widget()==b.analyze_motion
         assert not w.intent_controller.running and not w.current
+        assert b.timeline_region.isVisible() and not b.timeline.isVisible()
+        assert b.timeline_region.height()>=200 and b.animation_header.height()<270
+        assert vc.motion.play.mapTo(b.animation_header,vc.motion.play.rect().topLeft()).y()<200
+        assert vc.motion.poster.mapTo(b.animation_header,vc.motion.poster.rect().topLeft()).y()<110
+        w.grab().save(str(proof/'before-analysis.png'))
         vc.seconds.setValue(32);assert vc.seconds.value()==32
         result=dict(plan=dict(kind='animation',timeline=[dict(start=0,end=.1,description='抬手'),dict(start=.1,end=.333,description='收手')]))
         w.positive.setPlainText('角色保持蓝色衣服');b.show_plan(result)
@@ -51,6 +56,8 @@ def main():
         assert w.preview.pixmap().width()<=w.preview.width()*w.preview.devicePixelRatioF()+2
         w.grab().save(str(proof/'editor.png'))
         vc.motion.clear();assert not b.timeline.isVisible() and not b.timeline.rows()
+        QTest.qWait(40)
+        assert b.timeline_region.isVisible() and b.timeline_region.height()>=200 and b.animation_header.height()<270
         w.close();QTest.qWait(40)
     write_json(proof/'acceptance.json',dict(passed=True,actual_qt=True,no_inference=True,video_only=True,editable_queue=True))
     print('Animation editor / six buttons / video-only canvas / duration / editable queued timeline: PASS')
