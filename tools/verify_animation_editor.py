@@ -18,27 +18,37 @@ def main():
     with tempfile.TemporaryDirectory() as temporary,patch('aipictures.app.DATA',Path(temporary)/'cache'), \
          patch.object(Window,'auto_connect_engine'),patch.object(Window,'restore_chat'),patch.object(Window,'refresh_stats'):
         root=Path(temporary);paths=[]
-        for i in range(8):
-            p=root/f'{i}.png';Image.new('RGB',(96,144),(30+i*15,50,160)).save(p);paths.append(p)
+        for i in range(128):
+            p=root/f'{i}.png';Image.new('RGB',(96,144),(30+i,50,160)).save(p);paths.append(p)
         clip=root/'motion.mp4';encode_pngs(paths,clip,24,threading.Event())
         w=Window();w.timer.stop();w.resize(1280,800);w.show();QTest.qWait(100)
         b=w.workbench;vc=w.video_controller
         drop(app,w.preview,[clip]);wait_until(lambda:not w.preparing);QTest.qWait(100)
         assert w.reference_path is None and b.right_tabs.currentIndex()==1 and not w.pixmap.isNull()
         assert w.preview.pixmap() and not w.preview.pixmap().isNull() and b.reference_player.isVisible()
-        assert vc.motion.buttons.count()==6 and vc.motion.buttons.itemAtPosition(0,2).widget()==b.analyze_motion
+        assert b.analyze_motion.isVisible() and not vc.motion.range_button.isVisible()
+        assert not w.animation_action.isVisible() and not b.creation_kind.model().item(1).isEnabled()
         assert not w.intent_controller.running and not w.current
         assert b.timeline_region.isVisible() and not b.timeline.isVisible()
         assert b.timeline_region.height()>=200 and b.animation_header.height()<270
-        assert vc.motion.play.mapTo(b.animation_header,vc.motion.play.rect().topLeft()).y()<200
+        assert not vc.motion.play.isVisible()
         assert b.motion_item.isVisible() and not vc.motion.asset_header.isVisible()
         assert b.motion_item.isAncestorOf(b.motion_item.thumb)
+        vc.motion.range_slider.setValue(4500)
+        wait_until(lambda:vc.motion.preview_offset>=4.49)
+        assert w.preview_role=='motion_reference' and not w.pixmap.isNull()
+        vc.motion.range_slider.setValue(0);wait_until(lambda:vc.motion.preview_offset==0)
         w.grab().save(str(proof/'before-analysis.png'))
-        vc.seconds.setValue(32);assert vc.seconds.value()==32
-        result=dict(plan=dict(kind='animation',timeline=[dict(start=0,end=.1,description='抬手'),dict(start=.1,end=.333,description='收手')]))
-        w.positive.setPlainText('角色保持蓝色衣服');b.show_plan(result)
+        vc.seconds.setValue(32);assert vc.seconds.value()==8
+        positive='角色保持蓝色衣服。\n从0秒开始：抬手(0.0s)→收手(0.1s)'
+        result=dict(plan=dict(kind='animation',positive_prompt=positive,timeline=[dict(start=0,end=.1,description='抬手'),dict(start=.1,end=.333,description='收手')]))
+        w.positive.setPlainText(positive);b.show_plan(result)
+        assert '从0秒开始' not in w.positive.toPlainText() and '蓝色衣服' in w.positive.toPlainText()
         assert b.timeline.isVisible() and b.timeline.table.rowCount()==2
         table=b.timeline.table;table.setItem(0,2,QTableWidgetItem('右手向镜头挥拳'))
+        w.positive.setPlainText(w.positive.toPlainText()+'\n\n保留水彩线条。')
+        table.setItem(0,2,QTableWidgetItem('右手向镜头挥拳'))
+        assert w.positive.toPlainText().count('以下为可编辑动作时间线')==1 and '保留水彩线条。' in w.positive.toPlainText()
         assert '右手向镜头挥拳' in w.positive.toPlainText() and b.timeline.rows()[0]['description']=='右手向镜头挥拳'
         vc.seconds.setValue(48);assert b.timeline.rows()[-1]['end']<=48
         table.setItem(0,0,QTableWidgetItem('NaN'))

@@ -1,5 +1,7 @@
 """PNG sequences join the same motion timeline without a source video decoder."""
 import re
+import json
+import math
 import threading
 from pathlib import Path
 from PIL import Image
@@ -9,8 +11,44 @@ from .workflow_library import digest
 from . import motion_guide
 
 
-def import_frames(paths:list[Path],fps:int,folder:Path,cancel):
-    if not 2<=len(paths)<=1500 or not 1<=fps<=120:raise ValueError('请选择2–1500张PNG，并设置1–120 FPS。')
+def folder_frames(folder:Path,default_fps:float=24)->tuple[list[Path],float]:
+    """Read an exported sequence or naturally ordered PNGs, without opening a dialog."""
+    folder=Path(folder).resolve(strict=True)
+    if not folder.is_dir():raise ValueError('请拖入包含PNG动画帧的文件夹。')
+    for name in ('source.json','sequence.json','sprite_sheet.json','video.json'):
+        manifest=folder/name
+        if not manifest.is_file() or manifest.stat().st_size>2*1024**2:continue
+        try:data=json.loads(manifest.read_text('utf-8'))
+        except (ValueError,UnicodeError):continue
+        if not isinstance(data,dict):continue
+        fps=data.get('fps',default_fps)
+        if isinstance(fps,bool) or not isinstance(fps,(int,float)) or not math.isfinite(fps) or not 1<=fps<=120:
+            raise ValueError(f'{name}中的帧率无效，应为1–120 FPS。')
+        rows=data.get('frames',[])
+        if isinstance(rows,list) and len(rows)>1500:raise ValueError('帧清单超过1500张，请分开导入。')
+        if isinstance(rows,list) and 2<=len(rows)<=1500 and all(isinstance(r,dict) and isinstance(r.get('image'),str) for r in rows):
+            paths=[]
+            for row in rows:
+                relative=Path(row['image'])
+                if relative.is_absolute() or '..' in relative.parts:raise ValueError('帧清单需要素材文件夹内的相对PNG路径。')
+                path=(folder/relative).resolve(strict=True)
+                if not path.is_relative_to(folder) or path.suffix.lower()!='.png':
+                    raise ValueError('动画帧说明中的图片必须位于素材文件夹内，并且使用PNG。')
+                paths.append(path)
+            if len(set(paths))!=len(paths):raise ValueError('动画帧说明中重复引用同一张PNG，请检查帧清单。')
+            return paths,fps
+        default_fps=fps
+    paths=[]
+    for path in folder.iterdir():
+        if path.is_file() and path.suffix.lower()=='.png':
+            paths.append(path)
+            if len(paths)>1500:raise ValueError('文件夹最多支持1500张PNG动画帧，请分开导入。')
+    if len(paths)<2:raise ValueError('文件夹中至少需要2张PNG动画帧；不会递归扫描其他子文件夹。')
+    return paths,default_fps
+
+
+def import_frames(paths:list[Path],fps:float,folder:Path,cancel):
+    if not 2<=len(paths)<=1500 or isinstance(fps,bool) or not math.isfinite(fps) or not 1<=fps<=120:raise ValueError('请选择2–1500张PNG，并设置1–120 FPS。')
     total=sum(Path(p).stat().st_size for p in paths)
     if total>2*1024**3:raise ValueError('动作帧整组上限2GB，请减少所选帧。')
     def key(path):return tuple((1,int(s)) if s.isdigit() else (0,s.casefold()) for s in re.split(r'(\d+)',Path(path).name))

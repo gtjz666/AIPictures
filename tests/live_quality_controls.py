@@ -29,7 +29,7 @@ def main():
         assert window.workbench.modes[1].isChecked() and not window.reference_policy.isVisible()
         window.open_settings('creation')
         window.workbench.right_tabs.setCurrentIndex(1)
-        assert window.animation_action.isVisible()
+        assert not window.animation_action.isVisible() and window.workbench.creation_kind.isVisible()
         window.workbench.settings.close()
         window.workbench.right_tabs.setCurrentIndex(0)
         assert '完整动画预览' in window.intent_hint.text()

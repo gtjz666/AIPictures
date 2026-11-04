@@ -134,7 +134,7 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
         motion=prepare(Path(params['motion_reference']),server.input/'motion',math.ceil(params['seconds']*24)/24,
             params.get('motion_start',0.),cancel,emit,max_side=params.get('motion_max_side',512),
             align_h3=True,repeat=params.get('motion_repeat',False),encode_video=False,save_frames=True,
-            allow_tail_hold=bool(params.get('continuation_frame')))
+            allow_tail_hold=bool(params.get('continuation_frame') or params.get('motion_allow_tail_hold')))
         expected=params.get('motion_source',{}).get('sha256')
         if expected and expected!=motion['source']['sha256']:raise ValueError('动作参考与入队记录不一致。')
         image=''

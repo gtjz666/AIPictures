@@ -13,6 +13,7 @@ from PIL import Image
 from .engine import Cancelled
 from .storage import write_json
 from .workflow_library import digest
+from .prompt_timeline import remove_owned_timeline
 
 FPS=24
 CLIP_SECONDS=8.  # Retain the validated working set, even for a long requested output.
@@ -63,7 +64,7 @@ def segment_params(params:dict,part:dict,endpoint:Path|None)->dict:
         start=params.get('motion_start',0.)+part['start']-overlap/FPS
         if params.get('motion_repeat'):start%=params['motion_source']['duration']
         out['motion_start']=max(0.,start)
-    text=params['prompt'].split('\n\n以下为可编辑动作时间线，以此处时序为准：',1)[0]
+    text=remove_owned_timeline(params['prompt'])
     text+=f"\n本段对应完整动画的{part['start']:.3f}–{part['end']:.3f}秒。保持角色、配色、光照、场景和镜头连续，承接前段末尾姿态，不重新开始整个动作。"
     rows=[]
     source_clock=params.get('motion_timeline_clock')=='source' and params.get('motion_reference')

@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QLabel,QPushButton,
     QButtonGroup,QDialog,QTabWidget,QScrollArea,
-    QSizePolicy,QToolBar,QSplitter,QSlider,QCheckBox)
+    QSizePolicy,QToolBar,QSplitter,QSlider,QCheckBox,QComboBox)
 from .storage import write_json
 from .transparent_preview import TransparentPreview
 
@@ -21,8 +21,8 @@ class ReferencePlayback(QWidget):
         self.loop=QCheckBox('循环');self.loop.setChecked(True);row.addWidget(self.loop)
         self.timer=QTimer(self);self.timer.timeout.connect(self.advance);self.hide()
 
-    def load(self,paths):
-        self.timer.stop();self.paths=[Path(p) for p in paths];self.index=0
+    def load(self,paths,fps=24.):
+        self.timer.stop();self.paths=[Path(p) for p in paths];self.index=0;self.fps=fps
         self.slider.blockSignals(True);self.slider.setRange(0,max(0,len(self.paths)-1));self.slider.setValue(0);self.slider.blockSignals(False)
         self.seek(0);self.play.setText('播放');self.show()
 
@@ -79,7 +79,9 @@ class Workbench:
         w.sequence_preview.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Ignored)
         self.make_reference(w,cv)
         cv.addWidget(w.sequence_preview,1)
-        actions=QHBoxLayout();actions.addStretch();actions.addWidget(w.image_save);actions.addWidget(w.image_reuse);cv.addLayout(actions)
+        from .reference_asset import SourceCaption
+        self.source_note=SourceCaption()
+        actions=QHBoxLayout();actions.addWidget(self.source_note,1);actions.addWidget(w.image_save);actions.addWidget(w.image_reuse);cv.addLayout(actions)
         self.reference_player=ReferencePlayback(w);cv.addWidget(self.reference_player)
         cv.addWidget(w.animation_player);cv.addWidget(w.video_controller.player)
         w.image_save.setEnabled(False);w.image_reuse.setEnabled(False)
@@ -117,14 +119,16 @@ class Workbench:
         c=w.intent_controller
         from .reference_asset import ReferenceAsset
         self.reference_item=ReferenceAsset('参考图');self.reference_item.clicked.connect(self.show_reference)
+        self.reference_item.closed.connect(lambda:self.close_asset('image'))
         self.reference_thumb=self.reference_item.thumb
         self.motion_item=ReferenceAsset('参考动画');self.motion_item.clicked.connect(lambda:self.show_motion_reference(play=True))
+        self.motion_item.closed.connect(lambda:self.close_asset('motion'))
         self.reference_items=QWidget();items=QHBoxLayout(self.reference_items);items.setContentsMargins(0,0,0,0)
         items.addWidget(self.reference_item);items.addWidget(self.motion_item);items.addStretch(1)
         reference=QHBoxLayout();reference.addWidget(self.reference_items,1)
         reference.addWidget(w.attach_reference_button)
         w.attach_reference_button.setSizePolicy(QSizePolicy.Policy.Maximum,QSizePolicy.Policy.Preferred)
-        remove=QPushButton('移除');remove.clicked.connect(self.remove_asset);reference.addWidget(remove)
+        remove=QPushButton('移除',self.hidden);remove.clicked.connect(self.remove_asset)
         self.remove_reference=remove
         remove.setSizePolicy(QSizePolicy.Policy.Maximum,QSizePolicy.Policy.Preferred)
         c.role.setItemText(0,'角色 / 外观');c.role.setItemText(1,'画风 / 布局');c.role.setItemText(2,'编辑底图')
@@ -140,24 +144,44 @@ class Workbench:
         content=QWidget();layout=QVBoxLayout(content);layout.setContentsMargins(8,6,8,6)
         self.animation_header=QWidget();header=QVBoxLayout(self.animation_header);header.setContentsMargins(0,0,0,0)
         self.animation_header.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
-        action=QHBoxLayout();action.addWidget(w.animation_action_label);action.addWidget(w.animation_action,1);header.addLayout(action)
+        w.animation_action_label.setParent(self.hidden);w.animation_action.setParent(self.hidden)
+        self.creation_kind=QComboBox();self.creation_kind.addItem('动画素材','sprite');self.creation_kind.addItem('长视频（暂未开放）','long_video')
+        self.creation_kind.model().item(1).setEnabled(False)
+        self.creation_kind.model().item(1).setToolTip('分段衔接尚未完成整段验证。')
+        kind_row=QHBoxLayout();kind_row.addWidget(QLabel('制作类型'));kind_row.addWidget(self.creation_kind,1);kind_row.addWidget(w.video_controller.motion.frame_rate_row);header.addLayout(kind_row)
         w.video_controller.motion.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
         w.video_controller.motion.asset_header.setParent(self.hidden)
-        header.addWidget(w.video_controller.motion)
+        panel=w.video_controller.motion
+        for button in (panel.add,panel.add_frames,panel.play,panel.remove):button.setParent(self.hidden)
+        panel.range_button.setParent(self.hidden)
+        left=QWidget();self.motion_selection=left;selection=QVBoxLayout(left);selection.setContentsMargins(0,0,0,0)
+        selection.addWidget(panel.repeat);selection.addWidget(panel.start_note);selection.addWidget(panel.range_slider)
+        self.analyze_motion=QPushButton('分析动作');self.analyze_motion.setEnabled(bool(w.intent_controller.config))
+        self.analyze_motion.setMinimumHeight(66)
+        def analyze():
+            w.intent_controller.animation_mode()
+            w.intent_controller.start(False,frame_only=bool(panel.is_frames() and self.analysis_tabs.currentIndex()==1))
+        self.analyze_motion.clicked.connect(analyze)
+        controls=QHBoxLayout();controls.addWidget(left,1);controls.addWidget(self.analyze_motion);header.addLayout(controls)
+        panel.setParent(self.hidden)
+        self.reference_player.loop.hide();self.reference_player.loop.setChecked(panel.repeat.isChecked())
+        panel.repeat.toggled.connect(self.reference_player.loop.setChecked)
         taken=w.walk_form.takeRow(w.video_controller.seconds)
         if taken.labelItem:taken.labelItem.widget().hide()
         duration=QHBoxLayout();duration.addWidget(QLabel('时长 / 秒'));duration.addWidget(w.video_controller.seconds,1);header.addLayout(duration)
         layout.addWidget(self.animation_header,0,Qt.AlignmentFlag.AlignTop)
-        self.analyze_motion=QPushButton('分析动作');self.analyze_motion.setEnabled(bool(w.intent_controller.config))
-        def analyze():w.intent_controller.animation_mode();w.intent_controller.start(False)
-        self.analyze_motion.clicked.connect(analyze)
-        w.video_controller.motion.buttons.addWidget(self.analyze_motion,0,2)
         from .animation_timeline import ActionTimeline
         # The empty region remains present before analysis and after removing a
         # source; hiding the editor must never stretch the header's inner rows.
         self.timeline_region=QWidget();self.timeline_region.setMinimumHeight(200)
         region=QVBoxLayout(self.timeline_region);region.setContentsMargins(0,0,0,0)
-        self.timeline=ActionTimeline(w);region.addWidget(self.timeline,1)
+        self.analysis_tabs=QTabWidget();region.addWidget(self.analysis_tabs,1)
+        page=QWidget();page_layout=QVBoxLayout(page);page_layout.setContentsMargins(0,0,0,0)
+        self.timeline=ActionTimeline(w);page_layout.addWidget(self.timeline)
+        self.analysis_tabs.addTab(page,'动作说明')
+        from .frame_review import FrameReview
+        self.frame_review=FrameReview(panel);self.analysis_tabs.addTab(self.frame_review,'帧内容');self.analysis_tabs.setTabVisible(1,False)
+        self.analysis_tabs.tabBar().hide()
         layout.addWidget(self.timeline_region,1)
         self.animation=self.scroll_page(content);self.right_tabs.addTab(self.animation,'动画')
 
@@ -235,16 +259,17 @@ class Workbench:
         w=self.window;hint=''
         if self.reference_item.isChecked():hint=w.reference_display_name or Path(w.reference_path).name
         elif self.motion_item.isChecked():hint=w.video_controller.motion.meta['name']
-        w.preview.set_source_hint(hint)
+        self.source_note.set_hint(hint)
 
     def show_reference(self):
         if self.window.reference_path:self.window.show_image(str(self.window.reference_path),role='reference')
 
-    def show_motion_reference(self,*,play=False):
+    def show_motion_reference(self,*,play=False,position=0):
         panel=self.window.video_controller.motion
         if not panel.path or not panel.preview_paths:return
         w=self.window;w.video_controller.player.stop();w.animation_player.stop()
-        w.sequence_preview.clear_sequence();self.reference_player.load(panel.preview_paths)
+        w.sequence_preview.clear_sequence();self.reference_player.load(panel.preview_paths,panel.preview_fps)
+        self.reference_player.slider.setValue(min(position,len(panel.preview_paths)-1))
         w.image_save.setEnabled(False);w.image_reuse.setEnabled(False)
         if play:self.reference_player.toggle()
         QTimer.singleShot(0,w.fit_preview)
@@ -253,9 +278,18 @@ class Workbench:
         if self.motion_item.isChecked() or not self.window.reference_path:self.window.video_controller.motion.clear()
         else:self.window.clear_reference()
 
+    def close_asset(self,kind:str):
+        if self.window.preparing:
+            self.window.status.setText('请等待当前素材准备或识别结束后移除。');return
+        if kind=='motion':self.window.video_controller.motion.clear()
+        else:self.window.clear_reference()
+
     def motion_changed(self):
         panel=self.window.video_controller.motion
         self.refresh_motion_asset()
+        self.analysis_tabs.setTabVisible(1,panel.is_frames())
+        self.analysis_tabs.tabBar().setVisible(panel.is_frames())
+        self.analysis_tabs.setCurrentIndex(1 if panel.is_frames() else 0)
         if panel.path and panel.preview_paths:
             self.right_tabs.setCurrentIndex(1)
             self.show_motion_reference()
@@ -271,6 +305,10 @@ class Workbench:
     def show_plan(self,result):
         self.plan=result
         self.timeline.load_plan(result)
+        self.analysis_tabs.setCurrentIndex(0)
+
+    def show_frame_analysis(self,result):
+        self.frame_review.add_result(result);self.analysis_tabs.setCurrentIndex(1)
 
     def show_timeline(self):
         self.right_tabs.setCurrentIndex(1)

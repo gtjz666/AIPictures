@@ -65,7 +65,7 @@ def main():
         QTest.qWait(300);panel=w.video_controller.motion
         assert w.reference_path==reference and panel.path and w.preview_role=='motion_reference' and len(calls)==0
         assert b.reference_player.isVisible() and b.reference_player.paths
-        assert b.right_tabs.currentIndex()==1 and panel.isVisible() and not b.prompts.isVisible()
+        assert b.right_tabs.currentIndex()==1 and b.motion_selection.isVisible() and not b.prompts.isVisible()
         assert b.motion_item.isVisible() and not panel.asset_header.isVisible()
         assert b.motion_item.parentWidget()==b.reference_item.parentWidget()==b.reference_items
         assert b.reference_items.parentWidget()==b.canvas
@@ -74,15 +74,16 @@ def main():
         QTest.mouseClick(b.reference_item,Qt.MouseButton.LeftButton)
         assert w.preview_role=='reference' and not b.reference_player.timer.isActive()
         assert b.reference_item.isChecked() and not b.motion_item.isChecked()
-        assert w.preview.source_hint==image.name and b.reference_item.text()==''
+        assert b.source_note.full_text==image.name and b.reference_item.text()==''
         assert not b.reference_player.isVisible()
         QTest.mouseClick(b.motion_item,Qt.MouseButton.LeftButton)
         assert w.preview_role=='motion_reference' and b.reference_player.timer.isActive()
         assert b.motion_item.isChecked() and not b.reference_item.isChecked()
-        assert w.preview.source_hint==gif.name and b.motion_item.text()==''
+        assert b.source_note.full_text==gif.name and b.motion_item.text()==''
+        assert abs(b.source_note.mapTo(w,b.source_note.rect().center()).y()-w.image_save.mapTo(w,w.image_save.rect().center()).y())<=2
         assert (w.reference_path,panel.path,w.generation_type.currentData(),w.positive.toPlainText())==source_state
         w.show_image(str(image))
-        assert not w.preview.source_hint and not b.reference_item.isChecked() and not b.motion_item.isChecked()
+        assert not b.source_note.full_text and not b.reference_item.isChecked() and not b.motion_item.isChecked()
         QTest.mouseClick(b.motion_item,Qt.MouseButton.LeftButton)
         b.reference_player.slider.setValue(3)
         QTest.mouseClick(b.reference_item,Qt.MouseButton.LeftButton)
@@ -94,11 +95,9 @@ def main():
         b.right_tabs.setCurrentIndex(1)
         QTest.mouseClick(b.reference_player.play,Qt.MouseButton.LeftButton);assert b.reference_player.timer.isActive()
         QTest.mouseClick(b.reference_player.play,Qt.MouseButton.LeftButton);assert not b.reference_player.timer.isActive()
-        QTest.mouseClick(panel.play,Qt.MouseButton.LeftButton)
-        assert b.reference_player.timer.isActive() and panel.preview_dialog is None
-        b.reference_player.toggle()
-        QTest.mouseClick(panel.range_button,Qt.MouseButton.LeftButton);assert panel.range_dialog.isVisible()
-        panel.range_slider.setValue(500);assert panel.start.value()>0;panel.range_dialog.close()
+        assert all(not button.isVisible() for button in (panel.play,panel.add,panel.add_frames,panel.remove,b.remove_reference))
+        assert not panel.range_button.isVisible() and b.analyze_motion.isVisible()
+        panel.range_slider.setValue(min(500,panel.range_slider.maximum()));assert panel.start.value()>0
         w.positive.setPlainText('角色模仿参考动作')
         QTest.mouseClick(b.analyze_motion,Qt.MouseButton.LeftButton);wait_until(lambda:not c.running)
         assert len(calls)==1 and '抬手' in w.positive.toPlainText() and not c.note.isVisible()
@@ -114,19 +113,46 @@ def main():
         QTest.qWait(300);assert panel.path.suffix=='.json' and w.reference_path==reference and len(calls)==1
         assert b.plan is None and not b.timeline.isVisible(), 'A changed motion source must not retain an old analysis.'
         assert b.motion_item.isVisible() and b.motion_item.accessibleName()=='参考动画'
+        # A folder needs neither a file picker nor a confirmation dialog.
+        folder=root/'ordered-frames';folder.mkdir()
+        for index in (10,1,2):Image.new('RGBA',(96,144),(index,20,180,255)).save(folder/f'frame_{index}.png')
+        write_json(folder/'sprite_sheet.json',dict(fps=12))
+        with patch('aipictures.intent_controller.QMessageBox.question',side_effect=AssertionError('Unexpected folder confirmation')), \
+             patch('aipictures.intent_controller.QInputDialog.getInt',side_effect=AssertionError('Unexpected folder FPS dialog')):
+            drop(app,w.preview,[folder]);wait_until(lambda:not w.preparing)
+        QTest.qWait(60)
+        mapping=json.loads((panel.path.parent/'source-map.json').read_text('utf-8'))
+        assert [r['source'] for r in mapping]==['frame_1.png','frame_2.png','frame_10.png']
+        assert panel.meta['frame_fps']==12 and b.source_note.full_text==folder.name and w.reference_path==reference
+        assert b.reference_player.timer.isActive()
+        assert b.analysis_tabs.currentIndex()==1
+        panel.range_slider.setValue(1);QTest.qWait(20)
+        assert '2/3' in panel.start_note.text() and b.reference_player.index==1
+        original_prompt=w.positive.toPlainText()
+        with patch('aipictures.local_intent.analyze_frame',return_value=dict(frame_analysis=dict(index=1,time=1/12,description='第2帧主体抬手'),engine_released=True)) as inspect_frame:
+            QTest.mouseClick(b.analyze_motion,Qt.MouseButton.LeftButton);wait_until(lambda:not c.running)
+            assert inspect_frame.call_args.args[2]==1 and b.frame_review.table.rowCount()==1
+        assert w.positive.toPlainText()==original_prompt
+        assert panel.frame_rate_row.isVisible();panel.frame_rate.setValue(24);panel.frame_rate.editingFinished.emit()
+        wait_until(lambda:not w.preparing);assert panel.meta['frame_fps']==24
         QTest.mouseClick(b.reference_item,Qt.MouseButton.LeftButton)
         QTest.mouseClick(b.motion_item,Qt.MouseButton.LeftButton)
-        QTest.mouseClick(b.remove_reference,Qt.MouseButton.LeftButton)
+        QTest.mouseMove(b.motion_item,QPoint(49,4));QTest.qWait(30)
+        assert b.motion_item.close_button.isVisible()
+        QTest.mouseClick(b.motion_item.close_button,Qt.MouseButton.LeftButton)
         assert panel.path is None and w.reference_path==reference and not b.motion_item.isVisible()
         assert w.preview_role=='reference' and b.reference_item.isChecked()
         # Removing the still while a motion is present keeps the other source available.
         drop(app,w.preview,[gif]);wait_until(lambda:not w.preparing);QTest.qWait(40)
         QTest.mouseClick(b.reference_item,Qt.MouseButton.LeftButton)
-        w.clear_reference();assert panel.path and b.motion_item.isVisible() and not b.reference_item.isVisible()
+        QTest.mouseMove(b.reference_item,QPoint(49,4));QTest.qWait(30)
+        QTest.mouseClick(b.reference_item.close_button,Qt.MouseButton.LeftButton)
+        assert panel.path and b.motion_item.isVisible() and not b.reference_item.isVisible()
         assert w.preview_role=='motion_reference' and b.remove_reference.isEnabled()
-        QTest.mouseClick(b.remove_reference,Qt.MouseButton.LeftButton)
+        QTest.mouseMove(b.motion_item,QPoint(49,4));QTest.qWait(30)
+        QTest.mouseClick(b.motion_item.close_button,Qt.MouseButton.LeftButton)
         assert not panel.path and w.preview_role is None and not b.remove_reference.isEnabled()
-        assert not w.preview.source_hint
+        assert not b.source_note.full_text
         w.resize(1280,800);QTest.qWait(40)
         assert w.size().height()<=820,'References must also fit the compact layout.'
         w.resize(1440,940);QTest.qWait(30)

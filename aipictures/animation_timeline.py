@@ -2,6 +2,7 @@
 import math
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget,QVBoxLayout,QLabel,QTableWidget,QTableWidgetItem,QHeaderView
+from .prompt_timeline import remove_owned_timeline,remove_generated_summary
 
 
 def validate_rows(rows: list[dict], seconds: float) -> list[dict]:
@@ -19,7 +20,7 @@ def validate_rows(rows: list[dict], seconds: float) -> list[dict]:
 
 
 def timeline_text(rows: list[dict]) -> str:
-    return '\n'.join(f"{r['start']:.3f}–{r['end']:.3f}秒：{r['description']}" for r in rows)
+    return '\n'.join(f"{r['start']:.3f}–{r['end']:.3f}秒：{' '.join(r['description'].split())}" for r in rows)
 
 
 class ActionTimeline(QWidget):
@@ -62,6 +63,9 @@ class ActionTimeline(QWidget):
     def load_plan(self,result):
         self.clear_plan();rows=result['plan']['timeline']
         if not rows or result['plan']['kind']!='animation':return
+        current=self.window.positive.toPlainText()
+        if current.strip()==result['plan'].get('positive_prompt','').strip():
+            self.window.positive.setPlainText(remove_generated_summary(current,rows))
         self.seconds=self.window.video_controller.seconds.value()
         motion=self.window.video_controller.motion
         self.clock='source' if motion.path else 'output'
@@ -87,8 +91,7 @@ class ActionTimeline(QWidget):
         try:rows=self.rows()
         except ValueError as exc:self.error.setText(str(exc));self.error.show();return
         self.error.clear();self.error.hide()
-        prompt=self.window.positive.toPlainText()
-        if self.suffix:prompt=prompt.replace(self.suffix,'',1).rstrip()
+        prompt=remove_owned_timeline(self.window.positive.toPlainText())
         self.suffix=('\n\n以下为可编辑动作时间线，以此处时序为准：\n'+
             ('时间为参考素材秒数；按选定起点播放，启用循环时按此顺序重复。\n' if self.clock=='source' else '')+timeline_text(rows)) if rows else ''
         updated=prompt+self.suffix
@@ -97,7 +100,7 @@ class ActionTimeline(QWidget):
     def clear_plan(self):
         if self.suffix:
             prompt=self.window.positive.toPlainText()
-            if self.suffix in prompt:self.window.positive.setPlainText(prompt.replace(self.suffix,'',1).rstrip())
+            self.window.positive.setPlainText(remove_owned_timeline(prompt))
         self.suffix='';self.clock='output';self.table.setRowCount(0);self.error.clear();self.hide()
 
     def rescale(self,seconds):

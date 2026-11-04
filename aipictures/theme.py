@@ -48,6 +48,9 @@ QPushButton:disabled { color:#a6a9b0; background:#f6f7f8; border-color:#ebedf0; 
 QPushButton#referenceAsset { padding:0; text-align:left; }
 QPushButton#referenceAsset:checked { background:#f0f3ff; border-color:#aebcec; }
 QPushButton#referenceAsset QLabel { background:transparent; }
+QToolButton#assetClose { background:#ffffff; color:#5d6673; border:1px solid #dfe3eb; border-radius:8px; padding:0; font-size:14px; }
+QToolButton#assetClose:hover { color:#bb3e43; background:#fff1f1; }
+QLabel#sourceCaption { color:#727987; font-size:11px; background:transparent; }
 QPushButton#primary { background:#4056a1; color:#ffffff; border:1px solid #4056a1; font-weight:600; border-radius:10px; }
 QPushButton#primary:hover { background:#344986; border-color:#344986; }
 QPushButton#primary:disabled { background:#bfc1c5; color:#f4f4f4; border-color:#bfc1c5; }

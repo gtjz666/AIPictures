@@ -1,5 +1,5 @@
 from pathlib import Path
-from PySide6.QtCore import Qt, Signal,QPointF,QRect
+from PySide6.QtCore import Qt, Signal,QPointF
 from PySide6.QtGui import QPainter, QColor, QPen
 from PySide6.QtWidgets import QLabel
 
@@ -15,11 +15,6 @@ class TransparentPreview(QLabel):
         self.clickable = False
         self.file_drop_enabled = False
         self.file_dragging = False
-        self.source_hint = ''
-
-    def set_source_hint(self,text:str):
-        if text!=self.source_hint:
-            self.source_hint=text;self.setAccessibleDescription(text);self.update()
 
     def enable_file_drop(self):
         self.file_drop_enabled = True
@@ -31,7 +26,7 @@ class TransparentPreview(QLabel):
         allowed={'.png','.jpg','.jpeg','.webp','.bmp','.mp4','.gif','.mkv','.mov','.webm','.avi'}
         if not 1<=len(urls)<=1501 or any(not u.isLocalFile() for u in urls): return []
         paths=[Path(u.toLocalFile()) for u in urls]
-        return paths if all(p.suffix.lower() in allowed for p in paths) else []
+        return paths if all(p.suffix.lower() in allowed or p.is_dir() for p in paths) else []
 
     def dragEnterEvent(self,event):
         if self.drop_paths(event.mimeData()):
@@ -79,15 +74,6 @@ class TransparentPreview(QLabel):
             painter.drawPixmap(QPointF((self.width()-size.width())/2,(self.height()-size.height())/2),pixmap)
         else:
             painter.setPen(QColor('#7d838d')); painter.drawText(self.rect(),Qt.AlignmentFlag.AlignCenter,self.text())
-        if self.source_hint:
-            painter.save()
-            font=painter.font();font.setPixelSize(11);painter.setFont(font)
-            metrics=painter.fontMetrics()
-            text=metrics.elidedText(self.source_hint,Qt.TextElideMode.ElideMiddle,max(0,self.width()-24))
-            rect=QRect(9,self.height()-metrics.height()-10,metrics.horizontalAdvance(text)+6,metrics.height()+4)
-            painter.fillRect(rect,QColor(250,251,253,210));painter.setPen(QColor('#727987'))
-            painter.drawText(rect.adjusted(3,0,-3,0),Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter,text)
-            painter.restore()
         if self.file_dragging:
             painter.fillRect(self.rect(),QColor(64,86,161,24))
             painter.setPen(QPen(QColor('#4056a1'),2));painter.drawRect(self.rect().adjusted(1,1,-2,-2))

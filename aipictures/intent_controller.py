@@ -61,7 +61,7 @@ class IntentController:
     def source_changed(self):
         self.applied = self.applied_context = None
         if hasattr(self.window,'workbench'):
-            workbench=self.window.workbench;workbench.plan=None;workbench.timeline.clear_plan()
+            workbench=self.window.workbench;workbench.plan=None;workbench.timeline.clear_plan();workbench.frame_review.clear()
 
     def fingerprint(self, *, prompts=True) -> str:
         w = self.window; motion = w.video_controller.motion
@@ -76,7 +76,7 @@ class IntentController:
         # Analysis is an explicit action. Generation uses the visible prompts.
         return self.running
 
-    def start(self, generate: bool):
+    def start(self, generate: bool, *, frame_only=False):
         w = self.window
         if self.running or w.preparing:
             self.notify('请等待素材准备或识别结束。'); return
@@ -90,25 +90,30 @@ class IntentController:
         brief = manual or self.input.toPlainText().strip()
         if not brief and (w.reference_path or w.video_controller.motion.path):
             brief = '依据已提供素材制作动画，外观与动作各按其参考用途。' if w.generation_type.currentData()=='walk' else '依据参考图整理主体外观、画风与构图，生成单张图片。'
+        if not brief and frame_only:brief='分析当前参考帧的可见内容。'
         if not brief:
             self.notify('请描述想生成的内容。'); return
         folder = self.data/'intent'/(datetime.now().strftime('%Y%m%d_%H%M%S_')+uuid4().hex[:8])
         reference = Path(w.reference_path) if w.reference_path else None
         motion = w.video_controller.motion
         motion_path = Path(motion.path) if motion.path and w.generation_type.currentData() == 'walk' else None
+        selected_frame=round(motion.start.value()*motion.meta['frame_fps']) if frame_only and motion.is_frames() else None
+        if frame_only and selected_frame is None:
+            self.notify('请先拖入PNG动画帧素材。');return
         kwargs = dict(selected_kind='animation' if w.generation_type.currentData()=='walk' else 'image',
                       role=self.role.currentData(), start=motion.start.value(), seconds=w.video_controller.seconds.value(),
                       output_seconds=w.video_controller.seconds.value())
-        if motion_path and motion.repeat.isChecked():
+        if motion_path and motion.repeat.isChecked() and not frame_only:
             # A cycle wraps to source time zero, so observe the complete source once.
             kwargs.update(start=0.,seconds=motion.meta['duration'])
         negative = w.negative.toPlainText()
         if negative == self.generated_negative:
             negative = self.original_negative
         initial = self.fingerprint()
-        self.applied = self.applied_context = None
-        self.running = w.preparing = True; self.cancel_event.clear(); self.current_record = folder
+        if not frame_only:self.applied = self.applied_context = None;self.current_record = folder
+        self.running = w.preparing = True; self.cancel_event.clear()
         w.generate_button.setEnabled(False); self.organize.setEnabled(False)
+        if hasattr(w,'workbench'):w.workbench.analyze_motion.setEnabled(False)
         w.task_display.start(); w.progress.setRange(0, 0)
         self.notify(''); w.status.setText('正在识别生成需求…')
         def run(emit):
@@ -118,14 +123,18 @@ class IntentController:
                     raise ValueError('ComfyUI仍有生成任务，请等队列完成再识别。')
                 from .engine_service import release_idle_models
                 release_idle_models(w.client)
+            if frame_only:
+                from .local_intent import analyze_frame
+                return analyze_frame(self.config,motion_path,selected_frame,folder,self.cancel_event,emit)
             return analyze(self.config, brief, negative, reference, motion_path, folder, self.cancel_event, emit, **kwargs)
         def finish(kind, data):
             if kind == 'intent_stage':
                 w.status.setText(data['message']); return
             if kind not in ('result', 'error', 'cancelled'):
                 return
-            unchanged = self.fingerprint() == initial
+            unchanged = motion.path==motion_path if frame_only else self.fingerprint() == initial
             self.running = w.preparing = False; self.organize.setEnabled(True)
+            if hasattr(w,'workbench'):w.workbench.analyze_motion.setEnabled(bool(self.config))
             w.progress.setRange(0, 100); w.progress.setValue(100 if kind=='result' else 0)
             w.task_display.finish('completed' if kind=='result' else 'cancelled' if self.cancel_event.is_set() else 'failed')
             w.generation_type_changed()
@@ -136,6 +145,8 @@ class IntentController:
                 self.notify('已取消；识别结果未应用。')
             elif not unchanged:
                 self.notify('输入已修改，请重新整理。')
+            elif frame_only:
+                w.workbench.show_frame_analysis(data);w.status.setText('参考帧分析完成')
             elif data['plan']['questions']:
                 self.notify('需要补充：'+'；'.join(data['plan']['questions']))
                 w.add_chat('软件', self.note.text()); w.status.setText('请在需求栏补充后重新发送。')
@@ -190,8 +201,14 @@ class IntentController:
             self.notify('请等待素材准备或识别结束。'); return
         try:
             from .motion_guide import EXTENSIONS
-            if any(not p.is_file() for p in paths):
-                raise ValueError('请拖入图片、视频或GIF文件，不支持整个文件夹。')
+            folders=[p for p in paths if p.is_dir()]
+            if folders:
+                other=[p for p in paths if not p.is_dir()]
+                if len(folders)!=1 or len(other)>1 or any(not p.is_file() or p.suffix.lower() not in ('.png','.jpg','.jpeg','.webp','.bmp') for p in other):
+                    raise ValueError('每次可拖入一个PNG动画帧文件夹，并可附带一张角色或风格图。')
+                if other:w.set_reference(str(other[0]))
+                self.animation_mode();w.video_controller.motion.set_folder(folders[0]);self.source_changed();return
+            if any(not p.is_file() for p in paths):raise ValueError('请拖入有效的图片、视频、GIF或PNG动画帧文件夹。')
             images = [p for p in paths if p.suffix.lower() in ('.png', '.jpg', '.jpeg', '.webp', '.bmp')]
             motions = [p for p in paths if p.suffix.lower() in EXTENSIONS]
             if len(images)+len(motions) != len(paths) or len(motions)>1:

@@ -26,7 +26,7 @@ def repair_anatomy(session, output: str, observations: dict, brief: str, folder:
     messages = [{'role': 'system', 'content':
         '校对跨物种动作迁移文本。目标是人类，保留目标的脸、头发、服装、配色和原动作顺序。'
         '将源动物的前爪/后爪和猫坐姿转换为人的手臂/腿与合理人体姿态。成品提示词直接写人类动作，'
-        '不用“前爪转手”这样的解释，不加动物或新背景。原文没有明确左右时只写手臂，不猜左右手。每项descriptions对应原来的同一时间段。只返回指定JSON。'},
+        '不用“前爪转手”这样的解释，不加动物或新背景。原文没有明确左右时只写手臂，不猜左右手。每项descriptions对应原来的同一时间段，具体分段动作只写descriptions，不在positive_prompt重复。只返回指定JSON。'},
         {'role': 'user', 'content': json.dumps(context, ensure_ascii=False)}]
     raw, stats = session.complete(messages, schema=schema)
     repaired = json.loads(raw)

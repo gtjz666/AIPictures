@@ -16,7 +16,8 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--data',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
     p.add_argument('--image',type=Path,required=True);p.add_argument('--motion',type=Path,required=True)
-    p.add_argument('--plan',type=Path,required=True);a=p.parse_args()
+    p.add_argument('--plan',type=Path,required=True)
+    p.add_argument('--frames',type=Path);p.add_argument('--frame-analysis',type=Path);a=p.parse_args()
     root=a.output.resolve();root.mkdir(parents=True,exist_ok=False);isolated=root/'isolated'
     for name in ('h3-settings.json','motion-native-settings.json','local-intent-settings.json'):
         isolated.mkdir(exist_ok=True);shutil.copyfile(a.data/name,isolated/name)
@@ -37,10 +38,10 @@ def main():
         assert b.reference_item.isVisible() and b.motion_item.isVisible() and not w.video_controller.motion.asset_header.isVisible()
         assert b.reference_item.text()==b.motion_item.text()==''
         QTest.mouseClick(b.motion_item,Qt.MouseButton.LeftButton);QTest.qWait(100)
-        assert b.reference_player.timer.isActive() and w.preview.source_hint==a.motion.name
+        assert b.reference_player.timer.isActive() and b.source_note.full_text==a.motion.name
         w.grab().save(str(root/'animation.png'))
         QTest.mouseClick(b.reference_item,Qt.MouseButton.LeftButton);QTest.qWait(30)
-        assert w.preview_role=='reference' and not b.reference_player.timer.isActive() and w.preview.source_hint==a.image.name
+        assert w.preview_role=='reference' and not b.reference_player.timer.isActive() and b.source_note.full_text==a.image.name
         w.grab().save(str(root/'reference.png'))
         QTest.mouseClick(b.motion_item,Qt.MouseButton.LeftButton);QTest.qWait(30)
         w.resize(1280,800);QTest.qWait(50)
@@ -48,12 +49,24 @@ def main():
         w.grab().save(str(root/'compact.png'))
         b.right_tabs.setCurrentIndex(0);QTest.qWait(30);w.grab().save(str(root/'prompts.png'))
         w.video_controller.seconds.setValue(32);b.right_tabs.setCurrentIndex(1);QTest.qWait(30)
-        assert w.video_controller.seconds.value()==32
+        assert w.video_controller.seconds.value()==8
         assert not w.current and not w.pending and not w.intent_controller.running
         assert before==[digest(a.image),digest(a.motion)]
+        if a.frames:
+            drop(app,w.preview,[a.frames]);wait_until(lambda:not w.preparing,40);QTest.qWait(60)
+            panel=w.video_controller.motion
+            assert panel.is_frames() and b.analysis_tabs.currentIndex()==1
+            panel.range_slider.setValue(1);QTest.qWait(30)
+            assert b.reference_player.index==1 and panel.start_note.text().startswith('起始帧 2/')
+            if a.frame_analysis:
+                frame_result=json.loads(a.frame_analysis.read_text('utf-8'))
+                assert digest(panel.preview_paths[1])==frame_result['frame_sha256']
+                b.show_frame_analysis(frame_result);assert b.frame_review.table.rowCount()==1
+            QTest.mouseMove(b.motion_item);QTest.qWait(30);assert b.motion_item.close_button.isVisible()
+            w.grab().save(str(root/'frame-content.png'))
         write_json(root/'acceptance.json',dict(passed=True,actual_registered_settings=True,actual_assets=True,
             reused_real_recognition=str(a.plan.resolve()),no_generation_submitted=True,no_analysis_on_import=True,
-            video_only_visible=True,six_buttons=True,editable_actions=True,negative_nonempty=True,
+            video_only_visible=True,animation_buttons=['分析动作'],editable_actions=True,negative_nonempty=True,
             duration_seconds=w.video_controller.seconds.value(),source_sha256=before))
         w.close();QTest.qWait(40)
     print('Actual asset / video-only / six buttons / editable retargeted actions / compact UI: PASS')

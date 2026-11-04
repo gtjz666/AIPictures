@@ -31,7 +31,7 @@ class VideoController:
         window.animation_engine.blockSignals(False)
         window.walk_form.insertRow(0,'动画模型',window.animation_engine)
         window.animation_engine.setEnabled(False)  # One supported engine, no silent legacy fallback.
-        self.seconds=QDoubleSpinBox();self.seconds.setRange(2,7200);self.seconds.setDecimals(3);self.seconds.setSingleStep(1);self.seconds.setValue(4)
+        self.seconds=QDoubleSpinBox();self.seconds.setRange(2,8);self.seconds.setDecimals(3);self.seconds.setSingleStep(1);self.seconds.setValue(4)
         window.walk_form.insertRow(1,'片段时长（秒）',self.seconds)
         from .motion_reference_ui import MotionReferencePanel
         self.motion=MotionReferencePanel(window,self.seconds)
@@ -152,6 +152,7 @@ class VideoController:
         if self.motion.path:
             params['motion_native_settings']=self.motion_settings.copy()
             params.update(motion_reference=str(self.motion.path),motion_start=self.motion.start.value(),
+                          motion_allow_tail_hold=True,
                           motion_max_side=self.motion.detail.currentData(),
                           motion_repeat=self.motion.repeat.isChecked(),
                           motion_source=self.motion.meta.copy(),user_prompt=w.positive.toPlainText())
@@ -294,6 +295,7 @@ class VideoController:
     def resume_chain(self,path,data):
         from PySide6.QtWidgets import QMessageBox
         w=self.window
+        if data.get('params',{}).get('seconds',0)>8:raise ValueError('长视频续接尚未完成整段验证，暂未开放。已有成片仍可播放和导出。')
         if w.current or w.pending or w.preparing:raise ValueError('请先结束当前任务再继续长动画。')
         chain=json.loads((path.parent/'chain.json').read_text('utf-8'))
         completed=sum(r['status']=='completed' for r in chain['parts'])

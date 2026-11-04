@@ -167,3 +167,22 @@ def test_cross_species_check_includes_timeline_and_front_limbs(tmp_path):
             return json.dumps(dict(positive_prompt='少女抬起右手',descriptions=['右臂伸展，手掌朝向镜头'])),{}
     fixed=json.loads(repair_anatomy(Session(),json.dumps(data),{'appearance':{'identity':'少女'}},'模仿参考动作',tmp_path))
     assert fixed['timeline'][0]['description']=='右臂伸展，手掌朝向镜头'
+
+
+def test_selected_frame_inspection_does_not_invent_an_animation_plan(tmp_path):
+    from aipictures.local_intent import analyze_frame
+    from aipictures.frame_motion_input import import_frames
+    images=[]
+    for i in (0,1):
+        image=tmp_path/f'{i}.png';Image.new('RGBA',(24,32),(i*80,10,30,255)).save(image);images.append(image)
+    owned=tmp_path/'owned';owned.mkdir();source,_=import_frames(images,12,owned,threading.Event())
+    class Session:
+        def __init__(self,*args):pass
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def complete(self,messages,**kwargs):
+            assert len(messages[1]['content'])==1
+            return json.dumps(dict(description='当前帧主体抬起手臂。')),{}
+    result=analyze_frame({'name':'protocol fixture'},source,1,tmp_path/'analysis',threading.Event(),lambda *_:None,session_factory=Session)
+    assert result['frame_analysis']['index']==1 and result['frame_analysis']['time']==pytest.approx(1/12)
+    assert result['engine_released'] and 'plan' not in result and result['frame_sha256']

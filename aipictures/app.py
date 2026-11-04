@@ -1071,6 +1071,7 @@ class Window(QMainWindow):
             except (OSError,ValueError,KeyError) as exc: QMessageBox.warning(self, '保存失败', str(exc))
 
     def closeEvent(self, event):
+        self.video_controller.motion.cancel_preview()
         if hasattr(self,'workbench'):
             self.workbench.reference_player.stop()
             try:self.workbench.save_layout()
