@@ -3,14 +3,12 @@
 Executed by run_path in the private backend. Never import Torch or query devices
 here: this is intended to observe a hang in those very initialization calls.
 """
-import faulthandler
 import json
 import os
 from pathlib import Path
 import sys
 import threading
 import time
-import traceback
 from datetime import datetime
 
 
@@ -19,7 +17,9 @@ WATCHED_IMPORTS = frozenset(('torch', 'torch.cuda', 'comfy.utils',
 
 
 class StartupTrace:
-    def __init__(self, folder: Path, *, interval: float = 5., dump_after: float = 20.):
+    def __init__(self, folder: Path, *, interval: float = 5., dump_after: float | None = None):
+        # Keep the old keyword for diagnostic callers, but never arm a native
+        # traceback timer: it crashes the deployed CPython 3.12.3 on Windows.
         self.folder = Path(folder)
         self.folder.mkdir(parents=True, exist_ok=True)
         self.interval = interval
@@ -28,27 +28,29 @@ class StartupTrace:
         self.stopped = threading.Event()
         self.lock = threading.RLock()
         self.last_import = None
-        self.dump = (self.folder/'startup-stacks.log').open('w', encoding='utf-8')
         try:
             self.record('starting')
-            faulthandler.dump_traceback_later(dump_after, repeat=True, file=self.dump)
             sys.addaudithook(self.import_event)
             self.thread = threading.Thread(target=self.watch, name='startup-trace', daemon=True)
             self.thread.start()
         except BaseException:
             self.stopped.set()
-            faulthandler.cancel_dump_traceback_later()
-            self.dump.close()
             raise
 
     def record(self, status: str):
         with self.lock:
             frame = sys._current_frames().get(self.main_ident)
-            stack = [] if frame is None else [dict(file=x.filename, line=x.lineno, function=x.name)
-                for x in traceback.extract_stack(frame)[-16:]]
+            # Read live Python frames while holding the GIL. Do not use the
+            # asynchronous C all-thread stack walker or read source/locals.
+            stack = []
+            while frame is not None and len(stack) < 16:
+                code = frame.f_code
+                stack.append(dict(file=code.co_filename, line=frame.f_lineno, function=code.co_name))
+                frame = frame.f_back
+            stack.reverse()
             value = dict(status=status, pid=os.getpid(), time=datetime.now().astimezone().isoformat(),
                 elapsed_seconds=round(time.monotonic()-self.started, 3), last_import=self.last_import,
-                main_thread_stack=stack, device_queries=False)
+                main_thread_stack=stack, device_queries=False, native_traceback_timer=False)
             target = self.folder/'startup-watch.json'
             temp = self.folder/'startup-watch.tmp'
             try:
@@ -86,8 +88,6 @@ class StartupTrace:
                         return
                     try:
                         self.record('starting')
-                        self.dump.flush()
-                        os.fsync(self.dump.fileno())
                     except OSError:
                         pass
                 heartbeat = now
@@ -97,15 +97,10 @@ class StartupTrace:
             if self.stopped.is_set():
                 return
             self.stopped.set()
-            faulthandler.cancel_dump_traceback_later()
             try:
                 self.record('ready' if (self.folder/'startup-ready.json').is_file() else status)
-                self.dump.flush()
-                os.fsync(self.dump.fileno())
             except OSError:
                 pass
-            finally:
-                self.dump.close()
 
 
 def start(folder, **kwargs):

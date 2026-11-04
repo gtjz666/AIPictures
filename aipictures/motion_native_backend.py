@@ -93,7 +93,11 @@ class NativeSession:
 
     def check(self):
         if self.cancel.is_set():raise Cancelled('动作参考任务已取消；原文件与已保存结果保留。')
-        if self.process.poll() is not None:raise ValueError('专用动作参考后端已退出，请检查 native.log。')
+        code=self.process.poll()
+        if code is not None:
+            if os.name=='nt' and code & 0xffffffff == 0xc0000005:
+                raise ValueError('专用动作参考后端发生访问冲突（0xC0000005），任务已停止；请查看本次 native.log 和启动记录。')
+            raise ValueError(f'专用动作参考后端已退出（代码 {code}），请检查 native.log。')
 
     def __exit__(self,*_):
         self.stop.set()

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from aipictures.motion_native_backend import NativeSession
 from aipictures.engine import Cancelled
+from unittest.mock import Mock
 
 
 def test_output_duration_is_independent_of_short_reference():
@@ -14,6 +15,14 @@ def test_output_duration_is_independent_of_short_reference():
     # A 0.87s reference without repeat must not silently shorten a requested 2s output.
     assert output_frames(2.)==56 and output_frames(2.334)==73 and output_frames(8.)==192
     with pytest.raises(ValueError):output_frames(float('nan'))
+
+
+@pytest.mark.skipif(os.name!='nt',reason='Windows process exit code')
+def test_access_violation_has_specific_error_without_calling_it_oom(tmp_path):
+    session=NativeSession({},tmp_path,threading.Event(),lambda *a:None)
+    session.process=Mock();session.process.poll.return_value=0xc0000005
+    with pytest.raises(ValueError,match='访问冲突') as error:session.check()
+    assert '显存' not in str(error.value)
 
 
 def test_cancel_terminates_only_owned_native_session(tmp_path):
