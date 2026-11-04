@@ -23,7 +23,8 @@ class ReferencePlayback(QWidget):
 
     def load(self,paths):
         self.timer.stop();self.paths=[Path(p) for p in paths];self.index=0
-        self.slider.setRange(0,max(0,len(self.paths)-1));self.seek(0);self.play.setText('播放');self.show()
+        self.slider.blockSignals(True);self.slider.setRange(0,max(0,len(self.paths)-1));self.slider.setValue(0);self.slider.blockSignals(False)
+        self.seek(0);self.play.setText('播放');self.show()
 
     def seek(self,index):
         if not self.paths:return
@@ -114,17 +115,20 @@ class Workbench:
 
     def make_reference(self,w,layout):
         c=w.intent_controller
-        self.reference_thumb=TransparentPreview();self.reference_thumb.setFixedSize(44,44)
-        self.reference_thumb.activated.connect(lambda:w.show_image(str(w.reference_path),role='reference') if w.reference_path else None)
-        self.reference_name=QLabel();self.reference_name.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred)
-        reference=QHBoxLayout();reference.addWidget(self.reference_thumb);reference.addWidget(self.reference_name,1)
+        from .reference_asset import ReferenceAsset
+        self.reference_item=ReferenceAsset('参考图');self.reference_item.clicked.connect(self.show_reference)
+        self.reference_thumb=self.reference_item.thumb
+        self.motion_item=ReferenceAsset('参考动画');self.motion_item.clicked.connect(lambda:self.show_motion_reference(play=True))
+        self.reference_items=QWidget();items=QHBoxLayout(self.reference_items);items.setContentsMargins(0,0,0,0)
+        items.addWidget(self.reference_item);items.addWidget(self.motion_item);items.addStretch(1)
+        reference=QHBoxLayout();reference.addWidget(self.reference_items,1)
         reference.addWidget(w.attach_reference_button)
         w.attach_reference_button.setSizePolicy(QSizePolicy.Policy.Maximum,QSizePolicy.Policy.Preferred)
-        remove=QPushButton('移除');remove.clicked.connect(w.clear_reference);reference.addWidget(remove)
+        remove=QPushButton('移除');remove.clicked.connect(self.remove_asset);reference.addWidget(remove)
         self.remove_reference=remove
         remove.setSizePolicy(QSizePolicy.Policy.Maximum,QSizePolicy.Policy.Preferred)
         c.role.setItemText(0,'角色 / 外观');c.role.setItemText(1,'画风 / 布局');c.role.setItemText(2,'编辑底图')
-        c.role.setMaximumWidth(180);reference.insertWidget(2,c.role);layout.addLayout(reference)
+        c.role.setMaximumWidth(180);reference.insertWidget(1,c.role);layout.addLayout(reference)
 
     def make_prompts(self,w):
         c=w.intent_controller;content=QWidget();layout=QVBoxLayout(content);layout.setContentsMargins(8,6,8,6)
@@ -138,6 +142,7 @@ class Workbench:
         self.animation_header.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
         action=QHBoxLayout();action.addWidget(w.animation_action_label);action.addWidget(w.animation_action,1);header.addLayout(action)
         w.video_controller.motion.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
+        w.video_controller.motion.asset_header.setParent(self.hidden)
         header.addWidget(w.video_controller.motion)
         taken=w.walk_form.takeRow(w.video_controller.seconds)
         if taken.labelItem:taken.labelItem.widget().hide()
@@ -212,22 +217,48 @@ class Workbench:
 
     def refresh_reference(self):
         w=self.window;present=bool(w.reference_path)
-        self.reference_thumb.setVisible(present);self.reference_name.setVisible(present)
-        self.remove_reference.setEnabled(present);w.intent_controller.role.setVisible(present)
-        self.reference_thumb.set_clickable(present)
+        self.reference_item.setVisible(present);w.intent_controller.role.setVisible(present)
         if present:
-            self.reference_name.setText(w.reference_display_name or Path(w.reference_path).name)
-            self.reference_thumb.setPixmap(QPixmap(str(w.reference_path)).scaled(44,44,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation))
-        else:self.reference_thumb.clear();self.reference_name.clear()
+            self.reference_item.set_source(str(w.reference_path))
+        self.refresh_motion_asset();self.refresh_asset_selection()
+        if not present and w.preview_role is None and w.video_controller.motion.path:self.show_motion_reference()
+
+    def refresh_motion_asset(self):
+        panel=self.window.video_controller.motion;present=bool(panel.path and panel.preview_paths)
+        self.motion_item.setVisible(present)
+        if present:self.motion_item.set_source(panel.preview_paths[0])
+        self.remove_reference.setEnabled(bool(self.window.reference_path or present))
+
+    def refresh_asset_selection(self):
+        self.reference_item.setChecked(self.window.preview_role=='reference' and bool(self.window.reference_path))
+        self.motion_item.setChecked(self.window.preview_role=='motion_reference' and bool(self.window.video_controller.motion.path))
+        w=self.window;hint=''
+        if self.reference_item.isChecked():hint=w.reference_display_name or Path(w.reference_path).name
+        elif self.motion_item.isChecked():hint=w.video_controller.motion.meta['name']
+        w.preview.set_source_hint(hint)
+
+    def show_reference(self):
+        if self.window.reference_path:self.window.show_image(str(self.window.reference_path),role='reference')
+
+    def show_motion_reference(self,*,play=False):
+        panel=self.window.video_controller.motion
+        if not panel.path or not panel.preview_paths:return
+        w=self.window;w.video_controller.player.stop();w.animation_player.stop()
+        w.sequence_preview.clear_sequence();self.reference_player.load(panel.preview_paths)
+        w.image_save.setEnabled(False);w.image_reuse.setEnabled(False)
+        if play:self.reference_player.toggle()
+        QTimer.singleShot(0,w.fit_preview)
+
+    def remove_asset(self):
+        if self.motion_item.isChecked() or not self.window.reference_path:self.window.video_controller.motion.clear()
+        else:self.window.clear_reference()
 
     def motion_changed(self):
         panel=self.window.video_controller.motion
+        self.refresh_motion_asset()
         if panel.path and panel.preview_paths:
             self.right_tabs.setCurrentIndex(1)
-            self.window.video_controller.player.stop();self.window.animation_player.stop()
-            self.window.sequence_preview.clear_sequence();self.reference_player.load(panel.preview_paths)
-            QTimer.singleShot(0,self.window.fit_preview)
-            self.window.image_save.setEnabled(False);self.window.image_reuse.setEnabled(False)
+            self.show_motion_reference()
         else:
             self.reference_player.stop()
             if self.window.preview_role=='motion_reference':
@@ -235,6 +266,7 @@ class Workbench:
                 else:
                     self.window.preview.clear();self.window.preview.setText('拖入参考素材')
                     self.window.pixmap=QPixmap();self.window.preview_path=None;self.window.preview_role=None
+        self.refresh_asset_selection()
 
     def show_plan(self,result):
         self.plan=result

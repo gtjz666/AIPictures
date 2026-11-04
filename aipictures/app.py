@@ -1048,6 +1048,7 @@ class Window(QMainWindow):
             self.add_chat('软件', '打开图片失败：' + str(exc))
 
     def fit_preview(self):
+        if hasattr(self,'workbench'):self.workbench.refresh_asset_selection()
         if not self.pixmap.isNull():
             ratio=self.preview.devicePixelRatioF()
             scaled=self.pixmap.scaled(self.preview.size()*ratio,Qt.KeepAspectRatio,Qt.SmoothTransformation)

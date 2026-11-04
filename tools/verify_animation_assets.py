@@ -34,7 +34,15 @@ def main():
         b=w.workbench;b.right_tabs.setCurrentIndex(1);b.motion_changed();QTest.qWait(50)
         assert b.timeline.isVisible() and w.negative.toPlainText().strip()
         assert b.timeline.table.rowCount()==len(result['plan']['timeline'])
+        assert b.reference_item.isVisible() and b.motion_item.isVisible() and not w.video_controller.motion.asset_header.isVisible()
+        assert b.reference_item.text()==b.motion_item.text()==''
+        QTest.mouseClick(b.motion_item,Qt.MouseButton.LeftButton);QTest.qWait(100)
+        assert b.reference_player.timer.isActive() and w.preview.source_hint==a.motion.name
         w.grab().save(str(root/'animation.png'))
+        QTest.mouseClick(b.reference_item,Qt.MouseButton.LeftButton);QTest.qWait(30)
+        assert w.preview_role=='reference' and not b.reference_player.timer.isActive() and w.preview.source_hint==a.image.name
+        w.grab().save(str(root/'reference.png'))
+        QTest.mouseClick(b.motion_item,Qt.MouseButton.LeftButton);QTest.qWait(30)
         w.resize(1280,800);QTest.qWait(50)
         assert w.size().height()<=820 and not w.preview.pixmap().isNull()
         w.grab().save(str(root/'compact.png'))

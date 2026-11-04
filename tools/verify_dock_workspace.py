@@ -66,11 +66,37 @@ def main():
         assert w.reference_path==reference and panel.path and w.preview_role=='motion_reference' and len(calls)==0
         assert b.reference_player.isVisible() and b.reference_player.paths
         assert b.right_tabs.currentIndex()==1 and panel.isVisible() and not b.prompts.isVisible()
+        assert b.motion_item.isVisible() and not panel.asset_header.isVisible()
+        assert b.motion_item.parentWidget()==b.reference_item.parentWidget()==b.reference_items
+        assert b.reference_items.parentWidget()==b.canvas
+        # Both source types share the canvas. Preview selection must not touch generation inputs.
+        source_state=w.reference_path,panel.path,w.generation_type.currentData(),w.positive.toPlainText()
+        QTest.mouseClick(b.reference_item,Qt.MouseButton.LeftButton)
+        assert w.preview_role=='reference' and not b.reference_player.timer.isActive()
+        assert b.reference_item.isChecked() and not b.motion_item.isChecked()
+        assert w.preview.source_hint==image.name and b.reference_item.text()==''
+        assert not b.reference_player.isVisible()
+        QTest.mouseClick(b.motion_item,Qt.MouseButton.LeftButton)
+        assert w.preview_role=='motion_reference' and b.reference_player.timer.isActive()
+        assert b.motion_item.isChecked() and not b.reference_item.isChecked()
+        assert w.preview.source_hint==gif.name and b.motion_item.text()==''
+        assert (w.reference_path,panel.path,w.generation_type.currentData(),w.positive.toPlainText())==source_state
+        w.show_image(str(image))
+        assert not w.preview.source_hint and not b.reference_item.isChecked() and not b.motion_item.isChecked()
+        QTest.mouseClick(b.motion_item,Qt.MouseButton.LeftButton)
+        b.reference_player.slider.setValue(3)
+        QTest.mouseClick(b.reference_item,Qt.MouseButton.LeftButton)
+        b.motion_item.setFocus();QTest.keyClick(b.motion_item,Qt.Key.Key_Space)
+        assert b.reference_player.timer.isActive() and b.reference_player.slider.value()==0
+        b.reference_player.toggle()
         b.right_tabs.setCurrentIndex(0);QTest.qWait(20)
         assert b.prompts.isVisible() and not panel.isVisible()
         b.right_tabs.setCurrentIndex(1)
         QTest.mouseClick(b.reference_player.play,Qt.MouseButton.LeftButton);assert b.reference_player.timer.isActive()
         QTest.mouseClick(b.reference_player.play,Qt.MouseButton.LeftButton);assert not b.reference_player.timer.isActive()
+        QTest.mouseClick(panel.play,Qt.MouseButton.LeftButton)
+        assert b.reference_player.timer.isActive() and panel.preview_dialog is None
+        b.reference_player.toggle()
         QTest.mouseClick(panel.range_button,Qt.MouseButton.LeftButton);assert panel.range_dialog.isVisible()
         panel.range_slider.setValue(500);assert panel.start.value()>0;panel.range_dialog.close()
         w.positive.setPlainText('角色模仿参考动作')
@@ -87,6 +113,20 @@ def main():
             drop(app,w.preview,pngs);wait_until(lambda:not w.preparing)
         QTest.qWait(300);assert panel.path.suffix=='.json' and w.reference_path==reference and len(calls)==1
         assert b.plan is None and not b.timeline.isVisible(), 'A changed motion source must not retain an old analysis.'
+        assert b.motion_item.isVisible() and b.motion_item.accessibleName()=='参考动画'
+        QTest.mouseClick(b.reference_item,Qt.MouseButton.LeftButton)
+        QTest.mouseClick(b.motion_item,Qt.MouseButton.LeftButton)
+        QTest.mouseClick(b.remove_reference,Qt.MouseButton.LeftButton)
+        assert panel.path is None and w.reference_path==reference and not b.motion_item.isVisible()
+        assert w.preview_role=='reference' and b.reference_item.isChecked()
+        # Removing the still while a motion is present keeps the other source available.
+        drop(app,w.preview,[gif]);wait_until(lambda:not w.preparing);QTest.qWait(40)
+        QTest.mouseClick(b.reference_item,Qt.MouseButton.LeftButton)
+        w.clear_reference();assert panel.path and b.motion_item.isVisible() and not b.reference_item.isVisible()
+        assert w.preview_role=='motion_reference' and b.remove_reference.isEnabled()
+        QTest.mouseClick(b.remove_reference,Qt.MouseButton.LeftButton)
+        assert not panel.path and w.preview_role is None and not b.remove_reference.isEnabled()
+        assert not w.preview.source_hint
         w.resize(1280,800);QTest.qWait(40)
         assert w.size().height()<=820,'References must also fit the compact layout.'
         w.resize(1440,940);QTest.qWait(30)

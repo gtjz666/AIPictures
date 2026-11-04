@@ -31,7 +31,8 @@ def main():
         assert b.timeline_region.isVisible() and not b.timeline.isVisible()
         assert b.timeline_region.height()>=200 and b.animation_header.height()<270
         assert vc.motion.play.mapTo(b.animation_header,vc.motion.play.rect().topLeft()).y()<200
-        assert vc.motion.poster.mapTo(b.animation_header,vc.motion.poster.rect().topLeft()).y()<110
+        assert b.motion_item.isVisible() and not vc.motion.asset_header.isVisible()
+        assert b.motion_item.isAncestorOf(b.motion_item.thumb)
         w.grab().save(str(proof/'before-analysis.png'))
         vc.seconds.setValue(32);assert vc.seconds.value()==32
         result=dict(plan=dict(kind='animation',timeline=[dict(start=0,end=.1,description='抬手'),dict(start=.1,end=.333,description='收手')]))

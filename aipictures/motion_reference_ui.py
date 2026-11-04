@@ -21,10 +21,11 @@ class MotionReferencePanel(QWidget):
         self.preview_paths=[];self.preview_dialog=None
         layout=QVBoxLayout(self);layout.setContentsMargins(0,3,0,3);layout.setSpacing(4)
         self.setObjectName('motionReference')
-        row=QHBoxLayout();self.poster=QLabel();self.poster.setFixedSize(44,44);self.poster.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.asset_header=QWidget();row=QHBoxLayout(self.asset_header);row.setContentsMargins(0,0,0,0)
+        self.poster=QLabel();self.poster.setFixedSize(44,44);self.poster.setAlignment(Qt.AlignmentFlag.AlignCenter)
         row.addWidget(self.poster);self.summary=QLabel()
         self.summary.setWordWrap(True);row.addWidget(self.summary,1)
-        layout.addLayout(row);buttons=QGridLayout();layout.addLayout(buttons);self.buttons=buttons
+        layout.addWidget(self.asset_header);buttons=QGridLayout();layout.addLayout(buttons);self.buttons=buttons
         self.add=QPushButton('参考动画');self.add.clicked.connect(self.choose);buttons.addWidget(self.add,0,0)
         self.add_frames=QPushButton('动作帧');self.add_frames.clicked.connect(self.choose_frames);buttons.addWidget(self.add_frames,0,1)
         self.play=QPushButton('预览');self.play.clicked.connect(self.preview);buttons.addWidget(self.play,1,0)
@@ -141,6 +142,8 @@ class MotionReferencePanel(QWidget):
 
     def preview(self):
         if not self.preview_paths:return
+        if hasattr(self.window,'workbench'):
+            self.window.workbench.show_motion_reference(play=True);return
         if self.preview_dialog:self.preview_dialog.close()
         dialog=QDialog(self.window);dialog.setWindowTitle('动作参考预览 · 前4秒');layout=QVBoxLayout(dialog)
         image=QLabel();image.setFixedSize(480,360);image.setAlignment(Qt.AlignmentFlag.AlignCenter);layout.addWidget(image)

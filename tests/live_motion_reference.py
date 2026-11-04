@@ -28,7 +28,9 @@ def main():
         source=gif(root/'walk.gif');before=source.read_bytes();panel.set_file(source);wait()
         assert panel.path and panel.meta['name']=='walk.gif' and w.animation_action.currentData()=='custom'
         assert 'walk.gif' in panel.summary.text()
-        panel.preview();app.processEvents();assert panel.preview_dialog.isVisible();panel.preview_dialog.close()
+        panel.preview();app.processEvents()
+        assert panel.preview_dialog is None and w.workbench.reference_player.timer.isActive()
+        assert w.preview_role=='motion_reference';w.workbench.reference_player.toggle()
         image=root/'character.png';Image.new('RGBA',(64,96),(20,100,220,255)).save(image)
         w.set_reference(str(image));w.positive.setPlainText('保持蓝色衣服，跟随动作参考');w.seed.setText('1234')
         with patch.object(w,'start_next'):
