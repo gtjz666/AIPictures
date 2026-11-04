@@ -40,7 +40,7 @@ def main():
         assert b.reference_item.text()==b.motion_item.text()==''
         if a.generated:w.video_controller.player.load(a.generated)
         result_role=w.preview_role;result_manifest=w.video_controller.player.manifest
-        b.right_tabs.setCurrentIndex(2);QTest.qWait(30)
+        b.right_tabs.setCurrentIndex(0);QTest.qWait(30)
         drop(app,b.reference_item,[a.image]);QTest.qWait(30)
         assert w.preview_role==result_role and w.video_controller.player.manifest==result_manifest
         if a.generated:
@@ -57,7 +57,7 @@ def main():
         w.resize(1280,800);QTest.qWait(50)
         assert w.size().height()<=820 and not b.motion_item._pixmap.isNull()
         w.grab().save(str(root/'compact.png'))
-        b.right_tabs.setCurrentIndex(0);QTest.qWait(30);w.grab().save(str(root/'prompts.png'))
+        b.right_tabs.setCurrentIndex(2);QTest.qWait(30);w.grab().save(str(root/'prompts.png'))
         c=w.intent_controller;c.role.setCurrentIndex(c.role.findData('custom'))
         c.role_note.setText('只参考黑白服装配色和细描边，主体换成机器人，不参考发型与站姿')
         QTest.qWait(30);assert c.role.isVisible() and c.role_note.isVisible()
@@ -78,7 +78,7 @@ def main():
                 b.show_frame_analysis(frame_result);assert b.frame_review.table.rowCount()==1
             # Dispatch the hover event through Qt even when another desktop app
             # owns foreground focus; a native cursor move can go to that app.
-            b.right_tabs.setCurrentIndex(2)
+            b.right_tabs.setCurrentIndex(0)
             point=QPoint(b.motion_item.width()-10,4);global_point=b.motion_item.mapToGlobal(point)
             app.sendEvent(b.motion_item,QEnterEvent(QPointF(point),QPointF(w.mapFromGlobal(global_point)),QPointF(global_point)))
             QTest.qWait(30);assert b.motion_item.close_button.isVisible()

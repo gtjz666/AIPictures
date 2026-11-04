@@ -24,7 +24,7 @@ def main():
         w=Window();w.timer.stop();w.resize(1280,800);w.show();QTest.qWait(100)
         b=w.workbench;vc=w.video_controller
         drop(app,w.preview,[clip]);wait_until(lambda:not w.preparing);QTest.qWait(100)
-        assert w.reference_path is None and b.right_tabs.currentIndex()==2 and w.pixmap.isNull()
+        assert w.reference_path is None and b.right_tabs.currentIndex()==0 and w.pixmap.isNull()
         assert not b.motion_item._pixmap.isNull() and b.reference_player.isVisible()
         b.right_tabs.setCurrentIndex(1)
         assert b.analyze_motion.isVisible() and not vc.motion.range_button.isVisible()

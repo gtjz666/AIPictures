@@ -50,7 +50,8 @@ def main():
         w=Window();w.timer.stop();w.resize(1440,940);w.show();QTest.qWait(80);b=w.workbench;c=w.intent_controller
         assert w.windowTitle()=='AlI' and not c.input.acceptDrops()
         assert b.canvas.x()<b.right_tabs.x() and b.right_tabs.count()==3
-        assert [b.right_tabs.tabText(i) for i in range(3)]==['提示词','动画','参考']
+        assert [b.right_tabs.tabText(i) for i in range(3)]==['参考','动画','提示词']
+        assert b.right_tabs.currentWidget()==b.reference_items
         assert not b.right_tabs.isMovable() and not b.workspace.childrenCollapsible()
         assert all(not dock.isVisible() for dock in w.findChildren(QDockWidget))
         assert b.task.parentWidget()==b.canvas
@@ -60,13 +61,13 @@ def main():
         before=image.read_bytes(),gif.read_bytes();drop(app,w.preview,[image]);QTest.qWait(350)
         assert w.reference_path and Path(w.reference_path)!=image and w.preview_role is None
         assert b.reference_thumb.isVisible() and len(calls)==0 and not w.current and not w.pending
-        assert b.right_tabs.currentIndex()==2 and not b.reference_item._pixmap.isNull()
+        assert b.right_tabs.currentIndex()==0 and not b.reference_item._pixmap.isNull()
         assert b.reference_thumb.mapTo(w,QPoint(0,0)).x()>b.right_tabs.mapTo(w,QPoint(0,0)).x()
         reference=w.reference_path;drop(app,w.preview,[gif]);wait_until(lambda:not w.preparing)
         QTest.qWait(300);panel=w.video_controller.motion
         assert w.reference_path==reference and panel.path and w.preview_role is None and len(calls)==0
         assert b.reference_player.isVisible() and b.reference_player.paths
-        assert b.right_tabs.currentIndex()==2 and not b.motion_selection.isVisible() and not b.prompts.isVisible()
+        assert b.right_tabs.currentIndex()==0 and not b.motion_selection.isVisible() and not b.prompts.isVisible()
         assert b.motion_item.isVisible() and not panel.asset_header.isVisible()
         assert b.reference_items.isAncestorOf(b.motion_item) and b.reference_items.isAncestorOf(b.reference_item)
         assert not b.canvas.isAncestorOf(b.reference_item) and not w.attach_reference_button.isVisible()
@@ -94,7 +95,7 @@ def main():
         assert b.reference_player.play.accessibleName()=='暂停'
         assert w.preview_role=='animation' and w.animation_player.timer.isActive() and b.reference_player.timer.isActive()
         b.reference_player.toggle();assert w.animation_player.timer.isActive();w.animation_player.stop()
-        b.right_tabs.setCurrentIndex(0);QTest.qWait(20)
+        b.right_tabs.setCurrentIndex(2);QTest.qWait(20)
         assert b.prompts.isVisible() and not panel.isVisible() and c.role.isVisible()
         assert c.role.parentWidget()==w.positive.parentWidget()
         assert [c.role.itemData(i) for i in range(c.role.count())]==['appearance','style','custom']
@@ -148,7 +149,7 @@ def main():
         assert w.positive.toPlainText()==original_prompt
         assert panel.frame_rate_row.isVisible();panel.frame_rate.setValue(24);panel.frame_rate.editingFinished.emit()
         wait_until(lambda:not w.preparing);assert panel.meta['frame_fps']==24
-        b.right_tabs.setCurrentIndex(2)
+        b.right_tabs.setCurrentIndex(0)
         QTest.mouseClick(b.reference_item,Qt.MouseButton.LeftButton)
         w.show_image(str(image));output_state=(w.output,w.preview_path,w.preview_role,w.pixmap.cacheKey())
         point=QPoint(b.motion_item.width()-10,4);global_point=b.motion_item.mapToGlobal(point)
@@ -176,21 +177,26 @@ def main():
         assert 'temporary' not in w.status.text() and not w.task_display.detail.isVisible() and b.task.height()<110
         w.grab().save(str(proof/'workspace.png'))
         assert b.task.mapTo(w,QPoint(0,0)).x()+b.task.width()<=b.canvas.mapTo(w,QPoint(0,0)).x()+b.canvas.width()+2
-        b.workspace.setSizes([760,540]);b.prompt_splitter.setSizes([240,160]);b.right_tabs.setCurrentIndex(2)
+        b.workspace.setSizes([760,540]);b.prompt_splitter.setSizes([240,160]);b.right_tabs.setCurrentIndex(0)
         b.save_layout();saved=json.loads((root/'cache/workspace-layout.json').read_text('utf-8'))
-        assert saved['schema_version']==2
+        assert saved['schema_version']==3 and saved['right_tab']=='reference'
         ratio=saved['columns'][0]/sum(saved['columns'])
         w.close();QTest.qWait(40)
         restored=Window();restored.timer.stop();restored.show();QTest.qWait(70)
         sizes=restored.workbench.workspace.sizes()
-        assert abs(sizes[0]/sum(sizes)-ratio)<.05 and restored.workbench.right_tabs.currentIndex()==2
+        assert abs(sizes[0]/sum(sizes)-ratio)<.05 and restored.workbench.right_tabs.currentIndex()==0
+        # Old numeric pages retain their meaning after the visible order changes.
+        for old_index,key in enumerate(('prompts','animation','reference')):
+            write_json(root/'cache/workspace-layout.json',dict(saved,schema_version=2,right_tab=old_index))
+            restored.workbench.restore_layout()
+            assert restored.workbench.right_tabs.currentWidget()==restored.workbench.tool_pages[key]
         restored.workbench.reset_layout();QTest.qWait(60)
         assert restored.workbench.canvas.x()<restored.workbench.right_tabs.x() and restored.workbench.right_tabs.currentIndex()==0
         restored.resize(1280,800);QTest.qWait(40);assert restored.size().height()<=820
         restored.grab().save(str(proof/'compact.png'))
         restored.workbench.right_tabs.setCurrentIndex(1);restored.positive.clear()
         QTest.mouseClick(restored.workbench.analyze_motion,Qt.MouseButton.LeftButton);QTest.qWait(20)
-        assert restored.workbench.right_tabs.currentIndex()==0 and restored.intent_controller.note.isVisible()
+        assert restored.workbench.right_tabs.currentIndex()==2 and restored.intent_controller.note.isVisible()
         restored.close();QTest.qWait(30)
     write_json(proof/'acceptance.json',dict(passed=True,actual_qt=True,recognition='protocol fixture only',no_generation_submitted=True,
         checks=['canvas PNG/GIF/PNG sequence drops','no automatic analysis','explicit analysis','reference playback','clip slider',

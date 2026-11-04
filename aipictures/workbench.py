@@ -85,7 +85,9 @@ class Workbench:
         cv.addWidget(w.animation_player);cv.addWidget(w.video_controller.player)
         w.image_save.setEnabled(False);w.image_reuse.setEnabled(False)
         self.make_settings(w);self.make_prompts(w);self.make_animation(w)
-        self.right_tabs.addTab(self.reference_items,'参考')
+        self.tool_pages={'reference':self.reference_items,'animation':self.animation,'prompts':self.prompt_page}
+        for key,title in [('reference','参考'),('animation','动画'),('prompts','提示词')]:
+            self.right_tabs.addTab(self.tool_pages[key],title)
         self.task=QWidget();task_layout=QVBoxLayout(self.task);task_layout.setContentsMargins(0,3,0,0)
         task_layout.setSpacing(2);task_layout.addWidget(QLabel('当前任务'));task_layout.addWidget(w.task_display)
         cv.addWidget(self.task)
@@ -146,7 +148,7 @@ class Workbench:
         positive_layout.insertWidget(1,c.role_note)
         layout.addWidget(self.prompts,1)
         c.organize.setText('自动生成提示词');layout.addWidget(c.organize);layout.addWidget(c.note)
-        self.prompt_page=self.scroll_page(content);self.right_tabs.addTab(self.prompt_page,'提示词')
+        self.prompt_page=self.scroll_page(content)
 
     def make_animation(self,w):
         content=QWidget();layout=QVBoxLayout(content);layout.setContentsMargins(8,6,8,6)
@@ -191,7 +193,7 @@ class Workbench:
         self.frame_review=FrameReview(panel);self.analysis_tabs.addTab(self.frame_review,'帧内容');self.analysis_tabs.setTabVisible(1,False)
         self.analysis_tabs.tabBar().hide()
         layout.addWidget(self.timeline_region,1)
-        self.animation=self.scroll_page(content);self.right_tabs.addTab(self.animation,'动画')
+        self.animation=self.scroll_page(content)
 
     def make_toolbar(self,w):
         bar=QToolBar('创作');bar.setObjectName('creationToolbar');bar.setMovable(False);w.addToolBar(bar)
@@ -214,7 +216,7 @@ class Workbench:
 
     def reset_layout(self,checked=False,*,save=True):
         self._restored=False
-        self.right_tabs.setCurrentIndex(0)
+        self.right_tabs.setCurrentWidget(self.reference_items)
         QTimer.singleShot(0,lambda:self.fit_default(save))
 
     def fit_default(self,save=False):
@@ -229,17 +231,21 @@ class Workbench:
 
     def save_layout(self):
         columns=self.workspace.sizes();editors=self.prompt_splitter.sizes()
-        write_json(self.data/'workspace-layout.json',dict(schema_version=2,
+        selected=next(key for key,page in self.tool_pages.items() if page==self.right_tabs.currentWidget())
+        write_json(self.data/'workspace-layout.json',dict(schema_version=3,
             columns=columns if self.valid_sizes(columns) else [900,420],
-            editors=editors if self.valid_sizes(editors) else [300,200],right_tab=self.right_tabs.currentIndex()))
+            editors=editors if self.valid_sizes(editors) else [300,200],right_tab=selected))
 
     def restore_layout(self):
         try:
             value=json.loads((self.data/'workspace-layout.json').read_text('utf-8'))
-            if (value['schema_version']==2 and self.valid_sizes(value.get('columns')) and
-                self.valid_sizes(value.get('editors')) and type(value.get('right_tab')) is int and value['right_tab'] in (0,1,2)):
+            selected=value.get('right_tab')
+            if value['schema_version']==2 and type(selected) is int and selected in (0,1,2):
+                selected=('prompts','animation','reference')[selected]
+            if (value['schema_version'] in (2,3) and self.valid_sizes(value.get('columns')) and
+                self.valid_sizes(value.get('editors')) and isinstance(selected,str) and selected in self.tool_pages):
                 self.workspace.setSizes(value['columns']);self.prompt_splitter.setSizes(value['editors'])
-                self.right_tabs.setCurrentIndex(value['right_tab']);self._restored=True
+                self.right_tabs.setCurrentWidget(self.tool_pages[selected]);self._restored=True
         except (OSError,ValueError,KeyError,TypeError):pass
 
     def open_settings(self,key):
@@ -264,7 +270,7 @@ class Workbench:
         self.source_note.set_hint('')
 
     def show_reference(self):
-        self.refresh_reference();self.right_tabs.setCurrentIndex(2)
+        self.refresh_reference();self.right_tabs.setCurrentWidget(self.reference_items)
         self.reference_item.setChecked(False)
 
     def show_motion_reference(self,*,play=False,position=0):
@@ -298,7 +304,7 @@ class Workbench:
         self.analysis_tabs.tabBar().setVisible(panel.is_frames())
         self.analysis_tabs.setCurrentIndex(1 if panel.is_frames() else 0)
         if panel.path and panel.preview_paths:
-            self.right_tabs.setCurrentIndex(2)
+            self.right_tabs.setCurrentWidget(self.reference_items)
             self.show_motion_reference()
         else:
             self.reference_player.clear()
@@ -313,5 +319,5 @@ class Workbench:
         self.frame_review.add_result(result);self.analysis_tabs.setCurrentIndex(1)
 
     def show_timeline(self):
-        self.right_tabs.setCurrentIndex(1)
+        self.right_tabs.setCurrentWidget(self.animation)
         if self.plan:self.timeline.show();self.timeline.table.setFocus()
