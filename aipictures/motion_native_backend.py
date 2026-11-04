@@ -57,11 +57,13 @@ class NativeSession:
             environment={'AIPICTURES_STREAM_WEIGHTS':'1'},weights_loader='stream'),durable=True)
         self.output=(self.folder/'native.log').open('w',encoding='utf-8')
         try:
-            self.process=subprocess.Popen(gated_module_command(command),cwd=self.config['source'],
+            self.process=subprocess.Popen(gated_module_command(command,startup_trace=self.folder),cwd=self.config['source'],
                 env=dict(os.environ,PYTHONUTF8='1',HF_HUB_OFFLINE='1',AIPICTURES_STREAM_WEIGHTS='1'),stdin=subprocess.PIPE,
                 stdout=self.output,stderr=subprocess.STDOUT,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
             self.owner=OwnedProcessJob(self.process.pid)
+            write_json(self.folder/'native-process.json',dict(pid=self.process.pid,
+                url=self.client.url,status='starting'),durable=True)
             self.emit('h3_process',dict(pid=self.process.pid,owner=self.owner))
             self.process.stdin.write(b'go\n');self.process.stdin.flush();self.process.stdin.close()
             self.watcher=threading.Thread(target=self.watch_cancel,daemon=True);self.watcher.start()
@@ -76,6 +78,7 @@ class NativeSession:
                     if not isinstance(getattr(exc,'reason',None),TimeoutError):raise
                 if time.monotonic()>deadline:raise ValueError('专用动作参考后端启动超过5分钟，请检查 native.log。未提交生成。')
                 self.cancel.wait(.5)
+            write_json(self.folder/'startup-ready.json',dict(ready=True,pid=self.process.pid),durable=True)
             write_json(self.folder/'native-process.json',dict(pid=self.process.pid,url=self.client.url,status='running'),durable=True)
             return self
         except BaseException:

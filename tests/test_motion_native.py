@@ -27,15 +27,20 @@ class Handler(BaseHTTPRequestHandler):
  def log_message(self,*args):pass
 HTTPServer(('127.0.0.1',int(sys.argv[sys.argv.index('--port')+1])),Handler).serve_forever()
 ''','utf-8')
-    cancel=threading.Event();events=[]
+    cancel=threading.Event();events=[];starting=[]
     config=dict(python=sys.executable,source=str(source),model_paths=str(tmp_path/'paths.yaml'))
-    with NativeSession(config,folder,cancel,lambda kind,data:events.append(kind)) as session:
+    def event(kind,data):
+        events.append(kind)
+        if kind=='h3_process':starting.append(json.loads((folder/'native-process.json').read_text())['status'])
+    with NativeSession(config,folder,cancel,event) as session:
         assert 'test_node' in session.info and session.process.poll() is None
+        assert json.loads((folder/'startup-ready.json').read_text())['ready'] is True
         cancel.set();deadline=time.monotonic()+5
         while session.process.poll() is None and time.monotonic()<deadline:time.sleep(.02)
         assert session.process.poll() is not None
         with pytest.raises(Cancelled):session.check()
     assert 'h3_process' in events
+    assert starting==['starting']
     assert json.loads((folder/'native-process.json').read_text())['status']=='stopped'
     command=json.loads((folder/'native-command.json').read_text())
     assert command['environment']=={'AIPICTURES_STREAM_WEIGHTS':'1'}
