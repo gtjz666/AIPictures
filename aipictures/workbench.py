@@ -198,7 +198,7 @@ class Workbench:
         w.cancel_button.setText('取消');bar.addWidget(w.cancel_button);bar.addWidget(w.generate_button)
         w.assets_dialog.setWindowTitle('记录')
         w.menuBar().addAction('记录',w.open_assets)
-        for title,key in [('生成','creation'),('画面','image'),('采样','sampling'),('连接','connection')]:
+        for title,key in [('画面','image'),('采样','sampling'),('连接','connection')]:
             w.menuBar().addAction(title,lambda checked=False,section=key:self.open_settings(section))
         w.menuBar().addAction('API',w.api_controller.open_settings)
         view=w.menuBar().addMenu('窗口')

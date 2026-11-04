@@ -55,7 +55,7 @@ def main():
         assert all(not dock.isVisible() for dock in w.findChildren(QDockWidget))
         assert b.task.parentWidget()==b.canvas
         assert not w.inspector.isVisible() and not w.output_shortcut.isEnabled()
-        assert [a.text() for a in w.menuBar().actions()]==['记录','生成','画面','采样','连接','API','窗口']
+        assert [a.text() for a in w.menuBar().actions()]==['记录','画面','采样','连接','API','窗口']
         assert all(not label.isVisible() for label in (w.creation_summary,w.reference_label,w.context_label,w.intent_hint,w.seed_notice))
         before=image.read_bytes(),gif.read_bytes();drop(app,w.preview,[image]);QTest.qWait(350)
         assert w.reference_path and Path(w.reference_path)!=image and w.preview_role=='reference'
