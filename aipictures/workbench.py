@@ -36,6 +36,8 @@ class ReferencePlayback(QWidget):
             self.timer.start(round(1000/self.fps));self.play.set_playing(True)
 
     def advance(self):
+        if not self.preview.isVisible() or self.preview.window().isMinimized():
+            self.stop();return
         if self.index==len(self.paths)-1 and not self.loop.isChecked():
             self.timer.stop();self.play.set_playing(False);return
         self.slider.setValue((self.index+1)%len(self.paths))

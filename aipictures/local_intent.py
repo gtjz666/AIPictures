@@ -48,6 +48,7 @@ class LocalSession:
                 '--alias', 'local-intent',
                 '--host', '127.0.0.1', '--port', str(port), '-c', str(self.config['context']),
                 '-ngl', '99', '-np', '1', '-t', '6', '-b', '256', '-ub', '128',
+                '--image-min-tokens','1024','--image-max-tokens','2048',
                 '--flash-attn', 'on', '--no-warmup', '--no-webui']
 
     def __enter__(self):
@@ -171,7 +172,7 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
         role=role,reference_usage=reference_usage, motion_start=start, motion_seconds=seconds, output_seconds=output_seconds, status='analyzing'))
     try:
         emit('intent_stage', {'message': '正在读取素材及原始动作时间…'})
-        content, evidence = prepare(reference, motion, folder, cancel, role=role, start=start, seconds=seconds)
+        content, evidence = prepare(reference, motion, folder, cancel, role=role, start=start, seconds=seconds,max_frames=64)
         details = dict(user_request=brief,reference_usage=reference_usage, original_negative_constraints=negative, selected_kind=selected_kind,
             requested_output_seconds=output_seconds, reference_roles=[{'id': a['id'], 'role': a['role']} for a in evidence['assets']],
             motion_source_duration=evidence['duration'])
@@ -186,19 +187,29 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
             if evidence['assets']:
                 from .intent_observation import observe
                 emit('intent_stage', {'message': '正在分别观察外观与逐帧动作…'})
-                observations = observe(session, content, evidence, folder,reference_usage=reference_usage)
+                from .prompt_timeline import remove_owned_timeline
+                observations = observe(session, content, evidence, folder,reference_usage=reference_usage,
+                                       requested_target=remove_owned_timeline(brief))
                 for reference_role in details['reference_roles']:
                     if reference_role['id']=='appearance':reference_role['role']=observations['appearance']['reference_use']
                 # Planning sees factual observations, not mixed-purpose images.
                 details['visual_observations'] = observations
+                if observations.get('motion',{}).get('target_timeline'):
+                    details['visual_observations']=dict(observations,motion={key:observations['motion'][key]
+                        for key in ('camera','uncertainties','summaries','method')})
+                    task+=' 本次完整动作时间轴已逐段观察并由程序组装；timeline返回空列表，只整理整体画面、真实动作概括和正反词，不能把动作改写成静止或另猜一套时序。'
                 messages[1]['content'] = [{'type': 'text', 'text': json.dumps(details, ensure_ascii=False)},
                                           {'type': 'text', 'text': task}]
             output, stats = session.complete(messages,max_tokens=3000) if evidence['assets'] else session.complete(messages)
             if evidence['assets']:
                 # Validate structure before any optional, bounded text-only repair.
                 parse_plan(output, {a['id'] for a in evidence['assets']}, evidence['duration'])
-                from .intent_quality import repair_anatomy
-                output = repair_anatomy(session, output, observations, brief, folder)
+                if observations.get('motion',{}).get('target_timeline'):
+                    value=json.loads(output);value['timeline']=observations['motion']['target_timeline']
+                    output=json.dumps(value,ensure_ascii=False)
+                else:
+                    from .intent_quality import repair_anatomy
+                    output = repair_anatomy(session, output, observations, brief, folder)
         # The process is gone before a caller can submit a GPU generation.
         if cancel.is_set():
             raise Cancelled('需求识别已取消；没有提交生成。')
@@ -246,6 +257,7 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
             # summarizes only some phases. It describes SOURCE poses, not a rig.
             result['reference_timeline'] = [dict(start=row['time'], end=rows[i+1]['time'] if i+1<len(rows) else end,
                                                description=row['pose']) for i, row in enumerate(rows)]
+            result['motion_review_intervals']=observations['motion'].get('review_intervals',[])
         write_json(folder/'plan.json', result)
         return result
     except BaseException as exc:

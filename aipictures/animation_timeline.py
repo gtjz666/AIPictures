@@ -28,6 +28,7 @@ class ActionTimeline(QWidget):
         super().__init__();self.window=window;self.suffix='';self.clock='output';self.seconds=window.video_controller.seconds.value()
         layout=QVBoxLayout(self);layout.setContentsMargins(0,0,0,0)
         self.heading=QLabel('动作说明 · 输出时间 / 秒');layout.addWidget(self.heading)
+        self.review_note=QLabel();self.review_note.setWordWrap(True);layout.addWidget(self.review_note);self.review_note.hide()
         self.table=QTableWidget(0,3);self.table.setHorizontalHeaderLabels(['开始','结束','动作'])
         self.table.horizontalHeader().setSectionResizeMode(0,QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1,QHeaderView.ResizeMode.ResizeToContents)
@@ -86,6 +87,13 @@ class ActionTimeline(QWidget):
             # The source's final frame remains displayed until its recorded end PTS.
             mapped[-1]['end']=end
         self.fill(mapped);self.setVisible(bool(mapped));self.edited()
+        reviews=result.get('motion_review_intervals',[])
+        if reviews:
+            from PySide6.QtGui import QColor
+            self.review_note.setText(f'{len(reviews)}处细小动作待核对；采样间的轨迹不代表逐帧真值。');self.review_note.show()
+            for i,row in enumerate(mapped):
+                if any(row['start']<r['end'] and row['end']>r['start'] for r in reviews):
+                    for j in range(3):self.table.item(i,j).setBackground(QColor('#fff4d6'))
 
     def edited(self,*_):
         try:rows=self.rows()
@@ -98,6 +106,7 @@ class ActionTimeline(QWidget):
         if updated!=self.window.positive.toPlainText():self.window.positive.setPlainText(updated)
 
     def clear_plan(self):
+        self.review_note.clear();self.review_note.hide()
         if self.suffix:
             prompt=self.window.positive.toPlainText()
             self.window.positive.setPlainText(remove_owned_timeline(prompt))

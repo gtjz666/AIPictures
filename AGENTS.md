@@ -12,6 +12,7 @@
 
 - `aipictures/app.py`：独立桌面界面；`run.bat` 启动。
 - `intent_controller.py` / `local_intent.py` / `intent_media.py` / `intent_observation.py` / `intent_plan.py` / `intent_quality.py`：按钮触发的本地Qwen3-VL识别，外观/逐帧动作分开观察、严格校验和有限跨物种修复；识别进程退出后才允许生成。素材变化清除旧分析，不自动重跑，不覆盖用户手动词。不要把结构通过说成100%语义准确。
+- `temporal_motion.py` / `foot_evidence.py`：最多64观察点、重叠六格、同帧下半部放大、有限状态和原PTS拼时间轴；模型不重猜时间。纯色背景两块清晰低部区域可补充相对足部高度，不是地面接触/解剖左右真值。无法区分的动态区间标黄待核对，不冒充静止。视觉token预算1024–2048、每次一图组，禁止64张高预算图片一次提交。精度仍有局限，详见docs/TEMPORAL_MOTION_REVIEW.md。
 - `workbench.py` / `theme.py`：固定左右布局，左侧成品画布/播放导出/底部任务，右侧顶部参考/动画/提示词标签；参考页上图片下动作，播放器独立，不能覆盖成品。分隔线调大小，不允许拖动重排/浮动。布局schema3按页面标识保存工具页，兼容schema2旧索引；忽略旧自由停靠状态。默认自由动作，源动作说明与实际参考起点/输出时长分别显示。
 - `aipictures/engine.py`、`backend_connection.py`：ComfyUI 请求、任务监控和共享后端。
 - `aipictures/general_image.py`：通用单张生成；不要重新强制限定立绘、人物或侧视。

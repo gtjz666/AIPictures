@@ -80,25 +80,39 @@ class WorkflowEditor(QWidget):
         hint = QLabel('编辑节点后点“用于对话生成”，聊天输入将自动绑定到此工作流。直接运行可在对话页查看进度和结果。')
         hint.setWordWrap(True)
         layout.addWidget(hint)
-        # The app owns this profile for its lifetime, independently of Desktop/browser profiles.
-        self.profile = QWebEngineProfile('AIPictures-workflows', QApplication.instance())
-        profile_root = Path(os.environ.get('AIPICTURES_BROWSER_PROFILE', str(DATA / 'browser')))
-        self.profile.setPersistentStoragePath(str(profile_root / 'storage'))
-        self.profile.setCachePath(str(profile_root / 'cache'))
-        self.profile.downloadRequested.connect(self.download_requested)
-        self.web = QWebEngineView(self)
-        self.page = QWebEnginePage(self.profile, self.web)
-        self.page.setBackgroundColor(Qt.GlobalColor.black)
-        self.web.setPage(self.page)
-        self.web.loadStarted.connect(self.load_started)
-        self.web.loadFinished.connect(self.load_finished)
-        layout.addWidget(self.web, 1)
+        # Normal image/video creation does not need a Chromium GPU client.
+        self._web=self._page=self._profile=None;self.browser_layout=layout
+        self.profile_root=Path(os.environ.get('AIPICTURES_BROWSER_PROFILE',str(DATA/'browser')))
+        self.browser_placeholder=QLabel('打开工作流时加载编辑器。');layout.addWidget(self.browser_placeholder,1)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.poll)
         self.timer.start(200)
         self.ready_deadline = None
         self.refresh_library()
         self.set_ready(False)
+
+    def ensure_browser(self):
+        if self._web is not None:return
+        self._profile=QWebEngineProfile('AIPictures-workflows',QApplication.instance())
+        self._profile.setPersistentStoragePath(str(self.profile_root/'storage'))
+        self._profile.setCachePath(str(self.profile_root/'cache'))
+        self._profile.downloadRequested.connect(self.download_requested)
+        self._web=QWebEngineView(self);self._page=QWebEnginePage(self._profile,self._web)
+        self._page.setBackgroundColor(Qt.GlobalColor.black);self._web.setPage(self._page)
+        self._web.loadStarted.connect(self.load_started);self._web.loadFinished.connect(self.load_finished)
+        self.browser_placeholder.hide();self.browser_layout.addWidget(self._web,1)
+
+    @property
+    def web(self):
+        self.ensure_browser();return self._web
+
+    @property
+    def page(self):
+        self.ensure_browser();return self._page
+
+    @property
+    def profile(self):
+        self.ensure_browser();return self._profile
 
     def set_ready(self, ready):
         self.ready = ready

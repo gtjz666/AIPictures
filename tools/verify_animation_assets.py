@@ -19,6 +19,7 @@ def main():
     p.add_argument('--image',type=Path,required=True);p.add_argument('--motion',type=Path,required=True)
     p.add_argument('--plan',type=Path,required=True)
     p.add_argument('--generated',type=Path,help='Existing completed video.json; not regenerated')
+    p.add_argument('--full-reference',action='store_true',help='Match a plan observing the complete source cycle')
     p.add_argument('--frames',type=Path);p.add_argument('--frame-analysis',type=Path);a=p.parse_args()
     root=a.output.resolve();root.mkdir(parents=True,exist_ok=False);isolated=root/'isolated'
     for name in ('h3-settings.json','motion-native-settings.json','local-intent-settings.json'):
@@ -32,6 +33,7 @@ def main():
         assert w.pixmap.isNull() and not w.workbench.motion_item._pixmap.isNull() and not w.reference_path
         w.grab().save(str(root/'video-only.png'))
         drop(app,w.preview,[a.image]);QTest.qWait(80)
+        if a.full_reference:w.video_controller.motion.repeat.setChecked(True)
         w.intent_controller.current_record=a.plan.parent;w.intent_controller.apply(result)
         b=w.workbench;b.motion_changed();b.right_tabs.setCurrentIndex(1);QTest.qWait(50)
         assert b.timeline.isVisible() and w.negative.toPlainText().strip()
@@ -39,6 +41,9 @@ def main():
         assert not w.video_controller.motion.asset_header.isVisible()
         assert b.reference_item.text()==b.motion_item.text()==''
         if a.generated:w.video_controller.player.load(a.generated)
+        QTest.qWait(30)
+        if result.get('motion_review_intervals'):assert b.timeline.review_note.isVisible()
+        w.grab().save(str(root/'timeline.png'))
         result_role=w.preview_role;result_manifest=w.video_controller.player.manifest
         b.right_tabs.setCurrentIndex(0);QTest.qWait(30)
         drop(app,b.reference_item,[a.image]);QTest.qWait(30)

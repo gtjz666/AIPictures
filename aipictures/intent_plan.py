@@ -72,7 +72,7 @@ def parse_plan(content: str, asset_ids: set[str], duration: float | None = None)
         raise ValueError('识别的生成类型无效。')
     for key, limit in [('summary', 1000), ('positive_prompt', 10000), ('negative_prompt', 5000)]:
         data[key] = _text(data[key], key, limit, empty=key == 'negative_prompt')
-    for name, maximum in [('observations', 8), ('timeline', 16), ('questions', 4)]:
+    for name, maximum in [('observations', 8), ('timeline', 64), ('questions', 4)]:
         if not isinstance(data[name], list) or len(data[name]) > maximum:
             raise ValueError('识别的素材/动作列表过长或无效。')
     for row in data['observations']:

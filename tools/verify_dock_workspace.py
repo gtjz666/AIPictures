@@ -49,6 +49,7 @@ def main():
         gif=root/'motion.gif';frames[0].save(gif,save_all=True,append_images=frames[1:],duration=[120]*8,loop=0)
         w=Window();w.timer.stop();w.resize(1440,940);w.show();QTest.qWait(80);b=w.workbench;c=w.intent_controller
         assert w.windowTitle()=='AlI' and not c.input.acceptDrops()
+        assert w.editor._web is None and w.editor._profile is None
         assert b.canvas.x()<b.right_tabs.x() and b.right_tabs.count()==3
         assert [b.right_tabs.tabText(i) for i in range(3)]==['参考','动画','提示词']
         assert b.right_tabs.currentWidget()==b.reference_items
@@ -95,7 +96,8 @@ def main():
         assert b.reference_player.play.accessibleName()=='暂停'
         assert w.preview_role=='animation' and w.animation_player.timer.isActive() and b.reference_player.timer.isActive()
         b.reference_player.toggle();assert w.animation_player.timer.isActive();w.animation_player.stop()
-        b.right_tabs.setCurrentIndex(2);QTest.qWait(20)
+        b.reference_player.toggle();b.right_tabs.setCurrentIndex(2);QTest.qWait(100)
+        assert not b.reference_player.timer.isActive(),'Hidden references must stop rendering.'
         assert b.prompts.isVisible() and not panel.isVisible() and c.role.isVisible()
         assert c.role.parentWidget()==w.positive.parentWidget()
         assert [c.role.itemData(i) for i in range(c.role.count())]==['appearance','style','custom']
@@ -197,6 +199,10 @@ def main():
         restored.workbench.right_tabs.setCurrentIndex(1);restored.positive.clear()
         QTest.mouseClick(restored.workbench.analyze_motion,Qt.MouseButton.LeftButton);QTest.qWait(20)
         assert restored.workbench.right_tabs.currentIndex()==2 and restored.intent_controller.note.isVisible()
+        assert restored.editor._web is None
+        restored.editor.connect_url('http://127.0.0.1:9',load=False)
+        assert restored.editor._web is None
+        restored.editor.ensure_browser();assert restored.editor._web is not None and restored.editor.page is not None
         restored.close();QTest.qWait(30)
     write_json(proof/'acceptance.json',dict(passed=True,actual_qt=True,recognition='protocol fixture only',no_generation_submitted=True,
         checks=['canvas PNG/GIF/PNG sequence drops','no automatic analysis','explicit analysis','reference playback','clip slider',

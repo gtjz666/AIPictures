@@ -42,6 +42,8 @@ class VideoPreview(QWidget):
         self.label.setText(f'{index+1}/{len(self.frames)} · {index/self.fps:.2f}s')
 
     def advance(self):
+        if not self.window.preview.isVisible() or self.window.isMinimized():
+            self.timer.stop();self.play.set_playing(False);return
         if not self.loop.isChecked() and self.index==len(self.frames)-1:self.timer.stop();self.play.set_playing(False,replay=True);return
         self.slider.setValue((self.index+1)%len(self.frames))
 

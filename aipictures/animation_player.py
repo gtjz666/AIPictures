@@ -57,6 +57,8 @@ class AnimationPlayer(QWidget):
             self.timer.start(round(1000/self.fps)); self.play.set_playing(True)
 
     def advance(self):
+        if not self.window.preview.isVisible() or self.window.isMinimized():
+            self.timer.stop();self.play.set_playing(False);return
         if not self.preview_loop.isChecked() and self.index==len(self.frames)-1:
             self.timer.stop();self.play.set_playing(False,replay=True);return
         self.slider.setValue((self.index+1)%len(self.frames))

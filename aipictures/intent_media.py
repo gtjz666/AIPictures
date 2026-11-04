@@ -23,7 +23,7 @@ def image_url(image: Image.Image, side: int = 448) -> str:
 
 def prepare(reference: Path | None, motion: Path | None, folder: Path, cancel: threading.Event,
             *, role: str = 'appearance', start: float = 0., seconds: float = 8., max_frames: int = 12) -> tuple[list, dict]:
-    if role not in ('custom','appearance', 'style', 'edit') or not 2 <= max_frames <= 16:
+    if role not in ('custom','appearance', 'style', 'edit') or not 2 <= max_frames <= 64:
         raise ValueError('参考用途或识别帧数无效。')
     content, assets = [], []
     if reference:
@@ -59,7 +59,8 @@ def prepare(reference: Path | None, motion: Path | None, folder: Path, cancel: t
                     if not samples or samples[-1][0] != last[0]:
                         samples.append(last)
                     cursor += 1
-            last = (timestamp, image.copy())
+            preview=image.copy();preview.thumbnail((448,448),Image.Resampling.LANCZOS)
+            last = (timestamp,preview)
         if last is None:
             raise ValueError('动作素材没有可识别的帧。')
         if not samples or samples[-1][0] != last[0]:
@@ -81,6 +82,7 @@ def prepare(reference: Path | None, motion: Path | None, folder: Path, cancel: t
         duration = meta['duration']
         assets.append(dict(id='motion', role='motion', source=str(motion), sha256=meta['sha256'],
                            duration=duration, start=start, end=end, frames=evidence))
+        if max_frames>16:assets[-1]['temporal_method']='grounded-strips-v3'
     metadata = dict(assets=assets, duration=duration, sampled_frame_count=sum(len(a.get('frames', [])) for a in assets),
                     source_rgb_unchanged=True, temporal_blending=False)
     write_json(folder/'evidence.json', metadata)
