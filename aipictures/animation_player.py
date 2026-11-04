@@ -3,6 +3,7 @@ import json
 import zipfile
 from pathlib import Path
 from .animation_actions import ONE_SHOT_ACTIONS
+from .playback_button import PlaybackButton
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QPixmap,QPainter
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QLabel, QSlider, QFileDialog, QMessageBox,QCheckBox
@@ -12,7 +13,7 @@ class AnimationPlayer(QWidget):
     def __init__(self, window):
         super().__init__(window); self.window = window; self.frames=[]; self.index=0; self.manifest=None
         layout = QHBoxLayout(self); layout.setContentsMargins(0,0,0,0)
-        self.play = QPushButton('暂停'); self.play.clicked.connect(self.toggle); layout.addWidget(self.play)
+        self.play = PlaybackButton(playing=True); self.play.clicked.connect(self.toggle); layout.addWidget(self.play)
         self.slider = QSlider(Qt.Orientation.Horizontal); self.slider.valueChanged.connect(self.seek); layout.addWidget(self.slider,1)
         self.label = QLabel(); layout.addWidget(self.label)
         self.physics=QCheckBox('游戏位移预览');self.physics.setToolTip('仅在预览中平移跳跃帧。导出 PNG 不烘焙轨迹，由游戏引擎控制角色移动。')
@@ -25,7 +26,6 @@ class AnimationPlayer(QWidget):
         self.timer = QTimer(self); self.timer.timeout.connect(self.advance)
 
     def load(self,path):
-        if hasattr(self.window,'workbench'):self.window.workbench.reference_player.stop()
         if hasattr(self.window,'video_controller'):self.window.video_controller.player.stop()
         path=Path(path); manifest=json.loads(path.read_text('utf-8'))
         if manifest.get('status') != 'completed': raise ValueError('此序列尚未完成，部分帧可在结果目录查看')
@@ -42,23 +42,23 @@ class AnimationPlayer(QWidget):
         self.window.sequence_preview.load(manifest,path.parent)
         from .seed_controls import from_folder
         from_folder(self.window,path.parent)
-        self.play.setText('暂停'); self.timer.start(round(1000/self.fps))
+        self.play.set_playing(True); self.timer.start(round(1000/self.fps))
 
     def stop(self):
-        self.timer.stop(); self.hide()
+        self.timer.stop();self.play.set_playing(False);self.hide()
 
     def reset(self):
         self.stop(); self.frames=[]; self.manifest=None; self.index=0
 
     def toggle(self):
-        if self.timer.isActive(): self.timer.stop(); self.play.setText('播放')
+        if self.timer.isActive(): self.timer.stop(); self.play.set_playing(False)
         elif self.frames:
             if not self.preview_loop.isChecked() and self.index==len(self.frames)-1:self.slider.setValue(0)
-            self.timer.start(round(1000/self.fps)); self.play.setText('暂停')
+            self.timer.start(round(1000/self.fps)); self.play.set_playing(True)
 
     def advance(self):
         if not self.preview_loop.isChecked() and self.index==len(self.frames)-1:
-            self.timer.stop();self.play.setText('重播');return
+            self.timer.stop();self.play.set_playing(False,replay=True);return
         self.slider.setValue((self.index+1)%len(self.frames))
 
     def seek(self,index):
@@ -109,6 +109,6 @@ class AnimationPlayer(QWidget):
 
     def select_frames(self):
         if self.manifest:
-            self.timer.stop();self.play.setText('播放')
+            self.timer.stop();self.play.set_playing(False)
             from .frame_selection import open_selection
             open_selection(self.window,self.manifest)

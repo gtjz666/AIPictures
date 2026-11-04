@@ -223,13 +223,14 @@ class MotionReferencePanel(QWidget):
         if self.preview_dialog:self.preview_dialog.close()
         dialog=QDialog(self.window);dialog.setWindowTitle('动作参考预览 · 前4秒');layout=QVBoxLayout(dialog)
         image=QLabel();image.setFixedSize(480,360);image.setAlignment(Qt.AlignmentFlag.AlignCenter);layout.addWidget(image)
-        counter=QLabel();layout.addWidget(counter);button=QPushButton('暂停');layout.addWidget(button)
+        from .playback_button import PlaybackButton
+        counter=QLabel();layout.addWidget(counter);button=PlaybackButton(playing=True);layout.addWidget(button)
         timer=QTimer(dialog);index=[0];paths=self.preview_paths.copy()
         def draw():
             i=index[0];image.setPixmap(QPixmap(paths[i]).scaled(image.size(),Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation))
             counter.setText(f'{i+1}/{len(paths)} 帧 · 24 FPS');index[0]=(i+1)%len(paths)
         def toggle():
-            if timer.isActive():timer.stop();button.setText('播放')
-            else:timer.start(42);button.setText('暂停')
+            if timer.isActive():timer.stop();button.set_playing(False)
+            else:timer.start(42);button.set_playing(True)
         timer.timeout.connect(draw);button.clicked.connect(toggle);dialog.finished.connect(timer.stop)
         draw();timer.start(42);self.preview_dialog=dialog;dialog.show()

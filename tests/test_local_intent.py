@@ -159,6 +159,48 @@ def test_negative_prompt_never_silently_empty_and_retains_user_words(tmp_path):
     assert result['plan']['negative_prompt']=='不要文字，保留柔光'
 
 
+@pytest.mark.parametrize('role,expected',[
+    ('appearance',{'identity','clothing_colors','style'}),('style',{'style'}),
+    ('custom',{'identity','clothing_colors','style','layout'})])
+def test_explicit_reference_purpose_and_custom_use_reach_planner(tmp_path,role,expected):
+    source=tmp_path/'ref.png';Image.new('RGB',(60,90),'blue').save(source)
+    usage='只参考黑白服装配色和描边，主体换成机器人，不参考发型与站姿' if role=='custom' else ''
+    details=[]
+    class Session:
+        def __init__(self,*args):pass
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def complete(self,messages,**kwargs):
+            if kwargs.get('schema'):
+                if role=='custom':assert usage in messages[1]['content'][-1]['text']
+                return json.dumps(dict(identity='紫发少女',clothing_colors='黑白服装',style='细描边动漫',layout='正面站立',uncertainties='')),{}
+            value=json.loads(messages[1]['content'][0]['text']);details.append(value)
+            return json.dumps(plan()),{}
+    result=analyze({'name':'test'},'画一个机器人','',source,None,tmp_path/'analysis',threading.Event(),
+                   role=role,reference_usage=usage,session_factory=Session)
+    observation=details[0]['visual_observations']['appearance']
+    assert set(observation)-{'uncertainties','reference_use'}==expected
+    assert details[0]['reference_roles']==[dict(id='appearance',role=role)]
+    assert details[0]['reference_usage']==usage and result['request']['reference_usage']==usage
+    assert result['resolved_reference_role']==role and result['engine_released']
+    if role=='style':assert '紫发少女' not in json.dumps(observation,ensure_ascii=False)
+
+
+def test_custom_use_requires_text_before_starting_model(tmp_path):
+    with pytest.raises(ValueError,match='自定义用法'):
+        analyze({},'创建场景','',tmp_path/'image.png',None,tmp_path/'out',threading.Event(),role='custom')
+    assert not (tmp_path/'out').exists()
+
+
+def test_custom_subject_replacement_is_not_forced_back_to_original_anatomy(tmp_path):
+    from aipictures.intent_quality import repair_anatomy
+    data=plan();data['positive_prompt']='猫抬起前爪，保留参考的衣物配色'
+    original=json.dumps(data)
+    class Session:
+        def complete(self,*args,**kwargs):raise AssertionError('Custom target was forced back to reference anatomy')
+    assert repair_anatomy(Session(),original,{'appearance':{'identity':'少女','reference_use':'custom'}},'替换主体',tmp_path)==original
+
+
 def test_cross_species_check_includes_timeline_and_front_limbs(tmp_path):
     from aipictures.intent_quality import repair_anatomy
     data=plan();data['timeline']=[dict(start=0,end=.5,description='少女前肢伸出，爪子朝镜头')]

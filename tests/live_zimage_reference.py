@@ -26,7 +26,7 @@ def main():
         source=root/'character.png';Image.new('RGBA',(500,900),(255,255,255,255)).save(source)
         before=source.read_bytes();w.set_reference(str(source))
         assert w.model_family.currentData()=='zimage' and w.model_family.model().item(1).isEnabled()
-        assert w.preview_role=='reference' and not w.pixmap.isNull()
+        assert w.preview_role is None and w.pixmap.isNull() and not w.workbench.reference_item._pixmap.isNull()
         w.open_settings('image');QTest.qWait(10)
         assert w.denoise.isVisible() and w.denoise.isEnabled() and w.denoise.value()==.45
         assert not w.reference_policy.isVisible() and not w.reference_strength.isVisible()

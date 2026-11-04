@@ -9,7 +9,7 @@ from uuid import uuid4
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPlainTextEdit, QLabel,
-                              QPushButton, QCheckBox, QComboBox, QMessageBox, QInputDialog)
+                              QPushButton, QCheckBox, QComboBox, QMessageBox, QInputDialog,QLineEdit)
 
 from .local_intent import analyze, settings
 from .storage import write_json
@@ -30,8 +30,10 @@ class IntentController:
         panel = QWidget(); layout = QVBoxLayout(panel); layout.setContentsMargins(0, 0, 0, 0)
         top = QHBoxLayout()
         self.enabled = QCheckBox('本地创作助手'); self.enabled.setChecked(bool(self.config)); top.addWidget(self.enabled)
-        self.role = QComboBox(); self.role.addItem('参考图：角色 / 外观', 'appearance')
-        self.role.addItem('参考图：画风 / 布局', 'style'); self.role.addItem('参考图：编辑底图', 'edit')
+        self.role = QComboBox();self.role.addItem('人物／外观','appearance');self.role.addItem('风格','style');self.role.addItem('自定义','custom')
+        self.role_note=QLineEdit();self.role_note.setMaxLength(2000);self.role_note.setPlaceholderText('说明参考图的用法，例如：只参考构图，替换人物与画风')
+        self.role_note.hide();self.role.currentIndexChanged.connect(lambda:self.role_note.setVisible(self.role.currentData()=='custom'))
+        self.role_note.textChanged.connect(self.source_changed)
         top.addWidget(self.role); top.addStretch()
         self.organize = QPushButton('整理提示词'); self.organize.clicked.connect(lambda: self.start(False)); top.addWidget(self.organize)
         layout.addLayout(top)
@@ -68,7 +70,7 @@ class IntentController:
         paths = [w.reference_path, motion.path]
         stamps = [(str(p), Path(p).stat().st_size, Path(p).stat().st_mtime_ns) if p and Path(p).exists() else None for p in paths]
         value = [self.input.toPlainText(), w.positive.toPlainText() if prompts else None, w.negative.toPlainText() if prompts else None,
-                 w.generation_type.currentData(), self.role.currentData(), stamps, motion.start.value(),
+                 w.generation_type.currentData(), self.role.currentData(),self.role_note.text() if self.role.currentData()=='custom' else '', stamps, motion.start.value(),
                  w.video_controller.seconds.value(), motion.repeat.isChecked(), w.model_family.currentData(), w.custom_graph is not None]
         return hashlib.sha256(json.dumps(value, ensure_ascii=False).encode()).hexdigest()
 
@@ -95,6 +97,9 @@ class IntentController:
             self.notify('请描述想生成的内容。'); return
         folder = self.data/'intent'/(datetime.now().strftime('%Y%m%d_%H%M%S_')+uuid4().hex[:8])
         reference = Path(w.reference_path) if w.reference_path else None
+        reference_usage=self.role_note.text().strip() if self.role.currentData()=='custom' else ''
+        if reference and not frame_only and self.role.currentData()=='custom' and not reference_usage:
+            self.notify('请填写参考图的自定义用法，例如哪些部分保留、哪些部分改变。');return
         motion = w.video_controller.motion
         motion_path = Path(motion.path) if motion.path and w.generation_type.currentData() == 'walk' else None
         selected_frame=round(motion.start.value()*motion.meta['frame_fps']) if frame_only and motion.is_frames() else None
@@ -102,7 +107,7 @@ class IntentController:
             self.notify('请先拖入PNG动画帧素材。');return
         kwargs = dict(selected_kind='animation' if w.generation_type.currentData()=='walk' else 'image',
                       role=self.role.currentData(), start=motion.start.value(), seconds=w.video_controller.seconds.value(),
-                      output_seconds=w.video_controller.seconds.value())
+                      output_seconds=w.video_controller.seconds.value(),reference_usage=reference_usage)
         if motion_path and motion.repeat.isChecked() and not frame_only:
             # A cycle wraps to source time zero, so observe the complete source once.
             kwargs.update(start=0.,seconds=motion.meta['duration'])

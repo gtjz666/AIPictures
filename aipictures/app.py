@@ -1019,7 +1019,8 @@ class Window(QMainWindow):
         self.assets_dialog.close()
 
     def show_image(self, path, allow_zoom=True,role='result'):
-        if hasattr(self,'workbench'):self.workbench.reference_player.stop()
+        if role=='reference' and hasattr(self,'workbench'):
+            self.workbench.show_reference();return
         if role=='result':
             from .seed_controls import from_folder
             from_folder(self,Path(path).parent)

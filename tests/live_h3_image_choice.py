@@ -33,7 +33,7 @@ def main():
         assert not w.denoise.isVisible() and not w.quality_mode.isVisible()
         source=root/'ref.png';Image.new('RGBA',(500,900),(80,120,180,255)).save(source)
         before=source.read_bytes();w.set_reference(str(source))
-        assert w.preview_role=='reference' and not w.pixmap.isNull()
+        assert w.preview_role is None and w.pixmap.isNull() and not w.workbench.reference_item._pixmap.isNull()
         assert w.width.value()%16==0 and w.height.value()%16==0
         graph,params=w.graph_snapshot('uploaded.png')
         assert graph['reference']['inputs']['image']=='uploaded.png'

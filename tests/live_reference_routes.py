@@ -42,7 +42,7 @@ def main():
         source=root/'ref.png';Image.new('RGBA',(500,900),(255,220,40,255)).save(source)
         before=source.read_bytes();w.set_reference(str(source))
         assert w.model_family.currentData()=='auto' and 'FLUX' in w.context_label.text()
-        assert not w.denoise.isEnabled() and w.preview_role=='reference'
+        assert not w.denoise.isEnabled() and w.preview_role is None and not w.workbench.reference_item._pixmap.isNull()
         with patch.object(w.editor,'load_graph') as loaded:
             w.load_draft_in_editor()
             deadline=time.monotonic()+20

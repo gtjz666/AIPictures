@@ -44,7 +44,7 @@ def main() -> None:
         if w.api_controller.cloud or w.api_controller.settings.smart:
             raise ValueError('验收必须为本地直接生图，不调用额外分析API。')
         restore(w);w.model_family.setCurrentIndex(w.model_family.findData(args.family));w.set_reference(str(reference))
-        assert w.model_family.currentData()==args.family and w.preview_role=='reference'
+        assert w.model_family.currentData()==args.family and w.preview_role is None and not w.workbench.reference_item._pixmap.isNull()
         w.width.setValue(768);w.height.setValue(1024)
         w.seed_mode.setCurrentIndex(w.seed_mode.findData('fixed'));w.seed.setText('20261103')
         prompt='将参考图中的同一位角色改为正面全身站立，面向镜头，双手自然下垂，两脚分开。将白色无袖衬衫改为天蓝色无袖衬衫，保留黑色领结。保持紫色盘发、绿色眼睛、黑色短裤、黑色长袜、黑色皮鞋和原有二维动漫画风。浅灰纯色背景，头部和双脚完整入镜，只画一个人物。'

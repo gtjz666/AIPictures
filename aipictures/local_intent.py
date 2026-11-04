@@ -155,7 +155,7 @@ def analyze_frame(config:dict,source:Path,index:int,folder:Path,cancel,emit,*,se
 
 def analyze(config: dict, brief: str, negative: str, reference: Path | None, motion: Path | None,
             folder: Path, cancel: threading.Event, emit=lambda *_: None, *, selected_kind='image',
-            role='appearance', start=0., seconds=8., output_seconds=4., session_factory=LocalSession) -> dict:
+            role='appearance', start=0., seconds=8., output_seconds=4., reference_usage='',session_factory=LocalSession) -> dict:
     """No generation here. Output references an allowlisted route, never arbitrary tools."""
     from .intent_media import prepare
     from .workflow_library import digest
@@ -163,14 +163,16 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
         raise ValueError('请描述生成目标；需求不超过12000字，反向要求不超过6000字。')
     if selected_kind not in ('image', 'animation'):
         raise ValueError('请选择图片或动画。')
+    if not isinstance(reference_usage,str) or len(reference_usage)>2000 or (reference and role=='custom' and not reference_usage.strip()):
+        raise ValueError('请填写参考图的自定义用法，限2000字。')
     folder.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     write_json(folder/'request.json', dict(brief=brief, negative=negative, selected_kind=selected_kind,
-        role=role, motion_start=start, motion_seconds=seconds, output_seconds=output_seconds, status='analyzing'))
+        role=role,reference_usage=reference_usage, motion_start=start, motion_seconds=seconds, output_seconds=output_seconds, status='analyzing'))
     try:
         emit('intent_stage', {'message': '正在读取素材及原始动作时间…'})
         content, evidence = prepare(reference, motion, folder, cancel, role=role, start=start, seconds=seconds)
-        details = dict(user_request=brief, original_negative_constraints=negative, selected_kind=selected_kind,
+        details = dict(user_request=brief,reference_usage=reference_usage, original_negative_constraints=negative, selected_kind=selected_kind,
             requested_output_seconds=output_seconds, reference_roles=[{'id': a['id'], 'role': a['role']} for a in evidence['assets']],
             motion_source_duration=evidence['duration'])
         details['analysis_matte_is_not_background'] = any(a.get('analysis_matte_only') for a in evidence['assets'])
@@ -184,7 +186,9 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
             if evidence['assets']:
                 from .intent_observation import observe
                 emit('intent_stage', {'message': '正在分别观察外观与逐帧动作…'})
-                observations = observe(session, content, evidence, folder)
+                observations = observe(session, content, evidence, folder,reference_usage=reference_usage)
+                for reference_role in details['reference_roles']:
+                    if reference_role['id']=='appearance':reference_role['role']=observations['appearance']['reference_use']
                 # Planning sees factual observations, not mixed-purpose images.
                 details['visual_observations'] = observations
                 messages[1]['content'] = [{'type': 'text', 'text': json.dumps(details, ensure_ascii=False)},
@@ -231,7 +235,8 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
             plan = replace(plan, negative_prompt=fallback)
         selected_route = None if plan.questions else route(plan, reference=bool(reference), motion=bool(motion))
         result = dict(schema_version=1, plan=plan.to_dict(), route=selected_route, evidence=evidence,
-            request=dict(brief=brief, negative=negative, selected_kind=selected_kind, reference_role=role),
+            request=dict(brief=brief, negative=negative, selected_kind=selected_kind, reference_role=role,reference_usage=reference_usage),
+            resolved_reference_role=observations.get('appearance',{}).get('reference_use') if evidence['assets'] else None,
             elapsed_seconds=round(time.monotonic()-started, 3), model=config.get('name'),
             engine_released=True, status='needs_input' if plan.questions else 'ready')
         if evidence['assets'] and 'motion' in observations:

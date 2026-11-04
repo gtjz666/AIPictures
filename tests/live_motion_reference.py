@@ -30,7 +30,7 @@ def main():
         assert 'walk.gif' in panel.summary.text()
         panel.preview();app.processEvents()
         assert panel.preview_dialog is None and w.workbench.reference_player.timer.isActive()
-        assert w.preview_role=='motion_reference';w.workbench.reference_player.toggle()
+        assert w.preview_role is None and not w.workbench.motion_item._pixmap.isNull();w.workbench.reference_player.toggle()
         image=root/'character.png';Image.new('RGBA',(64,96),(20,100,220,255)).save(image)
         w.set_reference(str(image));w.positive.setPlainText('保持蓝色衣服，跟随动作参考');w.seed.setText('1234')
         with patch.object(w,'start_next'):
@@ -59,6 +59,7 @@ def main():
         assert data['fps']==12 and len(frames)==3 and Image.open(frames[0]).getpixel((0,0))==(255,0,0)
         assert w.pending[0][1]['motion_repeat']
         w.clear_pending();w.generation_type.setCurrentIndex(0)
+        w.workbench.right_tabs.setCurrentIndex(1)
         assert w.workbench.motion_selection.isVisible() and not panel.path and not w.reference_path
         w.close();app.processEvents()
     print('Motion/character separation, GIF + PNG buttons/FPS, preview, frozen queues, clear: PASS')

@@ -82,7 +82,7 @@ def main():
         graph,params=window.graph_snapshot('uploaded.png')
         assert graph['latent']['class_type']=='VAEEncode' and graph['reference']['inputs']['image']=='uploaded.png'
         assert params['denoise']==.65 and params['reference_policy']=='img2img'
-        assert window.preview_role=='reference' and not window.pixmap.isNull()
+        assert window.preview_role is None and window.pixmap.isNull() and not window.workbench.reference_item._pixmap.isNull()
         assert source.read_bytes()==before
         window.clear_reference()
         assert not window.reference_path and not window.reference_policy.isVisible()

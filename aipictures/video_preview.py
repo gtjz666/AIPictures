@@ -3,6 +3,7 @@ import json
 import shutil
 from pathlib import Path
 
+from .playback_button import PlaybackButton
 from PySide6.QtCore import QTimer,Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QWidget,QHBoxLayout,QPushButton,QSlider,QLabel,QFileDialog,QCheckBox
@@ -12,7 +13,7 @@ class VideoPreview(QWidget):
     def __init__(self,window):
         super().__init__(window);self.window=window;self.manifest=None;self.frames=[];self.source=None
         row=QHBoxLayout(self);row.setContentsMargins(0,0,0,0)
-        self.play=QPushButton('播放');self.play.clicked.connect(self.toggle);row.addWidget(self.play)
+        self.play=PlaybackButton();self.play.clicked.connect(self.toggle);row.addWidget(self.play)
         self.slider=QSlider(Qt.Orientation.Horizontal);self.slider.valueChanged.connect(self.seek);row.addWidget(self.slider,1)
         self.label=QLabel();row.addWidget(self.label)
         self.loop=QCheckBox('循环');self.loop.setChecked(True);row.addWidget(self.loop)
@@ -30,11 +31,10 @@ class VideoPreview(QWidget):
         from_folder(self.window,self.manifest.parent)
         self.window.animation_player.stop();self.window.sequence_preview.clear_sequence()
         self.slider.setRange(0,len(self.frames)-1);self.seek(0);self.show()
-        self.play.setText('暂停');self.timer.start(max(1,round(1000/self.fps)))
+        self.play.set_playing(True);self.timer.start(max(1,round(1000/self.fps)))
 
     def seek(self,index):
         if not self.frames:return
-        if hasattr(self.window,'workbench'):self.window.workbench.reference_player.stop()
         self.index=index;w=self.window;w.pixmap=QPixmap(str(self.frames[index]))
         w.output=None;w.preview_path=str(self.frames[index]);w.preview_role='video';w.preview.set_clickable(False)
         w.image_save.hide();w.image_reuse.hide()
@@ -42,25 +42,25 @@ class VideoPreview(QWidget):
         self.label.setText(f'{index+1}/{len(self.frames)} · {index/self.fps:.2f}s')
 
     def advance(self):
-        if not self.loop.isChecked() and self.index==len(self.frames)-1:self.timer.stop();self.play.setText('重播');return
+        if not self.loop.isChecked() and self.index==len(self.frames)-1:self.timer.stop();self.play.set_playing(False,replay=True);return
         self.slider.setValue((self.index+1)%len(self.frames))
 
     def stop(self):
-        self.timer.stop();self.hide()
+        self.timer.stop();self.play.set_playing(False);self.hide()
         self.window.image_save.show();self.window.image_reuse.show()
 
     def toggle(self):
-        if self.timer.isActive():self.timer.stop();self.play.setText('播放')
+        if self.timer.isActive():self.timer.stop();self.play.set_playing(False)
         elif self.frames:
             if self.index==len(self.frames)-1:self.slider.setValue(0)
-            self.timer.start(max(1,round(1000/self.fps)));self.play.setText('暂停')
+            self.timer.start(max(1,round(1000/self.fps)));self.play.set_playing(True)
 
     def reset(self):
         self.stop();self.manifest=None;self.source=None;self.frames=[]
 
     def split(self):
         if self.manifest and self.source.is_file():
-            self.timer.stop();self.play.setText('播放')
+            self.timer.stop();self.play.set_playing(False)
             from .frame_selection import open_selection
             open_selection(self.window,self.manifest)
 

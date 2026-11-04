@@ -23,7 +23,7 @@ def image_url(image: Image.Image, side: int = 448) -> str:
 
 def prepare(reference: Path | None, motion: Path | None, folder: Path, cancel: threading.Event,
             *, role: str = 'appearance', start: float = 0., seconds: float = 8., max_frames: int = 12) -> tuple[list, dict]:
-    if role not in ('appearance', 'style', 'edit') or not 2 <= max_frames <= 16:
+    if role not in ('custom','appearance', 'style', 'edit') or not 2 <= max_frames <= 16:
         raise ValueError('参考用途或识别帧数无效。')
     content, assets = [], []
     if reference:

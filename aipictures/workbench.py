@@ -2,20 +2,19 @@
 import json
 from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QLabel,QPushButton,
     QButtonGroup,QDialog,QTabWidget,QScrollArea,
     QSizePolicy,QToolBar,QSplitter,QSlider,QCheckBox,QComboBox)
+from .playback_button import PlaybackButton
 from .storage import write_json
-from .transparent_preview import TransparentPreview
 
 
 class ReferencePlayback(QWidget):
-    """Imported motion preview; never marked as generated output."""
-    def __init__(self,window):
-        super().__init__();self.window=window;self.paths=[];self.index=0;self.fps=24.
+    """Imported motion preview controls, isolated from the generated canvas."""
+    def __init__(self,preview):
+        super().__init__();self.preview=preview;self.paths=[];self.index=0;self.fps=24.
         row=QHBoxLayout(self);row.setContentsMargins(0,0,0,0)
-        self.play=QPushButton('播放');self.play.clicked.connect(self.toggle);row.addWidget(self.play)
+        self.play=PlaybackButton();self.play.clicked.connect(self.toggle);row.addWidget(self.play)
         self.slider=QSlider(Qt.Orientation.Horizontal);row.addWidget(self.slider,1)
         self.slider.valueChanged.connect(self.seek);self.label=QLabel();row.addWidget(self.label)
         self.loop=QCheckBox('循环');self.loop.setChecked(True);row.addWidget(self.loop)
@@ -24,27 +23,28 @@ class ReferencePlayback(QWidget):
     def load(self,paths,fps=24.):
         self.timer.stop();self.paths=[Path(p) for p in paths];self.index=0;self.fps=fps
         self.slider.blockSignals(True);self.slider.setRange(0,max(0,len(self.paths)-1));self.slider.setValue(0);self.slider.blockSignals(False)
-        self.seek(0);self.play.setText('播放');self.show()
+        self.seek(0);self.play.set_playing(False);self.show()
 
     def seek(self,index):
         if not self.paths:return
-        self.index=index;w=self.window;w.pixmap=QPixmap(str(self.paths[index]))
-        w.output=None;w.preview_path=str(self.paths[index]);w.preview_role='motion_reference'
-        w.preview.set_clickable(False);w.fit_preview();self.label.setText(f'{index+1}/{len(self.paths)}')
+        self.index=index;self.preview.set_source(str(self.paths[index]));self.label.setText(f'{index+1}/{len(self.paths)}')
 
     def toggle(self):
-        if self.timer.isActive():self.timer.stop();self.play.setText('播放')
+        if self.timer.isActive():self.timer.stop();self.play.set_playing(False)
         elif self.paths:
             if self.index==len(self.paths)-1:self.slider.setValue(0)
-            self.timer.start(round(1000/self.fps));self.play.setText('暂停')
+            self.timer.start(round(1000/self.fps));self.play.set_playing(True)
 
     def advance(self):
         if self.index==len(self.paths)-1 and not self.loop.isChecked():
-            self.timer.stop();self.play.setText('播放');return
+            self.timer.stop();self.play.set_playing(False);return
         self.slider.setValue((self.index+1)%len(self.paths))
 
     def stop(self):
-        self.timer.stop();self.hide()
+        self.timer.stop();self.play.set_playing(False)
+
+    def clear(self):
+        self.stop();self.paths=[];self.index=0;self.preview.set_source('');self.label.clear();self.hide()
 
 
 class Workbench:
@@ -77,15 +77,15 @@ class Workbench:
         w.preview.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Ignored)
         w.sequence_preview.sheet.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Ignored)
         w.sequence_preview.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Ignored)
-        self.make_reference(w,cv)
         cv.addWidget(w.sequence_preview,1)
         from .reference_asset import SourceCaption
         self.source_note=SourceCaption()
         actions=QHBoxLayout();actions.addWidget(self.source_note,1);actions.addWidget(w.image_save);actions.addWidget(w.image_reuse);cv.addLayout(actions)
-        self.reference_player=ReferencePlayback(w);cv.addWidget(self.reference_player)
+        self.make_reference(w)
         cv.addWidget(w.animation_player);cv.addWidget(w.video_controller.player)
         w.image_save.setEnabled(False);w.image_reuse.setEnabled(False)
         self.make_settings(w);self.make_prompts(w);self.make_animation(w)
+        self.right_tabs.addTab(self.reference_items,'参考')
         self.task=QWidget();task_layout=QVBoxLayout(self.task);task_layout.setContentsMargins(0,3,0,0)
         task_layout.setSpacing(2);task_layout.addWidget(QLabel('当前任务'));task_layout.addWidget(w.task_display)
         cv.addWidget(self.task)
@@ -115,27 +115,35 @@ class Workbench:
         for button in w.settings_buttons.values():button.setParent(self.hidden)
         w.api_controller.button.setParent(self.hidden);w.api_controller.summary.setParent(self.hidden)
 
-    def make_reference(self,w,layout):
+    def make_reference(self,w):
         c=w.intent_controller
-        from .reference_asset import ReferenceAsset
-        self.reference_item=ReferenceAsset('参考图');self.reference_item.clicked.connect(self.show_reference)
+        from .reference_asset import ReferenceAsset,SourceCaption
+        self.reference_item=ReferenceAsset('参考图',large=True);self.reference_item.clicked.connect(self.show_reference)
         self.reference_item.closed.connect(lambda:self.close_asset('image'))
         self.reference_thumb=self.reference_item.thumb
-        self.motion_item=ReferenceAsset('参考动画');self.motion_item.clicked.connect(lambda:self.show_motion_reference(play=True))
+        self.motion_item=ReferenceAsset('参考动画',large=True);self.motion_item.clicked.connect(self.toggle_motion_reference)
         self.motion_item.closed.connect(lambda:self.close_asset('motion'))
-        self.reference_items=QWidget();items=QHBoxLayout(self.reference_items);items.setContentsMargins(0,0,0,0)
-        items.addWidget(self.reference_item);items.addWidget(self.motion_item);items.addStretch(1)
-        reference=QHBoxLayout();reference.addWidget(self.reference_items,1)
-        reference.addWidget(w.attach_reference_button)
-        w.attach_reference_button.setSizePolicy(QSizePolicy.Policy.Maximum,QSizePolicy.Policy.Preferred)
+        self.reference_items=QSplitter(Qt.Orientation.Vertical);self.reference_items.setChildrenCollapsible(False)
+        self.reference_note=SourceCaption();self.motion_note=SourceCaption()
+        self.reference_player=ReferencePlayback(self.motion_item)
+        for title,card,caption,controls in [('参考图',self.reference_item,self.reference_note,None),
+                ('参考动画',self.motion_item,self.motion_note,self.reference_player)]:
+            page=QWidget();items=QVBoxLayout(page);items.setContentsMargins(8,6,8,6)
+            items.addWidget(QLabel(title));items.addWidget(card,1);items.addWidget(caption)
+            if controls:items.addWidget(controls)
+            self.reference_items.addWidget(page);card.enable_file_drop(c.import_files)
+        w.attach_reference_button.setParent(self.hidden)
         remove=QPushButton('移除',self.hidden);remove.clicked.connect(self.remove_asset)
         self.remove_reference=remove
         remove.setSizePolicy(QSizePolicy.Policy.Maximum,QSizePolicy.Policy.Preferred)
-        c.role.setItemText(0,'角色 / 外观');c.role.setItemText(1,'画风 / 布局');c.role.setItemText(2,'编辑底图')
-        c.role.setMaximumWidth(180);reference.insertWidget(1,c.role);layout.addLayout(reference)
+        c.role.setParent(self.hidden)
 
     def make_prompts(self,w):
         c=w.intent_controller;content=QWidget();layout=QVBoxLayout(content);layout.setContentsMargins(8,6,8,6)
+        positive_layout=w.positive.parentWidget().layout()
+        title=positive_layout.takeAt(0).widget();heading=QHBoxLayout();heading.addWidget(title);heading.addStretch();heading.addWidget(c.role)
+        positive_layout.insertLayout(0,heading);c.role.show()
+        positive_layout.insertWidget(1,c.role_note)
         layout.addWidget(self.prompts,1)
         c.organize.setText('自动生成提示词');layout.addWidget(c.organize);layout.addWidget(c.note)
         self.prompt_page=self.scroll_page(content);self.right_tabs.addTab(self.prompt_page,'提示词')
@@ -229,7 +237,7 @@ class Workbench:
         try:
             value=json.loads((self.data/'workspace-layout.json').read_text('utf-8'))
             if (value['schema_version']==2 and self.valid_sizes(value.get('columns')) and
-                self.valid_sizes(value.get('editors')) and type(value.get('right_tab')) is int and value['right_tab'] in (0,1)):
+                self.valid_sizes(value.get('editors')) and type(value.get('right_tab')) is int and value['right_tab'] in (0,1,2)):
                 self.workspace.setSizes(value['columns']);self.prompt_splitter.setSizes(value['editors'])
                 self.right_tabs.setCurrentIndex(value['right_tab']);self._restored=True
         except (OSError,ValueError,KeyError,TypeError):pass
@@ -241,41 +249,40 @@ class Workbench:
 
     def refresh_reference(self):
         w=self.window;present=bool(w.reference_path)
-        self.reference_item.setVisible(present);w.intent_controller.role.setVisible(present)
-        if present:
-            self.reference_item.set_source(str(w.reference_path))
+        self.reference_item.set_source(str(w.reference_path) if present else '')
+        self.reference_note.set_hint((w.reference_display_name or Path(w.reference_path).name) if present else '')
         self.refresh_motion_asset();self.refresh_asset_selection()
-        if not present and w.preview_role is None and w.video_controller.motion.path:self.show_motion_reference()
 
     def refresh_motion_asset(self):
         panel=self.window.video_controller.motion;present=bool(panel.path and panel.preview_paths)
-        self.motion_item.setVisible(present)
-        if present:self.motion_item.set_source(panel.preview_paths[0])
+        if not present:self.reference_player.clear()
+        self.motion_note.set_hint(panel.meta['name'] if present else '')
         self.remove_reference.setEnabled(bool(self.window.reference_path or present))
 
     def refresh_asset_selection(self):
-        self.reference_item.setChecked(self.window.preview_role=='reference' and bool(self.window.reference_path))
-        self.motion_item.setChecked(self.window.preview_role=='motion_reference' and bool(self.window.video_controller.motion.path))
-        w=self.window;hint=''
-        if self.reference_item.isChecked():hint=w.reference_display_name or Path(w.reference_path).name
-        elif self.motion_item.isChecked():hint=w.video_controller.motion.meta['name']
-        self.source_note.set_hint(hint)
+        # Kept for existing canvas resize callers. Reference state never selects a result.
+        self.source_note.set_hint('')
 
     def show_reference(self):
-        if self.window.reference_path:self.window.show_image(str(self.window.reference_path),role='reference')
+        self.refresh_reference();self.right_tabs.setCurrentIndex(2)
+        self.reference_item.setChecked(False)
 
     def show_motion_reference(self,*,play=False,position=0):
         panel=self.window.video_controller.motion
         if not panel.path or not panel.preview_paths:return
-        w=self.window;w.video_controller.player.stop();w.animation_player.stop()
-        w.sequence_preview.clear_sequence();self.reference_player.load(panel.preview_paths,panel.preview_fps)
+        self.reference_player.load(panel.preview_paths,panel.preview_fps)
         self.reference_player.slider.setValue(min(position,len(panel.preview_paths)-1))
-        w.image_save.setEnabled(False);w.image_reuse.setEnabled(False)
         if play:self.reference_player.toggle()
-        QTimer.singleShot(0,w.fit_preview)
+
+    def toggle_motion_reference(self):
+        panel=self.window.video_controller.motion
+        self.motion_item.setChecked(False)
+        if not panel.path:return
+        if not self.reference_player.paths:self.show_motion_reference()
+        self.reference_player.toggle()
 
     def remove_asset(self):
-        if self.motion_item.isChecked() or not self.window.reference_path:self.window.video_controller.motion.clear()
+        if not self.window.reference_path:self.window.video_controller.motion.clear()
         else:self.window.clear_reference()
 
     def close_asset(self,kind:str):
@@ -291,15 +298,10 @@ class Workbench:
         self.analysis_tabs.tabBar().setVisible(panel.is_frames())
         self.analysis_tabs.setCurrentIndex(1 if panel.is_frames() else 0)
         if panel.path and panel.preview_paths:
-            self.right_tabs.setCurrentIndex(1)
+            self.right_tabs.setCurrentIndex(2)
             self.show_motion_reference()
         else:
-            self.reference_player.stop()
-            if self.window.preview_role=='motion_reference':
-                if self.window.reference_path:self.window.show_image(str(self.window.reference_path),role='reference')
-                else:
-                    self.window.preview.clear();self.window.preview.setText('拖入参考素材')
-                    self.window.pixmap=QPixmap();self.window.preview_path=None;self.window.preview_role=None
+            self.reference_player.clear()
         self.refresh_asset_selection()
 
     def show_plan(self,result):

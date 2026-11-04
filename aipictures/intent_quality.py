@@ -8,7 +8,12 @@ from .storage import write_json
 
 def repair_anatomy(session, output: str, observations: dict, brief: str, folder: Path) -> str:
     data = json.loads(output)
-    identity = observations.get('appearance', {}).get('identity', '')
+    appearance = observations.get('appearance', {})
+    # A custom use can intentionally replace the subject or its body structure.
+    # Do not force the original actor's anatomy onto that new target.
+    if appearance.get('reference_use','appearance') not in ('appearance','edit'):
+        return output
+    identity = appearance.get('identity', '')
     human = re.search(r'少女|女性|男性|女人|男人|女孩|男孩|人类|\b(?:human|woman|man|girl|boy)\b', identity, re.I)
     # User-requested transformations remain authoritative.
     transformation = re.search(r'变成|兽化|长出.*爪|猫娘|兽娘', brief)

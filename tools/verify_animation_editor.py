@@ -24,19 +24,20 @@ def main():
         w=Window();w.timer.stop();w.resize(1280,800);w.show();QTest.qWait(100)
         b=w.workbench;vc=w.video_controller
         drop(app,w.preview,[clip]);wait_until(lambda:not w.preparing);QTest.qWait(100)
-        assert w.reference_path is None and b.right_tabs.currentIndex()==1 and not w.pixmap.isNull()
-        assert w.preview.pixmap() and not w.preview.pixmap().isNull() and b.reference_player.isVisible()
+        assert w.reference_path is None and b.right_tabs.currentIndex()==2 and w.pixmap.isNull()
+        assert not b.motion_item._pixmap.isNull() and b.reference_player.isVisible()
+        b.right_tabs.setCurrentIndex(1)
         assert b.analyze_motion.isVisible() and not vc.motion.range_button.isVisible()
         assert not w.animation_action.isVisible() and not b.creation_kind.model().item(1).isEnabled()
         assert not w.intent_controller.running and not w.current
         assert b.timeline_region.isVisible() and not b.timeline.isVisible()
         assert b.timeline_region.height()>=200 and b.animation_header.height()<270
         assert not vc.motion.play.isVisible()
-        assert b.motion_item.isVisible() and not vc.motion.asset_header.isVisible()
+        assert not b.motion_item._pixmap.isNull() and not vc.motion.asset_header.isVisible()
         assert b.motion_item.isAncestorOf(b.motion_item.thumb)
         vc.motion.range_slider.setValue(4500)
         wait_until(lambda:vc.motion.preview_offset>=4.49)
-        assert w.preview_role=='motion_reference' and not w.pixmap.isNull()
+        assert w.preview_role is None and not b.motion_item._pixmap.isNull()
         vc.motion.range_slider.setValue(0);wait_until(lambda:vc.motion.preview_offset==0)
         w.grab().save(str(proof/'before-analysis.png'))
         vc.seconds.setValue(32);assert vc.seconds.value()==8
@@ -64,14 +65,14 @@ def main():
         assert not b.timeline.effective_rows(),'Manual prompt replacement must not retain a hidden old timeline.'
         # A splitter resize must refresh the actual left preview, not just the Window.
         b.workspace.setSizes([650,550]);QTest.qWait(50)
-        assert w.preview.pixmap().width()<=w.preview.width()*w.preview.devicePixelRatioF()+2
+        assert b.motion_item.thumb.pixmap().width()<=b.motion_item.thumb.width()*b.motion_item.thumb.devicePixelRatioF()+2
         w.grab().save(str(proof/'editor.png'))
         vc.motion.clear();assert not b.timeline.isVisible() and not b.timeline.rows()
         QTest.qWait(40)
         assert b.timeline_region.isVisible() and b.timeline_region.height()>=200 and b.animation_header.height()<270
         w.close();QTest.qWait(40)
     write_json(proof/'acceptance.json',dict(passed=True,actual_qt=True,no_inference=True,video_only=True,editable_queue=True))
-    print('Animation editor / six buttons / video-only canvas / duration / editable queued timeline: PASS')
+    print('Animation editor / independent reference / duration / editable queued timeline: PASS')
 
 
 if __name__=='__main__':main()
