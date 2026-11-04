@@ -4,7 +4,8 @@ import json
 import shutil
 from pathlib import Path
 from unittest.mock import patch
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt,QPoint,QPointF
+from PySide6.QtGui import QEnterEvent
 from PySide6.QtTest import QTest
 from aipictures.app import Window,create_application
 from aipictures.storage import write_json
@@ -62,7 +63,11 @@ def main():
                 frame_result=json.loads(a.frame_analysis.read_text('utf-8'))
                 assert digest(panel.preview_paths[1])==frame_result['frame_sha256']
                 b.show_frame_analysis(frame_result);assert b.frame_review.table.rowCount()==1
-            QTest.mouseMove(b.motion_item);QTest.qWait(30);assert b.motion_item.close_button.isVisible()
+            # Dispatch the hover event through Qt even when another desktop app
+            # owns foreground focus; a native cursor move can go to that app.
+            point=QPoint(49,4);global_point=b.motion_item.mapToGlobal(point)
+            app.sendEvent(b.motion_item,QEnterEvent(QPointF(point),QPointF(w.mapFromGlobal(global_point)),QPointF(global_point)))
+            QTest.qWait(30);assert b.motion_item.close_button.isVisible()
             w.grab().save(str(root/'frame-content.png'))
         write_json(root/'acceptance.json',dict(passed=True,actual_registered_settings=True,actual_assets=True,
             reused_real_recognition=str(a.plan.resolve()),no_generation_submitted=True,no_analysis_on_import=True,
