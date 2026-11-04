@@ -136,7 +136,7 @@ class ComfyClient:
 
         def record(**changes):
             state.update(changes,elapsed_seconds=round(time.monotonic()-start,2))
-            write_json(folder/'monitor.json',state)
+            write_json(folder/'monitor.json',state,durable=True)
 
         def notify_wait(message):
             record(connection_message=message)

@@ -88,7 +88,7 @@ def test_encoding_process_exits_before_sampling_and_cancel_boundary(tmp_path,mon
             for i in range(56):
                 p=folder/f'{i}.png';Image.new('RGB',(16,16),(12,34,56)).save(p);paths.append(str(p))
             return dict(images=paths)
-    monkeypatch.setattr(backend,'NativeSession',Session);monkeypatch.setattr(backend,'release_shared',lambda _:None)
+    monkeypatch.setattr(backend,'NativeSession',Session);monkeypatch.setattr(backend,'release_shared',lambda *a,**kw:None)
     monkeypatch.setattr(graph,'encoding',lambda *a:{})
     monkeypatch.setattr(graph,'sampling',lambda *a:{})
     monkeypatch.setattr(motion_guide,'prepare',lambda *a,**k:dict(source={'sha256':'ok'},frames=56))

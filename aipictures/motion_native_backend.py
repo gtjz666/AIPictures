@@ -54,7 +54,7 @@ class NativeSession:
                  '--cache-none','--disable-smart-memory','--reserve-vram','3.0']
         if os.name=='nt':command+=['--disable-async-offload','--disable-pinned-memory']
         write_json(self.folder/'native-command.json',dict(command=command,cwd=self.config['source'],
-            environment={'AIPICTURES_STREAM_WEIGHTS':'1'},weights_loader='stream'))
+            environment={'AIPICTURES_STREAM_WEIGHTS':'1'},weights_loader='stream'),durable=True)
         self.output=(self.folder/'native.log').open('w',encoding='utf-8')
         try:
             self.process=subprocess.Popen(gated_module_command(command),cwd=self.config['source'],
@@ -76,7 +76,7 @@ class NativeSession:
                     if not isinstance(getattr(exc,'reason',None),TimeoutError):raise
                 if time.monotonic()>deadline:raise ValueError('专用动作参考后端启动超过5分钟，请检查 native.log。未提交生成。')
                 self.cancel.wait(.5)
-            write_json(self.folder/'native-process.json',dict(pid=self.process.pid,url=self.client.url,status='running'))
+            write_json(self.folder/'native-process.json',dict(pid=self.process.pid,url=self.client.url,status='running'),durable=True)
             return self
         except BaseException:
             self.__exit__(None,None,None);raise
@@ -99,21 +99,52 @@ class NativeSession:
             if self.process.poll() is None:
                 if os.name!='nt' or self.owner is None:self.process.terminate()
                 self.process.wait(timeout=15)
-            write_json(self.folder/'native-process.json',dict(pid=self.process.pid,status='stopped',returncode=self.process.returncode))
+            write_json(self.folder/'native-process.json',dict(pid=self.process.pid,status='stopped',returncode=self.process.returncode),durable=True)
         if self.output:self.output.close()
 
 
-def release_shared(params:dict):
+def release_shared(params:dict, *, folder:Path|None=None, cancel:threading.Event|None=None)->list[dict]:
+    """Check the actual Desktop port and fail closed on refused cache release.
+
+    /free acknowledges a request; it is not proof that GPU memory is already
+    empty. Record that distinction, and never interrupt another client's queue.
+    """
+    from .backend_connection import desktop_urls,local_processes
     from .engine_service import release_idle_models
-    urls={params.get('url'),'http://127.0.0.1:8188','http://127.0.0.1:8189'}-{None}
-    for url in urls:
-        client=ComfyClient(url)
-        try:
-            queue=client.request('/queue',timeout=3)
+    records=[]
+    try:
+        if cancel is not None and cancel.is_set():raise Cancelled('动作参考任务已取消，未启动动画后端。')
+        candidates=[params.get('url'),*desktop_urls(local_processes()),
+                    'http://127.0.0.1:8188','http://127.0.0.1:8189']
+        urls=dict.fromkeys(url.rstrip('/') for url in candidates if url)
+        for url in urls:
+            if cancel is not None and cancel.is_set():raise Cancelled('动作参考任务已取消，未启动动画后端。')
+            row={'url':url,'status':'checking'};records.append(row)
+            client=ComfyClient(url)
+            try:
+                queue=client.request('/queue',timeout=3)
+            except EngineUnavailable:
+                row['status']='offline';continue
+            except Exception as exc:
+                row.update(status='check_failed',error=str(exc))
+                raise ValueError(f'无法确认本地后端 {url} 是否空闲，未启动动画后端；请检查连接。') from exc
+            if not isinstance(queue,dict):
+                row['status']='invalid_queue'
+                raise ValueError(f'本地后端 {url} 返回了无效队列，未启动动画后端。')
             if queue.get('queue_running') or queue.get('queue_pending'):
+                row['status']='busy'
                 raise ValueError('其他本地生成任务正在运行，请完成后再制作参考动画。')
-            release_idle_models(client)
-        except EngineUnavailable:pass
+            # This helper rechecks the queue, including jobs arriving after our check.
+            result=release_idle_models(client)
+            if not result.get('released'):
+                row.update(status='release_failed',reason=result.get('reason','unknown'))
+                raise ValueError(f'本地后端 {url} 未接受模型释放请求，未启动动画后端；请等待其他任务结束或检查连接。')
+            row['status']='release_requested'
+        return records
+    finally:
+        if folder is not None:
+            write_json(Path(folder)/'shared-release.json',{'backends':records,
+                'completion_verified':False},durable=True)
 
 
 def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
@@ -128,7 +159,8 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
         raise ValueError('动作参考专用模型尚未通过本机验证；普通提示词动画不受影响。')
     if any((folder/p).exists() for p in ('native-command.json','native_encode','native_sample')):
         raise ValueError('此任务已有运行记录，请检查原任务，不重复提交。')
-    release_shared(params)
+    emit('video_stage',{'message':'检查现有本地生成任务与模型释放请求…'})
+    release_shared(params,folder=folder,cancel=cancel)
     emit('video_stage',{'message':'准备并编码角色与动作参考（1/2）…'})
     with NativeSession(config,folder/'native_encode',cancel,emit) as server:
         motion=prepare(Path(params['motion_reference']),server.input/'motion',math.ceil(params['seconds']*24)/24,
@@ -176,7 +208,7 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
     # Exiting the encoding process frees its CPU weights, GPU buffers and mappings.
     emit('video_stage',dict(message='参考编码已保存并释放；正在加载动画模型（2/2）…'))
     if cancel.is_set():raise Cancelled('已取消，参考条件保留。')
-    write_json(folder/'stages.json',dict(encoding='completed',sampling='preparing',weights_loader='stream',encoder_process_exited=True))
+    write_json(folder/'stages.json',dict(encoding='completed',sampling='preparing',weights_loader='stream',encoder_process_exited=True),durable=True)
     with NativeSession(config,folder/'native_sample',cancel,emit) as server:
         shutil.copytree(packet,server.input/'conditioning')
         graph=sampling(server.info,params['seed'],config.get('width',768),config.get('height',1024),length)
@@ -187,7 +219,7 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
             raise
         paths=[Path(p) for p in result['images']]
         if len(paths)!=length:raise ValueError('生成帧数不完整，已保存结果保留，请检查 native_sample。')
-    write_json(folder/'stages.json',dict(encoding='completed',sampling='completed',weights_loader='stream',encoder_process_exited=True))
+    write_json(folder/'stages.json',dict(encoding='completed',sampling='completed',weights_loader='stream',encoder_process_exited=True),durable=True)
     target=folder/'animation_master.mp4';encode_pngs(paths,target,24,cancel)
     return dict(video=str(target.resolve()),native_frames=[str(p.resolve()) for p in paths],
                 backend='ComfyUI/H3-Ref2VA',style_lora=False,motion=motion,staged=True,weights_loader='stream',

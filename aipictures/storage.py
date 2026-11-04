@@ -9,12 +9,18 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / 'data'
 
 
-def write_json(path, value):
+def write_json(path, value, *, durable: bool = False):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name(path.name+'.'+uuid4().hex+'.tmp')
     try:
-        temp.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
+        with temp.open('w', encoding='utf-8') as output:
+            json.dump(value, output, ensure_ascii=False, indent=2)
+            if durable:
+                # Atomic replacement protects readers; flushing first also keeps
+                # critical task records out of the OS write cache before rename.
+                output.flush()
+                os.fsync(output.fileno())
         # Windows readers/virus scanners can briefly deny delete-sharing on the
         # destination. Preserve the old valid JSON and retry the same atomic
         # replacement; a transient lock must not lose a running GPU task.
