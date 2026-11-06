@@ -13,7 +13,7 @@
 - `aipictures/app.py`：独立桌面界面；`run.bat` 启动。
 - `intent_controller.py` / `local_intent.py` / `intent_media.py` / `intent_observation.py` / `intent_plan.py` / `intent_quality.py`：按钮触发的本地Qwen3-VL识别，外观/逐帧动作分开观察、严格校验和有限跨物种修复；识别进程退出后才允许生成。素材变化清除旧分析，不自动重跑，不覆盖用户手动词。不要把结构通过说成100%语义准确。
 - `temporal_motion.py` / `foot_evidence.py`：最多64观察点、重叠六格、同帧下半部放大、有限状态和原PTS拼时间轴；模型不重猜时间。纯色背景两块清晰低部区域可补充相对足部高度，不是地面接触/解剖左右真值。无法区分的动态区间标黄待核对，不冒充静止。视觉token预算1024–2048、每次一图组，禁止64张高预算图片一次提交。精度仍有局限，详见docs/TEMPORAL_MOTION_REVIEW.md。
-- `workbench.py` / `theme.py`：固定左右布局，左侧成品画布/播放导出/底部任务，右侧顶部参考/动画/提示词标签；参考页上图片下动作，播放器独立，不能覆盖成品。分隔线调大小，不允许拖动重排/浮动。布局schema3按页面标识保存工具页，兼容schema2旧索引；忽略旧自由停靠状态。默认自由动作，源动作说明与实际参考起点/输出时长分别显示。
+- `workbench.py` / `theme.py`：固定左右布局，左侧成品画布/播放导出/底部任务，右侧顶部参考/动画/提示词标签；参考页上图片下动作，播放器独立，不能覆盖成品。分隔线调大小，不允许拖动重排/浮动。每次启动固定打开参考页，schema2/3只恢复尺寸，不恢复历史栏目；忽略旧自由停靠状态。默认自由动作，原始源PTS保留，动作编辑和提示词统一到请求的输出时间。
 - `aipictures/engine.py`、`backend_connection.py`：ComfyUI 请求、任务监控和共享后端。
 - `aipictures/general_image.py`：通用单张生成；不要重新强制限定立绘、人物或侧视。
 - `zimage.py` / `image_family.py`：默认自动分流，无参考Z-Image文字生成、有参考FLUX独立条件编辑，界面显示真实引擎。手选Z保留小幅重绘，不暗中换引擎。SDXL普通入口退役，不恢复其兜底；历史CPU翻译不对原生中文/FLUX/云端重复运行。
@@ -22,7 +22,7 @@
 - `api_config.py` / `api_dialog.py` / `api_controller.py`：用户自带 API 设置、密钥保护及单图队列；`api_generation.py` / `api_transport.py` / `smart_generation.py`：独立云端生图与可选文字整理。不要读取其他软件的 Key，不因超时自动重复付费 POST；聊天 Key 不等于生图权限。
 - `pose_animation.py`、`motion_*`、`natural_motion.py`：旧骨骼/Wan研究档案，正常软件入口已经退役，不重新开放或安装模型。历史结果仍可读。
 - `video_controller.py` / `video_generation.py` / `video_preview.py`：MiniMax H3完整自由动画先预览，再自主选帧导出；没有已验证H3时明确不可用，不切回Wan。`h3_backend.py`使用独立环境。
-- `animation_timeline.py` / `prompt_timeline.py` / `frame_review.py`：右侧只留分析动作，循环/起点滑条在左。自动区分PNG帧内容（仅所选源帧）和动作说明（可编辑目标动作表），不恢复只读弹窗。提示词只保留一份详细时序，动作表修改同步，非法时序阻止入队；帧内容分析不覆盖生成词。
+- `animation_timeline.py` / `prompt_timeline.py` / `frame_review.py`：右侧只留分析动作，循环/起点滑条在左。自动区分PNG帧内容（仅所选源帧）和动作说明（可编辑目标动作表），不恢复只读弹窗。`motion_timing.py`按真实起点截取/回绕到输出时间，不拉伸源动作；起点/循环变化需重新分析并保留旧编辑，阻止旧时序入队。提示词只保留一份详细时序，动作表修改同步，非法时序阻止入队；帧内容分析不覆盖生成词。有动作参考时自动提示词默认只观察外观，详细动作观察仅在分析按钮触发。
 - `video_chain.py`保留串行短段研究，普通末帧I2V、Ref2VA AddGuide；OS锁、条件保存和SHA避免重复任务。当前用户界面及历史未完成长片继续均暂不开放超过8秒生成，已完成成片仍可播放/导出。不把测试拼接或单段续接说成长片画质验收。详见docs/ANIMATION_EDITOR.md。
 - `motion_reference_ui.py` / `motion_guide.py` / `frame_motion_input.py`：动画模式独立动作视频/GIF或PNG序列按钮，角色图不混用；PNG自然排序/FPS与GIF逐帧延时入队冻结。`motion_native_backend.py` / `motion_native_graph.py`使用专用Ref2VA及私有Comfy进程，不能用FreeVideo FL2VA/VDN快速权重冒充。新模型/环境经完整生成和目视验收后注册，未通过不开放生成。`motion_reference.py`是原研究模块，不覆盖其历史接口。
 - Windows参考动画使用自有逐张量读取器避免safetensors整文件映射瞬时提交，先完整保存官方编码条件并退出编码进程，再独立采样；条件/嵌套AV潜变量必须原字节保留，不用pickle。私有进程同步卸载、禁锁页传输并reserve-vram3GiB；不凭失败后的RAM数值推断失败瞬间峰值，不擅自改系统分页。详见docs/WINDOWS_MODEL_LOADING.md。
