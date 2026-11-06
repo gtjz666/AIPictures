@@ -46,6 +46,7 @@ def test_prompt_organizer_uses_direct_guide_without_observing_complex_gif(tmp_pa
         def __exit__(self,*_):pass
         def complete(self,messages,**kwargs):
             assert '不分析其中的动作' in messages[1]['content'][-1]['text']
+            assert json.loads(messages[1]['content'][0]['text'])['motion_reference_priority']=='video_first'
             assert not any(item['type']=='image_url' for item in messages[1]['content'])
             return json.dumps(dict(kind='animation',summary='替换角色',positive_prompt='蓝色机器人',
                 negative_prompt='身份突变',timeline=[],observations=[],questions=[])),{}
@@ -79,3 +80,35 @@ def test_direct_motion_with_appearance_does_not_send_unobserved_gif_to_observer(
                        selected_kind='animation',describe_motion=False,session_factory=Session)
     assert result['route']=='h3_reference' and not result['plan']['timeline']
     assert result['resolved_reference_role']=='appearance'
+
+
+def test_detailed_analysis_keeps_uncertain_motion_out_of_prompt_planning(tmp_path):
+    from aipictures.local_intent import analyze
+    gif=tmp_path/'source.gif'
+    Image.new('RGB',(16,24),'red').save(gif,save_all=True,
+        append_images=[Image.new('RGB',(16,24),'blue')],duration=[1000,1000])
+    timeline=[dict(start=0,end=1,description='猜测动作一'),dict(start=1,end=2,description='猜测动作二')]
+    observations=dict(motion=dict(target_timeline=timeline,
+        frames=[dict(time=0,pose='猜测动作一'),dict(time=1,pose='猜测动作二')],
+        camera='猜测固定全身构图',summaries=['猜测动作一'],uncertainties='待核对',method='test'))
+    class Session:
+        calls=0
+        def __init__(self,*_):pass
+        def __enter__(self):return self
+        def __exit__(self,*_):pass
+        def complete(self,messages,**kwargs):
+            Session.calls+=1
+            details=json.loads(messages[1]['content'][0]['text'])
+            assert details['motion_reference_priority']=='video_first'
+            assert '猜测' not in json.dumps(details,ensure_ascii=False)
+            assert '不能将分析中的动作' in messages[1]['content'][-1]['text']
+            return json.dumps(dict(kind='animation',summary='角色替换',positive_prompt='蓝色机器人',
+                negative_prompt='身份突变',timeline=[],observations=[],questions=[])),{}
+    with patch('aipictures.intent_observation.observe',return_value=observations):
+        result=analyze({},'蓝色机器人模仿参考','用户原有排除项',None,gif,tmp_path/'job',threading.Event(),
+            selected_kind='animation',seconds=2,output_seconds=2,describe_motion=True,session_factory=Session)
+    assert Session.calls==1 and result['plan']['timeline']==timeline
+    assert '实际动作参考为准' in result['plan']['positive_prompt']
+    assert '猜测' not in result['plan']['positive_prompt']
+    assert '用户原有排除项' in result['plan']['negative_prompt']
+    assert result['engine_released'] and result['route']=='h3_reference'

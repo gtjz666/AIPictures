@@ -47,11 +47,24 @@ def main():
         w.positive.setPlainText(positive);b.show_plan(result)
         assert '从0秒开始' not in w.positive.toPlainText() and '蓝色衣服' in w.positive.toPlainText()
         assert b.timeline.isVisible() and b.timeline.table.rowCount()==2
+        text,overrides=b.timeline.generation_input()
+        assert not overrides and '抬手' not in text and '收手' not in text
+        assert '蓝色衣服' in text and '自动分析供核对' in w.positive.toPlainText()
+        vc.h3={'validated':True};vc.motion_settings={'validated':True}
+        with patch.object(vc,'enqueue') as enqueue:
+            assert vc.intercept();wait_until(lambda:not w.preparing)
+            frozen=enqueue.call_args.args[0]
+            assert frozen['motion_timeline']==[] and len(frozen['motion_analysis_timeline'])==2
+            assert '抬手' not in frozen['prompt'] and '收手' not in frozen['prompt']
+            assert '收手' in frozen['user_prompt']
         table=b.timeline.table;table.setItem(0,2,QTableWidgetItem('右手向镜头挥拳'))
         w.positive.setPlainText(w.positive.toPlainText()+'\n\n保留水彩线条。')
         table.setItem(0,2,QTableWidgetItem('右手向镜头挥拳'))
         assert w.positive.toPlainText().count('以下为可编辑动作时间线')==1 and '保留水彩线条。' in w.positive.toPlainText()
         assert '右手向镜头挥拳' in w.positive.toPlainText() and b.timeline.rows()[0]['description']=='右手向镜头挥拳'
+        text,overrides=b.timeline.generation_input()
+        assert len(overrides)==1 and overrides[0]['description']=='右手向镜头挥拳'
+        assert '右手向镜头挥拳' in text and '收手' not in text and '保留水彩线条' in text
         vc.seconds.setValue(48);assert b.timeline.rows()[-1]['end']<=8
         assert b.timeline.rows()[0]['description']=='右手向镜头挥拳'
         vc.seconds.setValue(4);assert b.timeline.rows()[-1]['end']<=4
@@ -66,6 +79,11 @@ def main():
             assert enqueue.call_args.args[0]['motion_timeline'][0]['description']=='右手向镜头挥拳'
             assert enqueue.call_args.args[0]['motion_timeline_clock']=='output'
             assert all(0<=r['start']<r['end']<=4 for r in enqueue.call_args.args[0]['motion_timeline'])
+            assert len(enqueue.call_args.args[0]['motion_timeline'])==1
+            assert len(enqueue.call_args.args[0]['motion_analysis_timeline'])==2
+            assert '收手' not in enqueue.call_args.args[0]['prompt']
+            assert '收手' in enqueue.call_args.args[0]['user_prompt']
+            assert enqueue.call_args.args[0]['motion_prompt_policy']=='reference_first_v1'
         vc.motion.start.setValue(.5)
         try:b.timeline.effective_rows();raise AssertionError('Stale source window entered queue')
         except ValueError as exc:assert '重新分析' in str(exc)
@@ -81,9 +99,32 @@ def main():
         b.timeline.table.setItem(0,2,QTableWidgetItem('右手挥向镜头'))
         vc.seconds.setValue(6);assert b.timeline.rows()[0]['description']=='右手挥向镜头'
         assert b.timeline.rows()[-1]['end']==6
+        assert [r['description'] for r in b.timeline.generation_input()[1]]==['右手挥向镜头']
         vc.seconds.setValue(4);assert b.timeline.rows()[-1]['end']==4
+        assert [r['description'] for r in b.timeline.generation_input()[1]]==['右手挥向镜头']
+        # Direct prompt corrections are also explicit; never restore hidden rows.
+        direct=w.positive.toPlainText().replace('收手','蹲下')
+        w.positive.setPlainText(direct)
+        assert b.timeline.generation_input()==(direct,[])
         w.positive.setPlainText('用户重新写的动作：向左走。')
         assert not b.timeline.effective_rows(),'Manual prompt replacement must not retain a hidden old timeline.'
+        assert b.timeline.generation_input()==('用户重新写的动作：向左走。',[])
+        # Purpose selection is frozen at enqueue and does not revert to identity.
+        w.set_reference(str(paths[0]));w.positive.setPlainText('蓝色机器人，跟随动作参考。')
+        for role in ('appearance','style','custom'):
+            w.intent_controller.role.setCurrentIndex(w.intent_controller.role.findData(role))
+            w.intent_controller.role_note.setText('只借用衣服颜色，不参考站姿' if role=='custom' else '')
+            with patch.object(vc,'enqueue') as enqueue:
+                assert vc.intercept();wait_until(lambda:not w.preparing)
+                frozen=enqueue.call_args.args[0]
+                assert frozen['reference_role']==role
+                assert frozen['reference_usage']==('只借用衣服颜色，不参考站姿' if role=='custom' else '')
+        w.intent_controller.role_note.clear()
+        with patch.object(vc,'new_folder') as new_folder:
+            try:vc.intercept();raise AssertionError('Empty custom image usage entered the queue')
+            except ValueError as exc:assert '自定义用法' in str(exc)
+            new_folder.assert_not_called()
+        b.right_tabs.setCurrentWidget(b.tool_pages['animation'])
         # A splitter resize must refresh the actual left preview, not just the Window.
         b.workspace.setSizes([650,550]);QTest.qWait(50)
         assert b.motion_item.thumb.pixmap().width()<=b.motion_item.thumb.width()*b.motion_item.thumb.devicePixelRatioF()+2

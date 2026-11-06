@@ -137,6 +137,15 @@ class VideoController:
         if w.animation_source.currentData()=='reference' and not reference:raise ValueError('请添加参考图，或选择仅文字描述。')
         if not reference and not prompt:raise ValueError('无参考图时，请填写画面或角色描述。')
         timeline=w.workbench.timeline.effective_rows() if hasattr(w,'workbench') else []
+        analyzed_timeline=timeline
+        if self.motion.path and hasattr(w,'workbench'):
+            prompt,timeline=w.workbench.timeline.generation_input()
+            if not prompt:prompt='按动作参考生成动画，保留文字和参考图指定的目标外观。'
+        intent=getattr(w,'intent_controller',None)
+        reference_role=intent.role.currentData() if intent else 'appearance'
+        reference_usage=intent.role_note.text().strip() if intent and reference_role=='custom' else ''
+        if self.motion.path and reference and reference_role=='custom' and not reference_usage:
+            raise ValueError('请填写参考图的自定义用法。')
         seed=int(w.seed.text());seed=secrets.randbelow(2**53) if seed==-1 else seed
         if not 0<=seed<2**64:raise ValueError('种子范围不正确。')
         folder=self.new_folder()
@@ -151,6 +160,10 @@ class VideoController:
         params['motion_timeline_clock']=w.workbench.timeline.clock if hasattr(w,'workbench') else 'output'
         if self.motion.path:
             params['motion_native_settings']=self.motion_settings.copy()
+            params['motion_prompt_policy']='reference_first_v1'
+            params['motion_analysis_timeline']=analyzed_timeline
+            params['reference_role']=reference_role
+            params['reference_usage']=reference_usage
             params.update(motion_reference=str(self.motion.path),motion_start=self.motion.start.value(),
                           motion_allow_tail_hold=True,
                           motion_max_side=self.motion.detail.currentData(),

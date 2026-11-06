@@ -186,8 +186,9 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
             requested_output_seconds=output_seconds, reference_roles=[{'id': a['id'], 'role': a['role']} for a in evidence['assets']],
             motion_source_duration=evidence['duration'])
         details['direct_motion_guidance']=direct_motion
+        if motion:details['motion_reference_priority']='video_first'
         details['analysis_matte_is_not_background'] = any(a.get('analysis_matte_only') for a in evidence['assets'])
-        task = ('按时间对比动作帧，分解可见的准备、伸展/接触、回收阶段，在timeline具体描述肢体、头和躯干变化。positive_prompt只写主体、整体动作和取景，不重复时间线。'
+        task = ('按时间对比动作帧，分解可见的准备、伸展/接触、回收阶段，在timeline具体描述肢体、头和躯干变化，供用户核对。实际参考直接控制生成，positive_prompt只写目标外观、画风和用户明确修改，不能将分析中的动作、朝向、取景写成强制要求。'
                 if motion else '按需求整理单张画面；明确请求的视角、风格与背景变化必须保留。')
         task += ' 外观图与动作图用途独立。正反提示词都必须生成，反向词补充与本次目标相关的异常约束，保留用户排除项；未指定的背景省略，不把动作素材的背景搬入成品。'
         if direct_motion:
@@ -209,19 +210,15 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
                 # Planning sees factual observations, not mixed-purpose images.
                 details['visual_observations'] = observations
                 if observations.get('motion',{}).get('target_timeline'):
-                    from .motion_timing import source_to_output
-                    selected_rows=source_to_output(observations['motion']['target_timeline'],evidence['duration'],output_seconds,
-                        start=start if output_start is None else output_start,repeat=motion_repeat)
-                    details['visual_observations']=dict(observations,motion={key:observations['motion'][key]
-                        for key in ('camera','uncertainties','summaries','method')})
-                    # Global prompt prose must describe only actions used in this
-                    # output, even when the observer read an entire source cycle.
-                    descriptions=list(dict.fromkeys(r['description'] for r in selected_rows))
-                    details['visual_observations']['motion']['summaries']=[
-                        '；'.join(descriptions[i:i+5])[:220] for i in range(0,len(descriptions),5)]
+                    # The observed timeline remains in the review record/UI.
+                    # Do not turn its uncertain captions/camera guesses into
+                    # positive or negative requirements in a second model pass.
+                    details['visual_observations']=dict(observations,motion=dict(
+                        generation_input='actual reference video; not a textual reconstruction',
+                        timeline_usage='review only; explicit user corrections override selected ranges'))
                     details['selected_motion_window']=dict(output_seconds=output_seconds,
                         source_start=start if output_start is None else output_start,repeat=motion_repeat)
-                    task+=' 本次完整动作时间轴已逐段观察并由程序组装；timeline返回空列表，只整理整体画面、真实动作概括和正反词，不能把动作改写成静止或另猜一套时序。'
+                    task+=' 本次完整动作时间轴已逐段观察并由程序组装；timeline返回空列表，只整理目标外观、画风、用户明确修改和正反词。动作与取景直接跟随实际视频，不在正反词中添加推测的动作、固定机位或全身要求。'
                 messages[1]['content'] = [{'type': 'text', 'text': json.dumps(details, ensure_ascii=False)},
                                           {'type': 'text', 'text': task}]
             output, stats = session.complete(messages,max_tokens=3000) if evidence['assets'] else session.complete(messages)
@@ -239,12 +236,12 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
             raise Cancelled('需求识别已取消；没有提交生成。')
         write_json(folder/'response.json', dict(content=output, **stats))
         plan = parse_plan(output, {a['id'] for a in evidence['assets']}, evidence['duration'])
-        if direct_motion:
+        if motion:
             from dataclasses import replace
             from .prompt_timeline import remove_generated_summary
             text=remove_generated_summary(plan.positive_prompt,plan.timeline)
-            guide='动作顺序、节奏、运动方向和镜头以实际动作参考为准；用目标主体替换参考主体，保留目标外观与配色，仅执行用户明确要求的改变。'
-            plan=replace(plan,timeline=[],positive_prompt=text+'\n'+guide)
+            guide='动作顺序、节奏、运动方向、表情和镜头以实际动作参考为准；用目标主体替换参考主体，保留目标外观与配色，仅执行用户明确要求的改变。'
+            plan=replace(plan,timeline=[] if direct_motion else plan.timeline,positive_prompt=text+'\n'+guide)
         if plan.timeline:
             from dataclasses import replace
             from .prompt_timeline import remove_generated_summary

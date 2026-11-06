@@ -196,17 +196,36 @@ def prepare(path: Path, folder: Path, seconds: float, start: float,
     return report
 
 
-def prompt(text: str, has_image: bool) -> str:
-    """Keep user text verbatim; freeze an explicit division of reference roles."""
-    subject = ('The subject identity, clothing, proportions, colors and visual style come from <Picture 1>. '
-               'Transfer the movement to this subject; do not copy the performer or clothing in the motion guide.' if has_image else
-               'The subject appearance and visual style are defined by the user description below.')
+def prompt(text: str, has_image: bool, *, reference_role: str='appearance', reference_usage: str='') -> str:
+    """Actual Ref2VA inputs, with video-first motion and explicit image roles.
+
+    This is a semantic instruction, not a numeric conditioning weight. User
+    corrections remain verbatim. The UI separates its inferred review rows
+    before freezing the request; legacy/manual callers retain their text.
+    """
+    if not has_image:
+        subject='The subject appearance and visual style are defined by the user description below.'
+    elif reference_role=='style':
+        subject=('The target subject is defined by the user description below. Use <Picture 1> only for visual style, '
+                 'drawing technique and rendering; do not copy its subject identity, clothing, pose or composition.')
+    elif reference_role=='custom':
+        if not reference_usage.strip():raise ValueError('请填写参考图的自定义用法。')
+        subject=('Use <Picture 1> only for the explicitly selected properties in this custom usage, '
+                 'not automatically for identity or pose:\n'+reference_usage.strip())
+    else:
+        subject=('The subject identity, clothing, proportions, colors and visual style come from <Picture 1>, '
+                 'except for changes explicitly requested below. Its still pose and composition do not define the animation.')
     return ('subject_definitions:\n<Subject 1>: '+subject+'\n<Video 1>: A silent motion guide. '
-            'Follow its sequence of poses, movement direction and timing.\n'
+            'The highest-priority reference for motion, action order, timing, movement direction, expressions and camera behavior.\n'
             'summary:\n[reference generation] Animate <Subject 1> with the movement in <Video 1>.\n'
-            'retention_analysis:\nKeep the subject appearance separate from the guide. '
-            'Use the guide for body movement and timing only, not its performer, background or colors.\n'
+            'retention_analysis:\nReplace the performer with the target subject while preserving the visible motion logic of <Video 1>. '
+            'Keep the target appearance separate from the guide performer; do not copy the guide identity, clothing, background or colors '
+            'unless explicitly requested. Transfer movement to the target anatomy without changing its identity.\n'
+            'Use the actual guide frames rather than an inferred action description whenever they disagree. '
+            'Only explicit user changes override the corresponding properties or time ranges; all other motion follows <Video 1>.\n'
             'detailed_description:\nUser requirements (preserved verbatim):\n'+text.strip()+'\n'
-            'Perform the movement continuously in the order shown by the guide. Keep the complete subject in view, '
-            'stable colors and details, without cuts or sudden zoom.\n'
+            'Preserve the visible sequence, rhythm, pauses, repeated gestures, motion amplitude and direction. '
+            'Do not invent, omit, reorder, mirror or reverse actions, or change their speed, unless explicitly requested. '
+            'Follow the guide framing and camera changes rather than imposing the still image pose, a full-body view or a fixed camera. '
+            'Keep the target identity, colors and details consistent through the motion.\n'
             'overall_soundscape:\nNo source audio is transferred.\nnon_diegetic_music:\nNone.')

@@ -183,7 +183,8 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
                 rgba=ImageOps.exif_transpose(original).convert('RGBA')
                 rgb=Image.new('RGB',rgba.size,(232,232,232));rgb.paste(rgba,mask=rgba.getchannel('A'))
                 rgb.save(server.input/'character.png');image='character.png'
-        text=prompt(params['prompt'],bool(image))
+        text=prompt(params['prompt'],bool(image),reference_role=params.get('reference_role','appearance'),
+                    reference_usage=params.get('reference_usage',''))
         if params.get('negative','').strip():text+='\nAvoid: '+params['negative'].strip()
         (folder/'prompt.txt').write_text(text,'utf-8')
         graph=encoding(server.info,text,params['seed'],config.get('width',768),config.get('height',1024),

@@ -2,7 +2,8 @@
 import math
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget,QVBoxLayout,QLabel,QTableWidget,QTableWidgetItem,QHeaderView
-from .prompt_timeline import remove_owned_timeline,remove_generated_summary
+from .prompt_timeline import (TITLE,REFERENCE_TITLE,MANUAL_TITLE,corrected_rows,
+                              remove_owned_timeline,remove_generated_summary)
 from .motion_timing import clip_rows,source_to_output
 
 
@@ -63,6 +64,21 @@ class ActionTimeline(QWidget):
         if self.suffix and self.suffix not in self.window.positive.toPlainText():return []
         return self.rows()
 
+    def generation_input(self):
+        """Keep analysis visible, but submit only the user's corrected ranges.
+
+        If the user edits/replaces the footer directly in the prompt, that
+        visible text is authoritative; no hidden table is reintroduced.
+        """
+        text=self.window.positive.toPlainText()
+        rows=self.effective_rows()
+        if not self.source_rows or not self.suffix or self.suffix not in text:
+            return text.strip(),rows
+        overrides=corrected_rows(rows,self.project(self.seconds))
+        text=text.replace(self.suffix,'',1).strip()
+        if overrides:text+='\n\n'+MANUAL_TITLE+'\n'+timeline_text(overrides)
+        return text.strip(),overrides
+
     def fill(self,rows):
         self.table.blockSignals(True);self.table.setRowCount(len(rows))
         for i,row in enumerate(rows):
@@ -121,7 +137,8 @@ class ActionTimeline(QWidget):
             future=clip_rows(self.output_edits or [],self.seconds,self.edit_seconds)
             self.output_edits=rows+future;self.edit_seconds=max(self.edit_seconds,self.seconds)
         prompt=remove_owned_timeline(self.window.positive.toPlainText())
-        self.suffix=('\n\n以下为可编辑动作时间线，以此处时序为准：\n'+
+        title=REFERENCE_TITLE if self.source_rows else TITLE
+        self.suffix=('\n\n'+title+'\n'+
             timeline_text(rows)) if rows else ''
         updated=prompt+self.suffix
         if updated!=self.window.positive.toPlainText():self.window.positive.setPlainText(updated)
