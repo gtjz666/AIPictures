@@ -227,7 +227,8 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
         paths=[Path(p) for p in result['images']]
         if len(paths)!=length:raise ValueError('生成帧数不完整，已保存结果保留，请检查 native_sample。')
     write_json(folder/'stages.json',dict(encoding='completed',sampling='completed',weights_loader='stream',encoder_process_exited=True),durable=True)
-    target=folder/'animation_master.mp4';encode_pngs(paths,target,24,cancel)
-    return dict(video=str(target.resolve()),native_frames=[str(p.resolve()) for p in paths],
+    target=folder/'animation_master.mp4'
+    if not params.get('defer_exports'):encode_pngs(paths,target,24,cancel)
+    return dict(video=None if params.get('defer_exports') else str(target.resolve()),native_frames=[str(p.resolve()) for p in paths],
                 backend='ComfyUI/H3-Ref2VA',style_lora=False,motion=motion,staged=True,weights_loader='stream',
                 frame_sha256=[digest(p) for p in paths])

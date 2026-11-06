@@ -156,7 +156,9 @@ def analyze_frame(config:dict,source:Path,index:int,folder:Path,cancel,emit,*,se
 
 def analyze(config: dict, brief: str, negative: str, reference: Path | None, motion: Path | None,
             folder: Path, cancel: threading.Event, emit=lambda *_: None, *, selected_kind='image',
-            role='appearance', start=0., seconds=8., output_seconds=4., reference_usage='',session_factory=LocalSession) -> dict:
+            role='appearance', start=0., seconds=8., output_seconds=4., reference_usage='',
+            output_start: float | None = None, motion_repeat: bool = False, describe_motion: bool = True,
+            session_factory=LocalSession) -> dict:
     """No generation here. Output references an allowlisted route, never arbitrary tools."""
     from .intent_media import prepare
     from .workflow_library import digest
@@ -169,39 +171,61 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
     folder.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     write_json(folder/'request.json', dict(brief=brief, negative=negative, selected_kind=selected_kind,
-        role=role,reference_usage=reference_usage, motion_start=start, motion_seconds=seconds, output_seconds=output_seconds, status='analyzing'))
+        role=role,reference_usage=reference_usage, motion_start=start, motion_seconds=seconds, output_seconds=output_seconds,
+        output_start=start if output_start is None else output_start,motion_repeat=motion_repeat,
+        describe_motion=describe_motion,status='analyzing'))
     try:
         emit('intent_stage', {'message': '正在读取素材及原始动作时间…'})
-        content, evidence = prepare(reference, motion, folder, cancel, role=role, start=start, seconds=seconds,max_frames=64)
+        content, evidence = prepare(reference, motion if describe_motion else None, folder, cancel,
+                                    role=role, start=start, seconds=seconds,max_frames=64)
+        direct_motion=bool(motion and not describe_motion)
+        if direct_motion:
+            evidence['assets'].append(dict(id='motion',role='motion',source=str(motion),sha256=digest(motion),
+                                           observation='direct generation guide; not visually analyzed'))
         details = dict(user_request=brief,reference_usage=reference_usage, original_negative_constraints=negative, selected_kind=selected_kind,
             requested_output_seconds=output_seconds, reference_roles=[{'id': a['id'], 'role': a['role']} for a in evidence['assets']],
             motion_source_duration=evidence['duration'])
+        details['direct_motion_guidance']=direct_motion
         details['analysis_matte_is_not_background'] = any(a.get('analysis_matte_only') for a in evidence['assets'])
         task = ('按时间对比动作帧，分解可见的准备、伸展/接触、回收阶段，在timeline具体描述肢体、头和躯干变化。positive_prompt只写主体、整体动作和取景，不重复时间线。'
                 if motion else '按需求整理单张画面；明确请求的视角、风格与背景变化必须保留。')
         task += ' 外观图与动作图用途独立。正反提示词都必须生成，反向词补充与本次目标相关的异常约束，保留用户排除项；未指定的背景省略，不把动作素材的背景搬入成品。'
+        if direct_motion:
+            task='实际动作素材会直接送入动画引擎，本次不分析其中的动作。只整理用户的主体替换、外观、画风和明确修改要求；动作顺序、节奏、方向和镜头服从实际动作参考。不要猜测动作名称、肢体阶段、时间点或动作素材背景，timeline必须为空。正反提示词都必须生成并保留用户要求。'
         messages = [{'role': 'system', 'content': SYSTEM},
                     {'role': 'user', 'content': [{'type': 'text', 'text': json.dumps(details, ensure_ascii=False)}, *content,
                                                  {'type': 'text', 'text': task}]}]
         with session_factory(config, folder, cancel, emit) as session:
-            if evidence['assets']:
+            if reference or (motion and describe_motion):
                 from .intent_observation import observe
                 emit('intent_stage', {'message': '正在分别观察外观与逐帧动作…'})
                 from .prompt_timeline import remove_owned_timeline
-                observations = observe(session, content, evidence, folder,reference_usage=reference_usage,
+                observed_evidence=dict(evidence,assets=[a for a in evidence['assets'] if not (
+                    direct_motion and a['id']=='motion')])
+                observations = observe(session, content, observed_evidence, folder,reference_usage=reference_usage,
                                        requested_target=remove_owned_timeline(brief))
                 for reference_role in details['reference_roles']:
                     if reference_role['id']=='appearance':reference_role['role']=observations['appearance']['reference_use']
                 # Planning sees factual observations, not mixed-purpose images.
                 details['visual_observations'] = observations
                 if observations.get('motion',{}).get('target_timeline'):
+                    from .motion_timing import source_to_output
+                    selected_rows=source_to_output(observations['motion']['target_timeline'],evidence['duration'],output_seconds,
+                        start=start if output_start is None else output_start,repeat=motion_repeat)
                     details['visual_observations']=dict(observations,motion={key:observations['motion'][key]
                         for key in ('camera','uncertainties','summaries','method')})
+                    # Global prompt prose must describe only actions used in this
+                    # output, even when the observer read an entire source cycle.
+                    descriptions=list(dict.fromkeys(r['description'] for r in selected_rows))
+                    details['visual_observations']['motion']['summaries']=[
+                        '；'.join(descriptions[i:i+5])[:220] for i in range(0,len(descriptions),5)]
+                    details['selected_motion_window']=dict(output_seconds=output_seconds,
+                        source_start=start if output_start is None else output_start,repeat=motion_repeat)
                     task+=' 本次完整动作时间轴已逐段观察并由程序组装；timeline返回空列表，只整理整体画面、真实动作概括和正反词，不能把动作改写成静止或另猜一套时序。'
                 messages[1]['content'] = [{'type': 'text', 'text': json.dumps(details, ensure_ascii=False)},
                                           {'type': 'text', 'text': task}]
             output, stats = session.complete(messages,max_tokens=3000) if evidence['assets'] else session.complete(messages)
-            if evidence['assets']:
+            if reference or (motion and describe_motion):
                 # Validate structure before any optional, bounded text-only repair.
                 parse_plan(output, {a['id'] for a in evidence['assets']}, evidence['duration'])
                 if observations.get('motion',{}).get('target_timeline'):
@@ -215,11 +239,17 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
             raise Cancelled('需求识别已取消；没有提交生成。')
         write_json(folder/'response.json', dict(content=output, **stats))
         plan = parse_plan(output, {a['id'] for a in evidence['assets']}, evidence['duration'])
+        if direct_motion:
+            from dataclasses import replace
+            from .prompt_timeline import remove_generated_summary
+            text=remove_generated_summary(plan.positive_prompt,plan.timeline)
+            guide='动作顺序、节奏、运动方向和镜头以实际动作参考为准；用目标主体替换参考主体，保留目标外观与配色，仅执行用户明确要求的改变。'
+            plan=replace(plan,timeline=[],positive_prompt=text+'\n'+guide)
         if plan.timeline:
             from dataclasses import replace
             from .prompt_timeline import remove_generated_summary
             plan=replace(plan,positive_prompt=remove_generated_summary(plan.positive_prompt,plan.timeline) or '按下方动作时间线执行，保持参考主体及画面要求。')
-        if evidence['assets']:
+        if reference or (motion and describe_motion):
             from dataclasses import replace
             facts = []
             if 'appearance' in observations:
@@ -246,11 +276,12 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
             plan = replace(plan, negative_prompt=fallback)
         selected_route = None if plan.questions else route(plan, reference=bool(reference), motion=bool(motion))
         result = dict(schema_version=1, plan=plan.to_dict(), route=selected_route, evidence=evidence,
+            timeline_clock='source' if motion else 'output',
             request=dict(brief=brief, negative=negative, selected_kind=selected_kind, reference_role=role,reference_usage=reference_usage),
-            resolved_reference_role=observations.get('appearance',{}).get('reference_use') if evidence['assets'] else None,
+            resolved_reference_role=observations.get('appearance',{}).get('reference_use') if reference or (motion and describe_motion) else None,
             elapsed_seconds=round(time.monotonic()-started, 3), model=config.get('name'),
             engine_released=True, status='needs_input' if plan.questions else 'ready')
-        if evidence['assets'] and 'motion' in observations:
+        if (reference or (motion and describe_motion)) and 'motion' in observations:
             rows = observations['motion']['frames']
             end = next(a['end'] for a in evidence['assets'] if a['id']=='motion')
             # The review timeline covers all sampled evidence even if the planner

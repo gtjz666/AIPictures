@@ -144,7 +144,7 @@ class VideoController:
             frozen=folder/('reference'+Path(reference).suffix);shutil.copyfile(reference,frozen);reference=str(frozen)
         params={'mode':'video','engine':engine,'backend':'standalone',
             'prompt':prompt,'negative':w.negative.toPlainText(),'action_description':description,'prompt_layout':'unified',
-            'seed_mode':w.seed_mode.currentData(),
+            'seed_mode':w.seed_mode.currentData(),'defer_exports':True,
             'reference':reference,'seed':seed,'seconds':self.seconds.value(),'steps':w.animation_steps.value(),
             'checkpoint':w.model.currentText(),'url':w.client.url if w.connected else None,'lora':''}
         params['h3_settings']=self.h3.copy();params['motion_timeline']=timeline

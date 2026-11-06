@@ -127,6 +127,11 @@ def prepare(path: Path, folder: Path, seconds: float, start: float,
     if not allow_tail_hold and used < (.08 if meta['duration']<.95 else .95): raise ValueError('所选动作区间不足，请提前起点或换一个片段。')
     source_count = math.floor(used * 24 + 1e-6)
     count = max(22,source_count + (5-source_count)%17) if align_h3 else source_count
+    if align_h3 and allow_tail_hold:
+        # H3 still receives the complete requested guide when a non-looping
+        # source ends early. Pad with its last real frame, never new motion.
+        requested=math.ceil(seconds*24)
+        count=max(22,requested+(5-requested)%17)
     if max_side not in (256,512,768,1024):raise ValueError('动作参考编码边长应为256、512、768或1024。')
     if folder.exists(): raise ValueError('动作参考目录已有记录，不覆盖或重复准备。')
     folder.mkdir(parents=True)

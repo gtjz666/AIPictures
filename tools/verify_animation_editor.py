@@ -41,6 +41,7 @@ def main():
         vc.motion.range_slider.setValue(0);wait_until(lambda:vc.motion.preview_offset==0)
         w.grab().save(str(proof/'before-analysis.png'))
         vc.seconds.setValue(32);assert vc.seconds.value()==8
+        vc.seconds.setValue(4)
         positive='角色保持蓝色衣服。\n从0秒开始：抬手(0.0s)→收手(0.1s)'
         result=dict(plan=dict(kind='animation',positive_prompt=positive,timeline=[dict(start=0,end=.1,description='抬手'),dict(start=.1,end=.333,description='收手')]))
         w.positive.setPlainText(positive);b.show_plan(result)
@@ -51,7 +52,9 @@ def main():
         table.setItem(0,2,QTableWidgetItem('右手向镜头挥拳'))
         assert w.positive.toPlainText().count('以下为可编辑动作时间线')==1 and '保留水彩线条。' in w.positive.toPlainText()
         assert '右手向镜头挥拳' in w.positive.toPlainText() and b.timeline.rows()[0]['description']=='右手向镜头挥拳'
-        vc.seconds.setValue(48);assert b.timeline.rows()[-1]['end']<=48
+        vc.seconds.setValue(48);assert b.timeline.rows()[-1]['end']<=8
+        assert b.timeline.rows()[0]['description']=='右手向镜头挥拳'
+        vc.seconds.setValue(4);assert b.timeline.rows()[-1]['end']<=4
         table.setItem(0,0,QTableWidgetItem('NaN'))
         try:b.timeline.rows();raise AssertionError('Invalid timing accepted')
         except ValueError:pass
@@ -61,6 +64,24 @@ def main():
         with patch.object(vc,'enqueue') as enqueue:
             assert vc.intercept();wait_until(lambda:not w.preparing)
             assert enqueue.call_args.args[0]['motion_timeline'][0]['description']=='右手向镜头挥拳'
+            assert enqueue.call_args.args[0]['motion_timeline_clock']=='output'
+            assert all(0<=r['start']<r['end']<=4 for r in enqueue.call_args.args[0]['motion_timeline'])
+        vc.motion.start.setValue(.5)
+        try:b.timeline.effective_rows();raise AssertionError('Stale source window entered queue')
+        except ValueError as exc:assert '重新分析' in str(exc)
+        vc.motion.start.setValue(0)
+        # A long, looping source must not contribute future actions to a 4s output.
+        vc.motion.repeat.setChecked(True)
+        scoped=dict(plan=dict(kind='animation',positive_prompt='保持蓝色衣服。',timeline=[
+            dict(start=0,end=2,description='抬手'),dict(start=2,end=4,description='收手'),
+            dict(start=4,end=vc.motion.meta['duration'],description='跳跃')]))
+        w.positive.setPlainText(scoped['plan']['positive_prompt']);b.show_plan(scoped)
+        assert b.timeline.rows()==[dict(start=0.,end=2.,description='抬手'),dict(start=2.,end=4.,description='收手')]
+        assert '跳跃' not in w.positive.toPlainText() and '参考素材秒数' not in w.positive.toPlainText()
+        b.timeline.table.setItem(0,2,QTableWidgetItem('右手挥向镜头'))
+        vc.seconds.setValue(6);assert b.timeline.rows()[0]['description']=='右手挥向镜头'
+        assert b.timeline.rows()[-1]['end']==6
+        vc.seconds.setValue(4);assert b.timeline.rows()[-1]['end']==4
         w.positive.setPlainText('用户重新写的动作：向左走。')
         assert not b.timeline.effective_rows(),'Manual prompt replacement must not retain a hidden old timeline.'
         # A splitter resize must refresh the actual left preview, not just the Window.

@@ -179,19 +179,23 @@ def main():
         assert 'temporary' not in w.status.text() and not w.task_display.detail.isVisible() and b.task.height()<110
         w.grab().save(str(proof/'workspace.png'))
         assert b.task.mapTo(w,QPoint(0,0)).x()+b.task.width()<=b.canvas.mapTo(w,QPoint(0,0)).x()+b.canvas.width()+2
-        b.workspace.setSizes([760,540]);b.prompt_splitter.setSizes([240,160]);b.right_tabs.setCurrentIndex(0)
+        b.workspace.setSizes([760,540]);b.prompt_splitter.setSizes([240,160]);b.right_tabs.setCurrentIndex(2)
         b.save_layout();saved=json.loads((root/'cache/workspace-layout.json').read_text('utf-8'))
-        assert saved['schema_version']==3 and saved['right_tab']=='reference'
+        assert saved['schema_version']==3 and saved['right_tab']=='prompts'
         ratio=saved['columns'][0]/sum(saved['columns'])
         w.close();QTest.qWait(40)
         restored=Window();restored.timer.stop();restored.show();QTest.qWait(70)
         sizes=restored.workbench.workspace.sizes()
         assert abs(sizes[0]/sum(sizes)-ratio)<.05 and restored.workbench.right_tabs.currentIndex()==0
-        # Old numeric pages retain their meaning after the visible order changes.
+        # Saved sizes survive, but startup always opens references in both formats.
         for old_index,key in enumerate(('prompts','animation','reference')):
             write_json(root/'cache/workspace-layout.json',dict(saved,schema_version=2,right_tab=old_index))
             restored.workbench.restore_layout()
-            assert restored.workbench.right_tabs.currentWidget()==restored.workbench.tool_pages[key]
+            assert restored.workbench.right_tabs.currentWidget()==restored.workbench.reference_items
+        for key in ('prompts','animation','reference'):
+            write_json(root/'cache/workspace-layout.json',dict(saved,right_tab=key))
+            restored.workbench.restore_layout()
+            assert restored.workbench.right_tabs.currentWidget()==restored.workbench.reference_items
         restored.workbench.reset_layout();QTest.qWait(60)
         assert restored.workbench.canvas.x()<restored.workbench.right_tabs.x() and restored.workbench.right_tabs.currentIndex()==0
         restored.resize(1280,800);QTest.qWait(40);assert restored.size().height()<=820

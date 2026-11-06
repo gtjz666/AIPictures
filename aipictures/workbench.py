@@ -172,7 +172,7 @@ class Workbench:
         self.analyze_motion.setMinimumHeight(66)
         def analyze():
             w.intent_controller.animation_mode()
-            w.intent_controller.start(False,frame_only=bool(panel.is_frames() and self.analysis_tabs.currentIndex()==1))
+            w.intent_controller.start(False,motion_detail=True,frame_only=bool(panel.is_frames() and self.analysis_tabs.currentIndex()==1))
         self.analyze_motion.clicked.connect(analyze)
         controls=QHBoxLayout();controls.addWidget(left,1);controls.addWidget(self.analyze_motion);header.addLayout(controls)
         panel.setParent(self.hidden)
@@ -239,15 +239,15 @@ class Workbench:
             editors=editors if self.valid_sizes(editors) else [300,200],right_tab=selected))
 
     def restore_layout(self):
+        # Remember pane sizes, but every new session starts at the reference page.
+        # Saved page IDs/numeric indices are retained only for older versions.
+        self.right_tabs.setCurrentWidget(self.reference_items)
         try:
             value=json.loads((self.data/'workspace-layout.json').read_text('utf-8'))
-            selected=value.get('right_tab')
-            if value['schema_version']==2 and type(selected) is int and selected in (0,1,2):
-                selected=('prompts','animation','reference')[selected]
             if (value['schema_version'] in (2,3) and self.valid_sizes(value.get('columns')) and
-                self.valid_sizes(value.get('editors')) and isinstance(selected,str) and selected in self.tool_pages):
+                self.valid_sizes(value.get('editors'))):
                 self.workspace.setSizes(value['columns']);self.prompt_splitter.setSizes(value['editors'])
-                self.right_tabs.setCurrentWidget(self.tool_pages[selected]);self._restored=True
+                self._restored=True
         except (OSError,ValueError,KeyError,TypeError):pass
 
     def open_settings(self,key):

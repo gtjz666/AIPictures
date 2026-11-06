@@ -78,7 +78,7 @@ class IntentController:
         # Analysis is an explicit action. Generation uses the visible prompts.
         return self.running
 
-    def start(self, generate: bool, *, frame_only=False):
+    def start(self, generate: bool, *, frame_only=False, motion_detail=False):
         w = self.window
         if self.running or w.preparing:
             self.notify('请等待素材准备或识别结束。'); return
@@ -88,7 +88,8 @@ class IntentController:
             self.notify('本地识别模型不可用。'); return
         if w.custom_graph is not None:
             self.notify('请先将后台预设恢复为自动选择。'); return
-        manual = w.positive.toPlainText().strip()
+        from .prompt_timeline import remove_owned_timeline
+        manual = remove_owned_timeline(w.positive.toPlainText())
         brief = manual or self.input.toPlainText().strip()
         if not brief and (w.reference_path or w.video_controller.motion.path):
             brief = '依据已提供素材制作动画，外观与动作各按其参考用途。' if w.generation_type.currentData()=='walk' else '依据参考图整理主体外观、画风与构图，生成单张图片。'
@@ -108,7 +109,9 @@ class IntentController:
         kwargs = dict(selected_kind='animation' if w.generation_type.currentData()=='walk' else 'image',
                       role=self.role.currentData(), start=motion.start.value(), seconds=w.video_controller.seconds.value(),
                       output_seconds=w.video_controller.seconds.value(),reference_usage=reference_usage)
-        if motion_path and motion.repeat.isChecked() and not frame_only:
+        if motion_path:
+            kwargs.update(output_start=motion.start.value(),motion_repeat=motion.repeat.isChecked(),describe_motion=motion_detail)
+        if motion_path and motion.repeat.isChecked() and motion_detail and not frame_only:
             # A cycle wraps to source time zero, so observe the complete source once.
             kwargs.update(start=0.,seconds=motion.meta['duration'])
         negative = w.negative.toPlainText()

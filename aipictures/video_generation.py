@@ -1,5 +1,6 @@
 """Prompt/reference -> complete animation. Matting and sprites follow explicit export."""
 import time
+import math
 from pathlib import Path
 from .engine import Cancelled
 from .storage import write_json
@@ -41,25 +42,39 @@ def generate(client, folder: Path, params: dict, cancel, emit) -> dict:
             else:
                 from .h3_backend import generate as h3_generate
             result=h3_generate(folder,params,cancel,emit)
-            source=Path(result['video'])
+            source=Path(result['video']) if result.get('video') else None
             from .video_io import preview_frames,native_rgb_frames,encode_pngs
             if result.get('native_frames'):
                 paths=[Path(p) for p in result['native_frames']];fps=24
                 manifest.update(native_rgb_preserved=result.get('native_rgb_preserved',True),native_frame_sha256=result['frame_sha256'],warnings=result.get('warnings',[]))
             elif result.get('native_rgb'):
-                paths=native_rgb_frames(Path(result['native_rgb']),folder/'preview_frames',cancel,emit);fps=24
-                result['delivery_video']=str(source)
-                source=folder/'animation_master.mp4';encode_pngs(paths,source,fps,cancel)
+                fps=24
+                if params.get('defer_exports'):
+                    from .video_io import native_rgb_info
+                    count,_,_=native_rgb_info(Path(result['native_rgb']))
+                    paths=[];manifest.update(native_rgb_source=str(Path(result['native_rgb']).resolve()),
+                                            frame_count=count,frame_storage='native_rgb')
+                else:
+                    paths=native_rgb_frames(Path(result['native_rgb']),folder/'preview_frames',cancel,emit)
+                    result['delivery_video']=str(source)
+                    source=folder/'animation_master.mp4';encode_pngs(paths,source,fps,cancel)
                 manifest.update(native_rgb_preserved=True,native_rgb_sha256=digest(Path(result['native_rgb'])))
             else:
                 paths,fps=preview_frames(source,folder/'preview_frames',cancel,emit)
                 manifest.update(native_rgb_preserved=False,warnings=['缺少原生RGB数据，预览使用交付视频解码；可能有视频压缩误差。'])
         else:
             raise ValueError('旧 Wan 动画工作流已停用；请使用 MiniMax H3。历史动画仍可预览与选帧导出。')
-        manifest.update(status='completed',source_video=str(source.resolve()),source_sha256=digest(source),
+        count=len(paths) or manifest.get('frame_count',0)
+        if params.get('defer_exports'):
+            requested=math.ceil(params['seconds']*fps)
+            kept=min(count,requested)
+            manifest.update(model_frame_count=count,alignment_tail_frames=count-kept,video_export_pending=True)
+            paths=paths[:kept];count=kept
+            if 'native_frame_sha256' in manifest:manifest['native_frame_sha256']=manifest['native_frame_sha256'][:kept]
+        manifest.update(status='completed',source_video=str(source.resolve()) if source else None,source_sha256=digest(source) if source else None,
             frames=[{'image':str(p.resolve().relative_to(folder.resolve()))} for p in paths],fps=fps,
-            frame_count=len(paths),duration_seconds=len(paths)/fps,elapsed_seconds=round(time.monotonic()-started,2),
+            frame_count=count,duration_seconds=count/fps,elapsed_seconds=round(time.monotonic()-started,2),
             source_result=result)
-        save();return {'manifest':str(folder/'video.json'),'video':str(source),'frames':[str(p) for p in paths]}
+        save();return {'manifest':str(folder/'video.json'),'video':str(source) if source else None,'frames':[str(p) for p in paths]}
     except Exception as exc:
         manifest.update(status='cancelled' if isinstance(exc,Cancelled) else 'failed',error=str(exc));save();raise
