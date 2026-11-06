@@ -1122,6 +1122,8 @@ def create_application(args=None):
 def main():
     app = create_application()
     window = Window(); window.show()
+    from .gpu_watch_ui import attach
+    attach(window)
     code=app.exec()
     # Some native segmentation libraries keep their own thread pools alive at
     # interpreter shutdown. The user's close ends this GUI process; cancellation
