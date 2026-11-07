@@ -137,7 +137,6 @@ class VideoController:
         if w.animation_source.currentData()=='reference' and not reference:raise ValueError('请添加参考图，或选择仅文字描述。')
         if not reference and not prompt:raise ValueError('无参考图时，请填写画面或角色描述。')
         timeline=w.workbench.timeline.effective_rows() if hasattr(w,'workbench') else []
-        analyzed_timeline=timeline
         if self.motion.path and hasattr(w,'workbench'):
             prompt,timeline=w.workbench.timeline.generation_input()
             if not prompt:prompt='按动作参考生成动画，保留文字和参考图指定的目标外观。'
@@ -160,8 +159,7 @@ class VideoController:
         params['motion_timeline_clock']=w.workbench.timeline.clock if hasattr(w,'workbench') else 'output'
         if self.motion.path:
             params['motion_native_settings']=self.motion_settings.copy()
-            params['motion_prompt_policy']='reference_first_v1'
-            params['motion_analysis_timeline']=analyzed_timeline
+            params['motion_prompt_policy']='reference_first_manual_v2'
             params['reference_role']=reference_role
             params['reference_usage']=reference_usage
             params.update(motion_reference=str(self.motion.path),motion_start=self.motion.start.value(),

@@ -1,10 +1,9 @@
-"""Editable target actions on the output clock; source evidence keeps its own PTS."""
+"""Optional user-authored actions on the output clock; no inferred motion rows."""
 import math
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget,QVBoxLayout,QLabel,QTableWidget,QTableWidgetItem,QHeaderView
-from .prompt_timeline import (TITLE,REFERENCE_TITLE,MANUAL_TITLE,corrected_rows,
-                              remove_owned_timeline,remove_generated_summary)
-from .motion_timing import clip_rows,source_to_output
+from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QLabel,QPushButton,
+    QTableWidget,QTableWidgetItem,QHeaderView,QAbstractItemView)
+from .prompt_timeline import MANUAL_TITLE,remove_owned_timeline
 
 
 def validate_rows(rows: list[dict], seconds: float) -> list[dict]:
@@ -27,147 +26,103 @@ def timeline_text(rows: list[dict]) -> str:
 
 class ActionTimeline(QWidget):
     def __init__(self,window):
-        super().__init__();self.window=window;self.suffix='';self.clock='output';self.seconds=window.video_controller.seconds.value()
-        self.source_rows=[];self.selection=None;self.review_intervals=[]
-        self.output_edits=None;self.edit_seconds=0.
+        super().__init__();self.window=window;self.suffix='';self.clock='output'
+        self.seconds=window.video_controller.seconds.value()
         layout=QVBoxLayout(self);layout.setContentsMargins(0,0,0,0)
-        self.heading=QLabel('动作说明 · 输出时间 / 秒');layout.addWidget(self.heading)
-        self.review_note=QLabel();self.review_note.setWordWrap(True);layout.addWidget(self.review_note);self.review_note.hide()
-        self.table=QTableWidget(0,3);self.table.setHorizontalHeaderLabels(['开始','结束','动作'])
+        heading=QHBoxLayout();self.heading=QLabel('自定义动作 · 成片时间 / 秒');heading.addWidget(self.heading,1)
+        self.add=QPushButton('＋ 时段');self.add.clicked.connect(self.add_row);heading.addWidget(self.add)
+        self.remove=QPushButton('删除所选');self.remove.clicked.connect(self.delete_selected);heading.addWidget(self.remove)
+        layout.addLayout(heading)
+        note=QLabel('可选：填写时间和动作，自动同步到提示词；留空时直接跟随参考动画。')
+        note.setObjectName('muted');note.setWordWrap(True);layout.addWidget(note)
+        self.table=QTableWidget(0,3);self.table.setHorizontalHeaderLabels(['开始 / 秒','结束 / 秒','动作要求'])
         self.table.horizontalHeader().setSectionResizeMode(0,QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1,QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2,QHeaderView.ResizeMode.Stretch)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setWordWrap(True);self.table.setMinimumHeight(200)
         self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.table.itemChanged.connect(self.edited);layout.addWidget(self.table,1)
-        self.error=QLabel();self.error.setWordWrap(True);layout.addWidget(self.error);self.hide()
+        self.remove.setEnabled(False)
+        self.table.itemSelectionChanged.connect(lambda:self.remove.setEnabled(bool(self.table.selectedIndexes())))
+        self.error=QLabel();self.error.setWordWrap(True);layout.addWidget(self.error);self.error.hide()
+        self.fill([])
         window.video_controller.seconds.valueChanged.connect(self.rescale)
-        window.video_controller.motion.start.valueChanged.connect(self.selection_changed)
-        window.video_controller.motion.repeat.toggled.connect(self.selection_changed)
 
-    def current_selection(self):
-        motion=self.window.video_controller.motion
-        return (str(motion.path),motion.start.value(),motion.repeat.isChecked())
+    def raw_rows(self):
+        return [[self.table.item(i,j).text().strip() if self.table.item(i,j) else '' for j in range(3)]
+                for i in range(self.table.rowCount())]
 
     def rows(self):
         rows=[]
-        for i in range(self.table.rowCount()):
-            values=[self.table.item(i,j).text() if self.table.item(i,j) else '' for j in range(3)]
+        for i,values in enumerate(self.raw_rows()):
+            if not any(values):continue
+            if not all(values):raise ValueError(f'请填写第{i+1}行的开始、结束和动作，或删除该行。')
             rows.append(dict(start=values[0],end=values[1],description=values[2]))
-        if self.selection is not None and self.current_selection()!=self.selection:
-            raise ValueError('参考起点或循环方式已更改，请重新分析动作；已有修改保留。')
-        return validate_rows(rows,self.window.video_controller.seconds.value())
+        return validate_rows(rows,self.seconds)
 
     def effective_rows(self):
-        # Manual prompt edits have priority. A removed/replaced timeline footer
-        # must not survive invisibly in per-segment generation parameters.
+        # A manually replaced/removed prompt wins over this editor's old rows.
         if self.suffix and self.suffix not in self.window.positive.toPlainText():return []
         return self.rows()
 
     def generation_input(self):
-        """Keep analysis visible, but submit only the user's corrected ranges.
-
-        If the user edits/replaces the footer directly in the prompt, that
-        visible text is authoritative; no hidden table is reintroduced.
-        """
-        text=self.window.positive.toPlainText()
-        rows=self.effective_rows()
-        if not self.source_rows or not self.suffix or self.suffix not in text:
-            return text.strip(),rows
-        overrides=corrected_rows(rows,self.project(self.seconds))
-        text=text.replace(self.suffix,'',1).strip()
-        if overrides:text+='\n\n'+MANUAL_TITLE+'\n'+timeline_text(overrides)
-        return text.strip(),overrides
+        return self.window.positive.toPlainText().strip(),self.effective_rows()
 
     def fill(self,rows):
-        self.table.blockSignals(True);self.table.setRowCount(len(rows))
+        self.table.blockSignals(True);self.table.setRowCount(len(rows)+1)
         for i,row in enumerate(rows):
             for j,value in enumerate((f"{row['start']:.3f}",f"{row['end']:.3f}",row['description'])):
                 self.table.setItem(i,j,QTableWidgetItem(value))
+        for j in range(3):self.table.setItem(len(rows),j,QTableWidgetItem(''))
         self.table.resizeRowsToContents();self.table.blockSignals(False)
 
-    def load_plan(self,result):
-        self.clear_plan();rows=result['plan']['timeline']
-        if not rows or result['plan']['kind']!='animation':return
-        current=self.window.positive.toPlainText()
-        if current.strip()==result['plan'].get('positive_prompt','').strip():
-            self.window.positive.setPlainText(remove_generated_summary(current,rows))
-        self.seconds=self.window.video_controller.seconds.value()
-        motion=self.window.video_controller.motion
-        self.clock='output';self.heading.setText('动作说明 · 输出时间 / 秒')
-        if motion.path:
-            self.source_rows=[dict(r) for r in rows];self.selection=self.current_selection()
-            observed=result.get('reference_timeline',[])
-            if observed and self.source_rows[-1]['end']>=observed[-1]['start']-.001:
-                # Include the final held frame through the recorded source end.
-                self.source_rows[-1]['end']=motion.meta['duration']
-            self.source_rows=validate_rows(self.source_rows,motion.meta['duration'])
-            self.source_seconds=motion.meta['duration']
-            mapped=self.project(self.seconds)
-        else:
-            span=max(r['end'] for r in rows)
-            if span<=0:return
-            mapped=[dict(r,start=r['start']/span*self.seconds,end=r['end']/span*self.seconds) for r in rows]
-        self.fill(mapped);self.setVisible(bool(mapped));self.edited()
-        self.review_intervals=result.get('motion_review_intervals',[]);self.highlight_reviews(mapped)
+    def add_row(self):
+        if any(self.raw_rows()[-1]):
+            self.table.blockSignals(True);self.table.insertRow(self.table.rowCount());self.table.blockSignals(False)
+        index=self.table.rowCount()-1
+        if not self.table.item(index,0):
+            self.table.blockSignals(True);self.table.setItem(index,0,QTableWidgetItem(''));self.table.blockSignals(False)
+        self.table.setCurrentCell(index,0);self.table.editItem(self.table.item(index,0))
 
-    def project(self,seconds):
-        return source_to_output(self.source_rows,self.source_seconds,seconds,
-                                start=self.selection[1],repeat=self.selection[2])
+    def delete_selected(self):
+        selected=sorted({i.row() for i in self.table.selectedIndexes()},reverse=True)
+        if not selected:return
+        self.window.intent_controller.animation_mode()
+        self.table.blockSignals(True)
+        for i in selected:self.table.removeRow(i)
+        if not self.table.rowCount():self.table.setRowCount(1)
+        self.table.blockSignals(False);self.edited()
 
-    def highlight_reviews(self,mapped):
-        reviews=self.review_intervals
-        self.review_note.clear();self.review_note.hide()
-        if self.selection is not None and reviews:
-            reviews=source_to_output([dict(r,description='待核对') for r in reviews],self.source_seconds,self.seconds,
-                                     start=self.selection[1],repeat=self.selection[2],hold_tail=False)
-        if reviews:
-            from PySide6.QtGui import QColor
-            self.review_note.setText(f'{len(reviews)}处细小动作待核对；采样间的轨迹不代表逐帧真值。');self.review_note.show()
-            for i,row in enumerate(mapped):
-                if any(row['start']<r['end'] and row['end']>r['start'] for r in reviews):
-                    for j in range(3):self.table.item(i,j).setBackground(QColor('#fff4d6'))
-
-    def edited(self,item=None):
-        try:rows=self.rows()
-        except ValueError as exc:self.error.setText(str(exc));self.error.show();return
-        self.error.clear();self.error.hide()
-        if item is not None and self.source_rows:
-            # Preserve manual output-time edits when shortening then extending.
-            future=clip_rows(self.output_edits or [],self.seconds,self.edit_seconds)
-            self.output_edits=rows+future;self.edit_seconds=max(self.edit_seconds,self.seconds)
-        prompt=remove_owned_timeline(self.window.positive.toPlainText())
-        title=REFERENCE_TITLE if self.source_rows else TITLE
-        self.suffix=('\n\n'+title+'\n'+
-            timeline_text(rows)) if rows else ''
-        updated=prompt+self.suffix
+    def sync_prompt(self,rows=None):
+        """Restore custom actions after explicit appearance prompt generation."""
+        if rows is None:rows=self.rows()
+        text=self.window.positive.toPlainText()
+        if self.suffix and self.suffix in text:text=text.replace(self.suffix,'',1).strip()
+        elif rows:text=remove_owned_timeline(text)
+        else:text=text.strip()
+        self.suffix=('\n\n'+MANUAL_TITLE+'\n'+timeline_text(rows)) if rows else ''
+        updated=text+self.suffix
         if updated!=self.window.positive.toPlainText():self.window.positive.setPlainText(updated)
 
-    def clear_plan(self):
-        self.review_note.clear();self.review_note.hide()
-        if self.suffix:
-            prompt=self.window.positive.toPlainText()
-            self.window.positive.setPlainText(remove_owned_timeline(prompt))
-        self.suffix='';self.clock='output';self.source_rows=[];self.selection=None;self.review_intervals=[]
-        self.output_edits=None;self.edit_seconds=0.
-        self.table.blockSignals(True);self.table.setRowCount(0);self.table.blockSignals(False)
-        self.error.clear();self.hide()
+    def edited(self,item=None):
+        if item is not None and any(any(values) for values in self.raw_rows()):
+            # Editing the animation workspace explicitly selects animation mode.
+            self.window.intent_controller.animation_mode()
+        try:rows=self.rows()
+        except ValueError as exc:self.error.setText(str(exc));self.error.show();return
+        self.error.clear();self.error.hide();self.sync_prompt(rows)
+        if self.raw_rows() and all(self.raw_rows()[-1]):
+            self.table.blockSignals(True);self.table.insertRow(self.table.rowCount());self.table.blockSignals(False)
+        self.table.resizeRowsToContents()
 
-    def selection_changed(self,*_):
-        if self.table.rowCount():self.edited()
+    def clear_plan(self):
+        if self.suffix and self.suffix in self.window.positive.toPlainText():
+            self.window.positive.setPlainText(self.window.positive.toPlainText().replace(self.suffix,'',1).strip())
+        self.suffix='';self.fill([]);self.error.clear();self.error.hide()
 
     def rescale(self,seconds):
-        old=self.seconds;self.seconds=seconds
-        if not self.table.rowCount() or old<=0:return
-        # A replaced prompt is authoritative; changing duration cannot reinsert
-        # the editor's old hidden footer.
+        # User-entered seconds are absolute output times, never stretched to fit.
+        self.seconds=seconds
         if self.suffix and self.suffix not in self.window.positive.toPlainText():return
-        try:rows=validate_rows([dict(start=self.table.item(i,0).text(),end=self.table.item(i,1).text(),description=self.table.item(i,2).text())
-                               for i in range(self.table.rowCount())],old)
-        except ValueError:self.edited();return
-        if self.source_rows:
-            mapped=self.project(seconds)
-            if self.output_edits is not None:
-                mapped=clip_rows(self.output_edits,0.,seconds)+clip_rows(mapped,self.edit_seconds,seconds)
-            self.fill(mapped);self.highlight_reviews(mapped);self.edited();return
-        self.fill([dict(r,start=r['start']/old*seconds,end=r['end']/old*seconds) for r in rows]);self.edited()
+        self.edited()

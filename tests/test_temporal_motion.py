@@ -6,7 +6,6 @@ import pytest
 from PIL import Image,ImageDraw
 
 from aipictures.intent_media import prepare
-from aipictures.local_intent import analyze
 from aipictures.temporal_motion import observe_motion,describe_change
 
 
@@ -30,16 +29,18 @@ def source(tmp_path:Path,count=70):
     return path
 
 
-def test_dense_sampling_and_program_owned_timeline_cover_source(tmp_path):
+def test_archived_dense_observer_still_covers_source(tmp_path):
+    # Historical utility only: the application no longer calls this observer.
     clip=source(tmp_path);original=clip.read_bytes()
-    result=analyze({'name':'fixture'},'按照动作素材制作动画','',None,clip,tmp_path/'analysis',threading.Event(),
-        selected_kind='animation',seconds=30,session_factory=Session)
-    evidence=result['evidence']['assets'][0]
-    assert len(evidence['frames'])==64
-    rows=result['plan']['timeline']
+    folder=tmp_path/'analysis'
+    _,evidence=prepare(None,clip,folder,threading.Event(),max_frames=64,seconds=30)
+    asset=evidence['assets'][0];session=Session()
+    assert len(asset['frames'])==64
+    result=observe_motion(session,asset,folder,{},'')
+    rows=result['target_timeline']
     assert rows[0]['start']==0 and rows[-1]['end']==pytest.approx(2.8)
     assert all(a['end']==b['start'] for a,b in zip(rows,rows[1:]))
-    assert len(rows)>8 and result['engine_released']
+    assert len(rows)>8 and session.calls>0
     assert clip.read_bytes()==original
 
 

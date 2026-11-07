@@ -3,14 +3,15 @@ import re
 
 TITLE='以下为可编辑动作时间线，以此处时序为准：'
 REFERENCE_TITLE='以下为可编辑动作时间线（自动分析供核对，动作以参考视频为准）：'
-MANUAL_TITLE='用户修改的动作时间线（仅覆盖对应时间段，其余以参考视频为准）：'
+LEGACY_MANUAL_TITLE='用户修改的动作时间线（仅覆盖对应时间段，其余以参考视频为准）：'
+MANUAL_TITLE='用户修改的动作时间线（成片时间 / 秒）：'
 ROW=re.compile(r'^\s*\d+(?:\.\d+)?\s*[–—-]\s*\d+(?:\.\d+)?\s*秒[：:]')
 
 
 def remove_owned_timeline(text:str)->str:
     lines=text.splitlines();out=[];i=0
     while i<len(lines):
-        if lines[i].strip() in (TITLE,REFERENCE_TITLE,MANUAL_TITLE):
+        if lines[i].strip() in (TITLE,REFERENCE_TITLE,MANUAL_TITLE,LEGACY_MANUAL_TITLE):
             i+=1
             if i<len(lines) and lines[i].startswith('时间为参考素材秒数；'):i+=1
             while i<len(lines) and ROW.match(lines[i]):i+=1

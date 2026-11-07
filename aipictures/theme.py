@@ -54,6 +54,9 @@ QLabel#sourceCaption { color:#727987; font-size:11px; background:transparent; }
 QPushButton#primary { background:#4056a1; color:#ffffff; border:1px solid #4056a1; font-weight:600; border-radius:10px; }
 QPushButton#primary:hover { background:#344986; border-color:#344986; }
 QPushButton#primary:disabled { background:#bfc1c5; color:#f4f4f4; border-color:#bfc1c5; }
+QPushButton#promptGenerate { background:#edf1ff; color:#4056a1; border-color:#b8c5ef; font-weight:600; }
+QPushButton#promptGenerate:hover { background:#dfe7ff; border-color:#8da2df; }
+QPushButton#promptGenerate:disabled { background:#f3f4f8; color:#a6a9b0; border-color:#e4e6ee; }
 QLineEdit:disabled,QComboBox:disabled,QSpinBox:disabled,QDoubleSpinBox:disabled { background:#f7f8fa; color:#9ea3ab; }
 QTabWidget::pane { border:1px solid #e5e7eb; border-radius:10px; background:#ffffff; }
 QTabBar::tab { background:#ffffff; color:#757982; padding:9px 14px; border:0; border-bottom:2px solid transparent; }

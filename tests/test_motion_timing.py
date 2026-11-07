@@ -82,15 +82,19 @@ def test_direct_motion_with_appearance_does_not_send_unobserved_gif_to_observer(
     assert result['resolved_reference_role']=='appearance'
 
 
-def test_detailed_analysis_keeps_uncertain_motion_out_of_prompt_planning(tmp_path):
+def test_retired_motion_analysis_stops_before_reading_video_or_loading_model(tmp_path):
+    from aipictures.local_intent import analyze
+    with patch('aipictures.intent_media.prepare') as prepare,patch('aipictures.intent_observation.observe') as observe:
+        with pytest.raises(ValueError,match='动画内容分析已停用'):
+            analyze({},'模仿参考','',None,tmp_path/'source.gif',tmp_path/'job',threading.Event(),describe_motion=True)
+        prepare.assert_not_called();observe.assert_not_called()
+    assert not (tmp_path/'job').exists()
+
+
+def test_default_motion_path_never_decodes_video_or_accepts_generated_timeline(tmp_path):
     from aipictures.local_intent import analyze
     gif=tmp_path/'source.gif'
-    Image.new('RGB',(16,24),'red').save(gif,save_all=True,
-        append_images=[Image.new('RGB',(16,24),'blue')],duration=[1000,1000])
-    timeline=[dict(start=0,end=1,description='猜测动作一'),dict(start=1,end=2,description='猜测动作二')]
-    observations=dict(motion=dict(target_timeline=timeline,
-        frames=[dict(time=0,pose='猜测动作一'),dict(time=1,pose='猜测动作二')],
-        camera='猜测固定全身构图',summaries=['猜测动作一'],uncertainties='待核对',method='test'))
+    gif.write_bytes(b'not decoded by the prompt generator')
     class Session:
         calls=0
         def __init__(self,*_):pass
@@ -101,13 +105,13 @@ def test_detailed_analysis_keeps_uncertain_motion_out_of_prompt_planning(tmp_pat
             details=json.loads(messages[1]['content'][0]['text'])
             assert details['motion_reference_priority']=='video_first'
             assert '猜测' not in json.dumps(details,ensure_ascii=False)
-            assert '不能将分析中的动作' in messages[1]['content'][-1]['text']
             return json.dumps(dict(kind='animation',summary='角色替换',positive_prompt='蓝色机器人',
-                negative_prompt='身份突变',timeline=[],observations=[],questions=[])),{}
-    with patch('aipictures.intent_observation.observe',return_value=observations):
+                negative_prompt='身份突变',timeline=[dict(start=88,end=99,description='错误推测动作')],observations=[],questions=[])),{}
+    with patch('aipictures.intent_observation.observe') as observe:
         result=analyze({},'蓝色机器人模仿参考','用户原有排除项',None,gif,tmp_path/'job',threading.Event(),
-            selected_kind='animation',seconds=2,output_seconds=2,describe_motion=True,session_factory=Session)
-    assert Session.calls==1 and result['plan']['timeline']==timeline
+            selected_kind='animation',seconds=2,output_seconds=2,session_factory=Session)
+        observe.assert_not_called()
+    assert Session.calls==1 and result['plan']['timeline']==[] and result['timeline_clock']=='output'
     assert '实际动作参考为准' in result['plan']['positive_prompt']
     assert '猜测' not in result['plan']['positive_prompt']
     assert '用户原有排除项' in result['plan']['negative_prompt']

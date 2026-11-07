@@ -146,10 +146,13 @@ class Workbench:
         c=w.intent_controller;content=QWidget();layout=QVBoxLayout(content);layout.setContentsMargins(8,6,8,6)
         positive_layout=w.positive.parentWidget().layout()
         title=positive_layout.takeAt(0).widget();heading=QHBoxLayout();heading.addWidget(title);heading.addStretch();heading.addWidget(c.role)
+        c.organize.setText('自动生成提示词');c.organize.setObjectName('promptGenerate')
+        c.organize.setToolTip('识别参考图用途并整理正反提示词，保留手动动作时段。')
+        heading.addWidget(c.organize)
         positive_layout.insertLayout(0,heading);c.role.show()
         positive_layout.insertWidget(1,c.role_note)
         layout.addWidget(self.prompts,1)
-        c.organize.setText('自动生成提示词');layout.addWidget(c.organize);layout.addWidget(c.note)
+        layout.addWidget(c.note)
         self.prompt_page=self.scroll_page(content)
 
     def make_animation(self,w):
@@ -168,13 +171,7 @@ class Workbench:
         panel.range_button.setParent(self.hidden)
         left=QWidget();self.motion_selection=left;selection=QVBoxLayout(left);selection.setContentsMargins(0,0,0,0)
         selection.addWidget(panel.repeat);selection.addWidget(panel.start_note);selection.addWidget(panel.range_slider)
-        self.analyze_motion=QPushButton('分析动作');self.analyze_motion.setEnabled(bool(w.intent_controller.config))
-        self.analyze_motion.setMinimumHeight(66)
-        def analyze():
-            w.intent_controller.animation_mode()
-            w.intent_controller.start(False,motion_detail=True,frame_only=bool(panel.is_frames() and self.analysis_tabs.currentIndex()==1))
-        self.analyze_motion.clicked.connect(analyze)
-        controls=QHBoxLayout();controls.addWidget(left,1);controls.addWidget(self.analyze_motion);header.addLayout(controls)
+        header.addWidget(left)
         panel.setParent(self.hidden)
         self.reference_player.loop.hide();self.reference_player.loop.setChecked(panel.repeat.isChecked())
         panel.repeat.toggled.connect(self.reference_player.loop.setChecked)
@@ -183,17 +180,10 @@ class Workbench:
         duration=QHBoxLayout();duration.addWidget(QLabel('时长 / 秒'));duration.addWidget(w.video_controller.seconds,1);header.addLayout(duration)
         layout.addWidget(self.animation_header,0,Qt.AlignmentFlag.AlignTop)
         from .animation_timeline import ActionTimeline
-        # The empty region remains present before analysis and after removing a
-        # source; hiding the editor must never stretch the header's inner rows.
+        # Custom actions are always available, including without a motion source.
         self.timeline_region=QWidget();self.timeline_region.setMinimumHeight(200)
         region=QVBoxLayout(self.timeline_region);region.setContentsMargins(0,0,0,0)
-        self.analysis_tabs=QTabWidget();region.addWidget(self.analysis_tabs,1)
-        page=QWidget();page_layout=QVBoxLayout(page);page_layout.setContentsMargins(0,0,0,0)
-        self.timeline=ActionTimeline(w);page_layout.addWidget(self.timeline)
-        self.analysis_tabs.addTab(page,'动作说明')
-        from .frame_review import FrameReview
-        self.frame_review=FrameReview(panel);self.analysis_tabs.addTab(self.frame_review,'帧内容');self.analysis_tabs.setTabVisible(1,False)
-        self.analysis_tabs.tabBar().hide()
+        self.timeline=ActionTimeline(w);region.addWidget(self.timeline,1)
         layout.addWidget(self.timeline_region,1)
         self.animation=self.scroll_page(content)
 
@@ -302,9 +292,6 @@ class Workbench:
     def motion_changed(self):
         panel=self.window.video_controller.motion
         self.refresh_motion_asset()
-        self.analysis_tabs.setTabVisible(1,panel.is_frames())
-        self.analysis_tabs.tabBar().setVisible(panel.is_frames())
-        self.analysis_tabs.setCurrentIndex(1 if panel.is_frames() else 0)
         if panel.path and panel.preview_paths:
             self.right_tabs.setCurrentWidget(self.reference_items)
             self.show_motion_reference()
@@ -313,13 +300,9 @@ class Workbench:
         self.refresh_asset_selection()
 
     def show_plan(self,result):
+        # Old records may contain inferred actions. Never populate the manual grid.
         self.plan=result
-        self.timeline.load_plan(result)
-        self.analysis_tabs.setCurrentIndex(0)
-
-    def show_frame_analysis(self,result):
-        self.frame_review.add_result(result);self.analysis_tabs.setCurrentIndex(1)
 
     def show_timeline(self):
         self.right_tabs.setCurrentWidget(self.animation)
-        if self.plan:self.timeline.show();self.timeline.table.setFocus()
+        self.timeline.table.setFocus()

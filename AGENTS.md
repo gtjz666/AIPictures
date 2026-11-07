@@ -11,8 +11,8 @@
 ## 项目入口
 
 - `aipictures/app.py`：独立桌面界面；`run.bat` 启动。
-- `intent_controller.py` / `local_intent.py` / `intent_media.py` / `intent_observation.py` / `intent_plan.py` / `intent_quality.py`：按钮触发的本地Qwen3-VL识别，外观/逐帧动作分开观察、严格校验和有限跨物种修复；识别进程退出后才允许生成。素材变化清除旧分析，不自动重跑，不覆盖用户手动词。不要把结构通过说成100%语义准确。
-- `temporal_motion.py` / `foot_evidence.py`：最多64观察点、重叠六格、同帧下半部放大、有限状态和原PTS拼时间轴；模型不重猜时间。纯色背景两块清晰低部区域可补充相对足部高度，不是地面接触/解剖左右真值。无法区分的动态区间标黄待核对，不冒充静止。视觉token预算1024–2048、每次一图组，禁止64张高预算图片一次提交。精度仍有局限，详见docs/TEMPORAL_MOTION_REVIEW.md。
+- `intent_controller.py` / `local_intent.py` / `intent_media.py` / `intent_observation.py` / `intent_plan.py` / `intent_quality.py`：按钮触发Qwen3-VL参考图用途/外观识别和提示词整理，识别进程退出后才允许生成。动画内容分析已停用；describe_motion默认false，显式true在模型启动前报错。规划schema的timeline必须为空，非空旧结果也不进入动作表。共用Qwen3-VL权重与视觉投影仍用于人物/风格/自定义参考图，不得因停用动作分析删除共用模型。不自动重跑或覆盖手动词。
+- `temporal_motion.py` / `foot_evidence.py` / `frame_review.py`：历史动作观察研究与回归工具，不再由普通界面调用；不要恢复分析按钮、逐帧内容页或自动动作表。历史方法与精度限制见docs/TEMPORAL_MOTION_REVIEW.md。
 - `workbench.py` / `theme.py`：固定左右布局，左侧成品画布/播放导出/底部任务，右侧顶部参考/动画/提示词标签；参考页上图片下动作，播放器独立，不能覆盖成品。分隔线调大小，不允许拖动重排/浮动。每次启动固定打开参考页，schema2/3只恢复尺寸，不恢复历史栏目；忽略旧自由停靠状态。默认自由动作，原始源PTS保留，动作编辑和提示词统一到请求的输出时间。
 - `aipictures/engine.py`、`backend_connection.py`：ComfyUI 请求、任务监控和共享后端。
 - `aipictures/general_image.py`：通用单张生成；不要重新强制限定立绘、人物或侧视。
@@ -22,8 +22,8 @@
 - `api_config.py` / `api_dialog.py` / `api_controller.py`：用户自带 API 设置、密钥保护及单图队列；`api_generation.py` / `api_transport.py` / `smart_generation.py`：独立云端生图与可选文字整理。不要读取其他软件的 Key，不因超时自动重复付费 POST；聊天 Key 不等于生图权限。
 - `pose_animation.py`、`motion_*`、`natural_motion.py`：旧骨骼/Wan研究档案，正常软件入口已经退役，不重新开放或安装模型。历史结果仍可读。
 - `video_controller.py` / `video_generation.py` / `video_preview.py`：MiniMax H3完整自由动画先预览，再自主选帧导出；没有已验证H3时明确不可用，不切回Wan。`h3_backend.py`使用独立环境。
-- `animation_timeline.py` / `prompt_timeline.py` / `frame_review.py`：右侧只留分析动作，循环/起点滑条在左。自动区分PNG帧内容（仅所选源帧）和动作说明（可编辑目标动作表），不恢复只读弹窗。`motion_timing.py`按真实起点截取/回绕到输出时间，不拉伸源动作；起点/循环变化需重新分析并保留旧编辑，阻止旧时序入队。提示词只保留一份详细时序，动作表修改同步，非法时序阻止入队；帧内容分析不覆盖生成词。有动作参考时自动提示词默认只观察外观，详细动作观察仅在分析按钮触发。
-- 有实际动作参考时按reference_first_v1：自动分析时间线仅供核对，不强制驱动生成；仅手动修正范围进入motion_timeline，整表保留motion_analysis_timeline，user_prompt保留可见原文。实际Ref2VA提示词使用视频动作/节奏/表情/镜头，按冻结的reference_role/reference_usage使用图片；不固定全身或机位。组装出时间线后，外观规划器不再消费不确定的动作概括。明确用户修改仍优先；不得静默丢弃用户文字或将语义优先级冒充数值条件权重。见docs/REFERENCE_MOTION_PRIORITY.md。
+- `animation_timeline.py` / `prompt_timeline.py`：动画页始终显示空白自定义动作表，可添加/删除时段；只有用户填写内容同步提示词。时间为绝对成片秒数，不随时长同比缩放；不完整/倒序/重叠/越界阻止入队。参考起点、循环或用途更换保留手填要求，不需重新分析。直接替换/删除的提示词优先，不能恢复隐藏旧表；自动生成提示词须保留手填动作，生成期间未完成的表格编辑也要使旧结果失效。用途选择与浅蓝「自动生成提示词」按钮在正向标题右侧同排。
+- 有实际动作参考时按reference_first_manual_v2：只有手填时段进入motion_timeline，不生成motion_analysis_timeline；user_prompt保留可见原文。真实Ref2VA提示词按视频提供动作/节奏/表情/镜头，按冻结的reference_role/reference_usage使用图片，不固定全身或机位。空表不依赖识别即可生成，旧分析结果不得自动填表。不得把语义时刻要求说成硬关键帧控制。见docs/REFERENCE_MOTION_PRIORITY.md。
 - `video_chain.py`保留串行短段研究，普通末帧I2V、Ref2VA AddGuide；OS锁、条件保存和SHA避免重复任务。当前用户界面及历史未完成长片继续均暂不开放超过8秒生成，已完成成片仍可播放/导出。不把测试拼接或单段续接说成长片画质验收。详见docs/ANIMATION_EDITOR.md。
 - `motion_reference_ui.py` / `motion_guide.py` / `frame_motion_input.py`：动画模式独立动作视频/GIF或PNG序列按钮，角色图不混用；PNG自然排序/FPS与GIF逐帧延时入队冻结。`motion_native_backend.py` / `motion_native_graph.py`使用专用Ref2VA及私有Comfy进程，不能用FreeVideo FL2VA/VDN快速权重冒充。新模型/环境经完整生成和目视验收后注册，未通过不开放生成。`motion_reference.py`是原研究模块，不覆盖其历史接口。
 - Windows参考动画使用自有逐张量读取器避免safetensors整文件映射瞬时提交，先完整保存官方编码条件并退出编码进程，再独立采样；条件/嵌套AV潜变量必须原字节保留，不用pickle。私有进程同步卸载、禁锁页传输并reserve-vram3GiB；不凭失败后的RAM数值推断失败瞬间峰值，不擅自改系统分页。详见docs/WINDOWS_MODEL_LOADING.md。
@@ -50,7 +50,7 @@
 - 用户已明确不再需要在聊天中发送 GIF，用户自行在软件查看再反馈。只有再次明确请求时才展示。云端协议测试通过不等于真实服务画质验收，未配置用户 Key 时如实说明。
 - 用户最新流程允许本地助手根据素材和需求自动整理提示词，区别于旧固定角色模板；助手可关闭。已审核提示词的手动编辑优先，不反复自动重写。当前一张外观/风格图＋一份动作素材，多PNG只作为经确认的动作序列，不冒充任意多参考联合生成。
 - 最新界面要求：名称AlI；主要区域固定左右位置，仅调整大小。左侧棋盘可接收素材但只显示成品，参考内容只在右侧参考页独立显示；右侧参考、动画、提示词标签一次显示一个。任务仅在左下方。不要恢复自由停靠、拖动换位、主面板浮动或跨全窗口任务栏。顶部入口、内部编辑器/日志兼容接口保持，普通debug/Ctrl+J入口不恢复。
-- 素材导入、修改和点击生成均不得自动触发本地识别，只有「自动生成提示词」「分析动作」按钮显式触发。导入后立即预览并显示在对应素材区域；更换素材清除旧分析。任务区仅名称、进度、耗时，详细错误可点击失败任务查看。实际种子在采样面板复制/复用，不重复展示主画面说明。
+- 素材导入、修改和点击生成均不得自动触发本地识别，只有「自动生成提示词」显式识别参考图与需求，不分析动画内容。导入立即预览，更换素材清除旧自动识别记录但保留用户成片时间动作。任务区仅名称、进度、耗时，详细错误可点击失败任务查看。实际种子在采样面板复制/复用，不重复展示主画面说明。
 - 参考页上半图片、下半动画，可暂停/定位、悬停右上角×移除；导入、播放、定位、移除不更改左侧成品/播放器/导出。正向提示词标题右侧同一选择框提供人物／外观、风格、自定义；自定义填写用途，只在按钮识别时传给读图和计划，风格观察不传参考人物身份与站姿。自定义允许替换物种，不强套原人物人体结构。播放/暂停统一经典三角/双竖线，保留可访问名称。PNG文件夹自动自然排序，读元数据FPS，缺省24；不自动识别。动作模板隐藏，长视频暂不可用，生成2–8秒，历史长片只播放/导出。
 
 ## 长任务与文件规则

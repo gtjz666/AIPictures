@@ -1,140 +1,147 @@
-"""Qt video-only drop, editable target actions, and queue snapshot. No model calls."""
+"""Actual Qt manual action grid, prompt sync and queue snapshot. No model calls."""
 import tempfile
+import threading
 from pathlib import Path
 from unittest.mock import patch
 from PIL import Image
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt,QPoint
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QTableWidgetItem
+from PySide6.QtWidgets import QTableWidgetItem,QPushButton
 from aipictures.app import Window,create_application
 from aipictures.storage import write_json
 from aipictures.video_io import encode_pngs
 from tools.verify_dock_workspace import drop,wait_until
-import threading
 
 
 def main():
-    app=create_application([]);proof=Path('data/acceptance/animation-editor-qt-20261104').resolve();proof.mkdir(parents=True,exist_ok=True)
+    app=create_application([]);proof=Path('data/acceptance/manual-motion-editor-20261107/ui').resolve()
+    proof.mkdir(parents=True,exist_ok=True);calls=[]
+    def organize(*args,**kwargs):
+        calls.append(kwargs)
+        # An old/nonconforming model response must never populate the grid.
+        return dict(plan=dict(kind='animation',positive_prompt='蓝色机器人，保留水彩线条。',negative_prompt='身份突变',
+            summary='仅界面协议检查',observations=[],questions=[],timeline=[dict(start=0,end=99,description='错误自动动作')]))
     with tempfile.TemporaryDirectory() as temporary,patch('aipictures.app.DATA',Path(temporary)/'cache'), \
-         patch.object(Window,'auto_connect_engine'),patch.object(Window,'restore_chat'),patch.object(Window,'refresh_stats'):
+         patch.object(Window,'auto_connect_engine'),patch.object(Window,'restore_chat'),patch.object(Window,'refresh_stats'), \
+         patch('aipictures.intent_controller.settings',return_value={'name':'protocol fixture'}), \
+         patch('aipictures.intent_controller.analyze',side_effect=organize):
         root=Path(temporary);paths=[]
         for i in range(128):
             p=root/f'{i}.png';Image.new('RGB',(96,144),(30+i,50,160)).save(p);paths.append(p)
         clip=root/'motion.mp4';encode_pngs(paths,clip,24,threading.Event())
-        w=Window();w.timer.stop();w.resize(1280,800);w.show();QTest.qWait(100)
-        b=w.workbench;vc=w.video_controller
-        drop(app,w.preview,[clip]);wait_until(lambda:not w.preparing);QTest.qWait(100)
-        assert w.reference_path is None and b.right_tabs.currentIndex()==0 and w.pixmap.isNull()
-        assert not b.motion_item._pixmap.isNull() and b.reference_player.isVisible()
-        b.right_tabs.setCurrentIndex(1)
-        assert b.analyze_motion.isVisible() and not vc.motion.range_button.isVisible()
-        assert not w.animation_action.isVisible() and not b.creation_kind.model().item(1).isEnabled()
-        assert not w.intent_controller.running and not w.current
-        assert b.timeline_region.isVisible() and not b.timeline.isVisible()
-        assert b.timeline_region.height()>=200 and b.animation_header.height()<270
-        assert not vc.motion.play.isVisible()
-        assert not b.motion_item._pixmap.isNull() and not vc.motion.asset_header.isVisible()
-        assert b.motion_item.isAncestorOf(b.motion_item.thumb)
-        vc.motion.range_slider.setValue(4500)
-        wait_until(lambda:vc.motion.preview_offset>=4.49)
-        assert w.preview_role is None and not b.motion_item._pixmap.isNull()
-        vc.motion.range_slider.setValue(0);wait_until(lambda:vc.motion.preview_offset==0)
-        w.grab().save(str(proof/'before-analysis.png'))
-        vc.seconds.setValue(32);assert vc.seconds.value()==8
-        vc.seconds.setValue(4)
-        positive='角色保持蓝色衣服。\n从0秒开始：抬手(0.0s)→收手(0.1s)'
-        result=dict(plan=dict(kind='animation',positive_prompt=positive,timeline=[dict(start=0,end=.1,description='抬手'),dict(start=.1,end=.333,description='收手')]))
-        w.positive.setPlainText(positive);b.show_plan(result)
-        assert '从0秒开始' not in w.positive.toPlainText() and '蓝色衣服' in w.positive.toPlainText()
-        assert b.timeline.isVisible() and b.timeline.table.rowCount()==2
-        text,overrides=b.timeline.generation_input()
-        assert not overrides and '抬手' not in text and '收手' not in text
-        assert '蓝色衣服' in text and '自动分析供核对' in w.positive.toPlainText()
+        w=Window();w.timer.stop();w.resize(1360,900);w.show();QTest.qWait(80)
+        b=w.workbench;vc=w.video_controller;t=b.timeline;c=w.intent_controller
         vc.h3={'validated':True};vc.motion_settings={'validated':True}
+        b.right_tabs.setCurrentWidget(b.animation)
+        assert t.isVisible() and t.rows()==[] and t.table.rowCount()==1
+        assert not any(button.text()=='分析动作' for button in w.findChildren(QPushButton))
+        assert not hasattr(b,'frame_review') and not hasattr(b,'analysis_tabs')
+        w.grab().save(str(proof/'empty-table.png'))
+        drop(app,w.preview,[clip]);wait_until(lambda:not w.preparing)
+        assert not calls and not w.intent_controller.running and not w.current
+        assert w.reference_path is None and w.pixmap.isNull() and not b.motion_item._pixmap.isNull()
+        assert b.right_tabs.currentWidget()==b.reference_items
+        vc.seconds.setValue(4);w.positive.setPlainText('蓝色机器人，跟随参考动画。')
+        # Generate without ever organizing prompts or analyzing the motion.
         with patch.object(vc,'enqueue') as enqueue:
             assert vc.intercept();wait_until(lambda:not w.preparing)
             frozen=enqueue.call_args.args[0]
-            assert frozen['motion_timeline']==[] and len(frozen['motion_analysis_timeline'])==2
-            assert '抬手' not in frozen['prompt'] and '收手' not in frozen['prompt']
-            assert '收手' in frozen['user_prompt']
-        table=b.timeline.table;table.setItem(0,2,QTableWidgetItem('右手向镜头挥拳'))
-        w.positive.setPlainText(w.positive.toPlainText()+'\n\n保留水彩线条。')
-        table.setItem(0,2,QTableWidgetItem('右手向镜头挥拳'))
-        assert w.positive.toPlainText().count('以下为可编辑动作时间线')==1 and '保留水彩线条。' in w.positive.toPlainText()
-        assert '右手向镜头挥拳' in w.positive.toPlainText() and b.timeline.rows()[0]['description']=='右手向镜头挥拳'
-        text,overrides=b.timeline.generation_input()
-        assert len(overrides)==1 and overrides[0]['description']=='右手向镜头挥拳'
-        assert '右手向镜头挥拳' in text and '收手' not in text and '保留水彩线条' in text
-        vc.seconds.setValue(48);assert b.timeline.rows()[-1]['end']<=8
-        assert b.timeline.rows()[0]['description']=='右手向镜头挥拳'
-        vc.seconds.setValue(4);assert b.timeline.rows()[-1]['end']<=4
-        table.setItem(0,0,QTableWidgetItem('NaN'))
-        try:b.timeline.rows();raise AssertionError('Invalid timing accepted')
-        except ValueError:pass
-        table.setItem(0,0,QTableWidgetItem('0'))
-        vc.h3={'validated':True};vc.motion_settings={'validated':True}
-        # The actual controller must freeze edited rows into the queued job.
+            assert frozen['motion_timeline']==[] and '时间线' not in frozen['prompt']
+            assert frozen['motion_prompt_policy']=='reference_first_manual_v2'
+        b.right_tabs.setCurrentWidget(b.animation)
+        t.table.setItem(0,0,QTableWidgetItem('1.0'))
+        t.table.setItem(0,1,QTableWidgetItem('2.0'))
+        t.table.setItem(0,2,QTableWidgetItem('右手向镜头挥拳'))
+        assert t.rows()==[dict(start=1.,end=2.,description='右手向镜头挥拳')]
+        assert t.table.rowCount()==2 and w.positive.toPlainText().count('用户修改的动作时间线')==1
+        assert '1.000–2.000秒：右手向镜头挥拳' in w.positive.toPlainText()
+        # Source selection changes do not invalidate output-time custom actions.
+        vc.motion.start.setValue(.5);vc.motion.repeat.setChecked(True)
+        assert t.effective_rows()[0]['start']==1 and not t.error.isVisible()
+        vc.seconds.setValue(6);assert t.rows()[0]['end']==2
+        vc.seconds.setValue(4);assert t.rows()[0]['end']==2
         with patch.object(vc,'enqueue') as enqueue:
             assert vc.intercept();wait_until(lambda:not w.preparing)
-            assert enqueue.call_args.args[0]['motion_timeline'][0]['description']=='右手向镜头挥拳'
-            assert enqueue.call_args.args[0]['motion_timeline_clock']=='output'
-            assert all(0<=r['start']<r['end']<=4 for r in enqueue.call_args.args[0]['motion_timeline'])
-            assert len(enqueue.call_args.args[0]['motion_timeline'])==1
-            assert len(enqueue.call_args.args[0]['motion_analysis_timeline'])==2
-            assert '收手' not in enqueue.call_args.args[0]['prompt']
-            assert '收手' in enqueue.call_args.args[0]['user_prompt']
-            assert enqueue.call_args.args[0]['motion_prompt_policy']=='reference_first_v1'
-        vc.motion.start.setValue(.5)
-        try:b.timeline.effective_rows();raise AssertionError('Stale source window entered queue')
-        except ValueError as exc:assert '重新分析' in str(exc)
-        vc.motion.start.setValue(0)
-        # A long, looping source must not contribute future actions to a 4s output.
-        vc.motion.repeat.setChecked(True)
-        scoped=dict(plan=dict(kind='animation',positive_prompt='保持蓝色衣服。',timeline=[
-            dict(start=0,end=2,description='抬手'),dict(start=2,end=4,description='收手'),
-            dict(start=4,end=vc.motion.meta['duration'],description='跳跃')]))
-        w.positive.setPlainText(scoped['plan']['positive_prompt']);b.show_plan(scoped)
-        assert b.timeline.rows()==[dict(start=0.,end=2.,description='抬手'),dict(start=2.,end=4.,description='收手')]
-        assert '跳跃' not in w.positive.toPlainText() and '参考素材秒数' not in w.positive.toPlainText()
-        b.timeline.table.setItem(0,2,QTableWidgetItem('右手挥向镜头'))
-        vc.seconds.setValue(6);assert b.timeline.rows()[0]['description']=='右手挥向镜头'
-        assert b.timeline.rows()[-1]['end']==6
-        assert [r['description'] for r in b.timeline.generation_input()[1]]==['右手挥向镜头']
-        vc.seconds.setValue(4);assert b.timeline.rows()[-1]['end']==4
-        assert [r['description'] for r in b.timeline.generation_input()[1]]==['右手挥向镜头']
-        # Direct prompt corrections are also explicit; never restore hidden rows.
-        direct=w.positive.toPlainText().replace('收手','蹲下')
-        w.positive.setPlainText(direct)
-        assert b.timeline.generation_input()==(direct,[])
-        w.positive.setPlainText('用户重新写的动作：向左走。')
-        assert not b.timeline.effective_rows(),'Manual prompt replacement must not retain a hidden old timeline.'
-        assert b.timeline.generation_input()==('用户重新写的动作：向左走。',[])
-        # Purpose selection is frozen at enqueue and does not revert to identity.
-        w.set_reference(str(paths[0]));w.positive.setPlainText('蓝色机器人，跟随动作参考。')
+            frozen=enqueue.call_args.args[0]
+            assert frozen['motion_timeline']==t.rows() and frozen['motion_timeline_clock']=='output'
+            assert frozen['prompt']==w.positive.toPlainText().strip()
+        # Invalid output times and partial rows stop queueing before file creation.
+        t.table.setItem(0,1,QTableWidgetItem('9'))
+        with patch.object(vc,'new_folder') as create:
+            try:vc.intercept();raise AssertionError('Out-of-range custom time entered queue')
+            except ValueError:pass
+            create.assert_not_called()
+        t.table.setItem(0,1,QTableWidgetItem('2'))
+        t.table.setItem(1,0,QTableWidgetItem('3'))
+        with patch.object(vc,'new_folder') as create:
+            try:vc.intercept();raise AssertionError('Partial custom row entered queue')
+            except ValueError:pass
+            create.assert_not_called()
+        t.table.selectRow(1);QTest.mouseClick(t.remove,Qt.MouseButton.LeftButton)
+        assert t.rows()[0]['description']=='右手向镜头挥拳'
+        # The prompt action is beside the purpose selector, with a separate style.
+        b.right_tabs.setCurrentWidget(b.prompt_page);QTest.qWait(30)
+        role_point=c.role.mapTo(w,QPoint(0,0));button_point=c.organize.mapTo(w,QPoint(0,0))
+        assert button_point.x()>=role_point.x()+c.role.width() and abs(button_point.y()-role_point.y())<8
+        assert c.organize.parentWidget()==w.positive.parentWidget() and c.organize.objectName()=='promptGenerate'
+        QTest.mouseClick(c.organize,Qt.MouseButton.LeftButton);wait_until(lambda:not c.running)
+        assert len(calls)==1 and calls[0]['describe_motion'] is False
+        assert t.rows()[0]['description']=='右手向镜头挥拳' and '右手向镜头挥拳' in w.positive.toPlainText()
+        assert '错误自动动作' not in w.positive.toPlainText() and len(t.rows())==1
+        assert '蓝色机器人，保留水彩线条。' in w.positive.toPlainText()
+        assert w.positive.toPlainText().count('用户修改的动作时间线')==1
+        w.grab().save(str(proof/'prompt-actions.png'))
+        c.start(False,motion_detail=True);c.start(False,frame_only=True)
+        assert len(calls)==1 and not c.running
+        # An incomplete table edit during a slow prompt request must invalidate
+        # that result even though the last valid prompt footer has not changed.
+        release=threading.Event();before=w.positive.toPlainText()
+        def slow_organize(*args,**kwargs):
+            assert release.wait(10)
+            return organize(*args,**kwargs)
+        with patch('aipictures.intent_controller.analyze',side_effect=slow_organize):
+            c.start(False);assert c.running
+            t.table.setItem(t.table.rowCount()-1,0,QTableWidgetItem('3'))
+            release.set();wait_until(lambda:not c.running)
+        assert w.positive.toPlainText()==before and '输入已修改' in c.note.text()
+        t.table.selectRow(t.table.rowCount()-1);QTest.mouseClick(t.remove,Qt.MouseButton.LeftButton)
+        # Purpose and reference changes preserve manual rows and reach the job.
+        w.set_reference(str(paths[0]))
         for role in ('appearance','style','custom'):
-            w.intent_controller.role.setCurrentIndex(w.intent_controller.role.findData(role))
-            w.intent_controller.role_note.setText('只借用衣服颜色，不参考站姿' if role=='custom' else '')
+            c.role.setCurrentIndex(c.role.findData(role))
+            c.role_note.setText('只借用衣服颜色' if role=='custom' else '')
             with patch.object(vc,'enqueue') as enqueue:
                 assert vc.intercept();wait_until(lambda:not w.preparing)
-                frozen=enqueue.call_args.args[0]
-                assert frozen['reference_role']==role
-                assert frozen['reference_usage']==('只借用衣服颜色，不参考站姿' if role=='custom' else '')
-        w.intent_controller.role_note.clear()
-        with patch.object(vc,'new_folder') as new_folder:
-            try:vc.intercept();raise AssertionError('Empty custom image usage entered the queue')
-            except ValueError as exc:assert '自定义用法' in str(exc)
-            new_folder.assert_not_called()
-        b.right_tabs.setCurrentWidget(b.tool_pages['animation'])
-        # A splitter resize must refresh the actual left preview, not just the Window.
-        b.workspace.setSizes([650,550]);QTest.qWait(50)
-        assert b.motion_item.thumb.pixmap().width()<=b.motion_item.thumb.width()*b.motion_item.thumb.devicePixelRatioF()+2
-        w.grab().save(str(proof/'editor.png'))
-        vc.motion.clear();assert not b.timeline.isVisible() and not b.timeline.rows()
-        QTest.qWait(40)
-        assert b.timeline_region.isVisible() and b.timeline_region.height()>=200 and b.animation_header.height()<270
+                assert enqueue.call_args.args[0]['reference_role']==role
+                assert enqueue.call_args.args[0]['motion_timeline']==t.rows()
+        c.role_note.clear()
+        with patch.object(vc,'new_folder') as create:
+            try:vc.intercept();raise AssertionError('Empty custom use entered queue')
+            except ValueError:pass
+            create.assert_not_called()
+        # Clearing/replacing the prompt cannot resurrect an invisible old table.
+        w.positive.setPlainText('用户重新写的动作：向左走。')
+        assert t.generation_input()==('用户重新写的动作：向左走。',[])
+        vc.seconds.setValue(6);assert w.positive.toPlainText()=='用户重新写的动作：向左走。'
+        # The next explicit table edit attaches the custom table again.
+        t.table.setItem(0,2,QTableWidgetItem('右手缓慢挥向镜头'))
+        assert '右手缓慢挥向镜头' in w.positive.toPlainText() and '用户重新写的动作' in w.positive.toPlainText()
+        b.right_tabs.setCurrentWidget(b.animation);w.grab().save(str(proof/'custom-table.png'))
+        t.table.selectRow(0);QTest.mouseClick(t.remove,Qt.MouseButton.LeftButton)
+        assert not t.rows() and '用户修改的动作时间线' not in w.positive.toPlainText()
+        vc.motion.clear();assert t.isVisible() and not t.rows()
+        # Text-only animation still accepts optional manual actions.
+        t.table.setItem(0,0,QTableWidgetItem('0'));t.table.setItem(0,1,QTableWidgetItem('1'))
+        t.table.setItem(0,2,QTableWidgetItem('向左走'))
+        vc.seconds.setValue(4);w.clear_reference()
+        with patch.object(vc,'enqueue') as enqueue:
+            assert vc.intercept()
+            assert enqueue.call_args.args[0]['motion_timeline'][0]['description']=='向左走'
+            assert 'motion_reference' not in enqueue.call_args.args[0]
         w.close();QTest.qWait(40)
-    write_json(proof/'acceptance.json',dict(passed=True,actual_qt=True,no_inference=True,video_only=True,editable_queue=True))
-    print('Animation editor / independent reference / duration / editable queued timeline: PASS')
+    write_json(proof/'acceptance.json',dict(passed=True,actual_qt=True,no_inference=True,
+        default_empty_grid=True,custom_queue=True,optional_prompt_generation=True,automatic_analysis_removed=True))
+    print('Manual actions / no motion analysis / prompt sync / queue / adjacent controls: PASS')
 
 
 if __name__=='__main__':main()

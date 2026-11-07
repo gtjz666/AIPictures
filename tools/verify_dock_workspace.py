@@ -111,10 +111,10 @@ def main():
         c.role.setCurrentIndex(1);assert not c.role_note.isVisible()
         b.right_tabs.setCurrentIndex(1)
         assert all(not button.isVisible() for button in (panel.play,panel.add,panel.add_frames,panel.remove,b.remove_reference))
-        assert not panel.range_button.isVisible() and b.analyze_motion.isVisible()
+        assert not panel.range_button.isVisible() and not hasattr(b,'analyze_motion') and b.timeline.isVisible()
         panel.range_slider.setValue(min(500,panel.range_slider.maximum()));assert panel.start.value()>0
         w.positive.setPlainText('角色模仿参考动作')
-        QTest.mouseClick(b.analyze_motion,Qt.MouseButton.LeftButton);wait_until(lambda:not c.running)
+        c.start(False);wait_until(lambda:not c.running)
         assert len(calls)==2 and calls[-1]['role']=='style' and calls[-1]['reference_usage']=='' and '抬手' in w.positive.toPlainText() and not c.note.isVisible()
         assert not c.intercept(),'Generation must not trigger another analysis.'
         assert not w.current and not w.pending and before==(image.read_bytes(),gif.read_bytes())
@@ -126,7 +126,7 @@ def main():
              patch('aipictures.intent_controller.QInputDialog.getInt',return_value=(24,True)):
             drop(app,w.preview,pngs);wait_until(lambda:not w.preparing)
         QTest.qWait(300);assert panel.path.suffix=='.json' and w.reference_path==reference and len(calls)==2
-        assert b.plan is None and not b.timeline.isVisible(), 'A changed motion source must not retain an old analysis.'
+        assert b.plan is None and b.timeline.rows()==[],'No inferred timeline may populate the manual grid.'
         assert b.motion_item.isVisible() and b.motion_item.accessibleName()=='参考动画'
         # A folder needs neither a file picker nor a confirmation dialog.
         folder=root/'ordered-frames';folder.mkdir()
@@ -140,15 +140,16 @@ def main():
         assert [r['source'] for r in mapping]==['frame_1.png','frame_2.png','frame_10.png']
         assert panel.meta['frame_fps']==12 and b.motion_note.full_text==folder.name and w.reference_path==reference
         assert b.reference_player.timer.isActive()
-        assert b.analysis_tabs.currentIndex()==1
+        assert not hasattr(b,'analysis_tabs')
         panel.range_slider.setValue(1);QTest.qWait(20)
         assert '2/3' in panel.start_note.text() and b.reference_player.index==1
         original_prompt=w.positive.toPlainText()
         b.right_tabs.setCurrentIndex(1)
         with patch('aipictures.local_intent.analyze_frame',return_value=dict(frame_analysis=dict(index=1,time=1/12,description='第2帧主体抬手'),engine_released=True)) as inspect_frame:
-            QTest.mouseClick(b.analyze_motion,Qt.MouseButton.LeftButton);wait_until(lambda:not c.running)
-            assert inspect_frame.call_args.args[2]==1 and b.frame_review.table.rowCount()==1
+            c.start(False,frame_only=True)
+            inspect_frame.assert_not_called();assert not c.running and not hasattr(b,'frame_review')
         assert w.positive.toPlainText()==original_prompt
+        b.right_tabs.setCurrentIndex(1)
         assert panel.frame_rate_row.isVisible();panel.frame_rate.setValue(24);panel.frame_rate.editingFinished.emit()
         wait_until(lambda:not w.preparing);assert panel.meta['frame_fps']==24
         b.right_tabs.setCurrentIndex(0)
@@ -201,7 +202,7 @@ def main():
         restored.resize(1280,800);QTest.qWait(40);assert restored.size().height()<=820
         restored.grab().save(str(proof/'compact.png'))
         restored.workbench.right_tabs.setCurrentIndex(1);restored.positive.clear()
-        QTest.mouseClick(restored.workbench.analyze_motion,Qt.MouseButton.LeftButton);QTest.qWait(20)
+        restored.intent_controller.start(False);QTest.qWait(20)
         assert restored.workbench.right_tabs.currentIndex()==2 and restored.intent_controller.note.isVisible()
         assert restored.editor._web is None
         restored.editor.connect_url('http://127.0.0.1:9',load=False)

@@ -74,13 +74,10 @@ def main():
         if a.frames:
             drop(app,w.preview,[a.frames]);wait_until(lambda:not w.preparing,40);QTest.qWait(60)
             panel=w.video_controller.motion
-            assert panel.is_frames() and b.analysis_tabs.currentIndex()==1
+            assert panel.is_frames() and b.timeline.isVisible()
             panel.range_slider.setValue(1);QTest.qWait(30)
             assert b.reference_player.index==1 and panel.start_note.text().startswith('起始帧 2/')
-            if a.frame_analysis:
-                frame_result=json.loads(a.frame_analysis.read_text('utf-8'))
-                assert digest(panel.preview_paths[1])==frame_result['frame_sha256']
-                b.show_frame_analysis(frame_result);assert b.frame_review.table.rowCount()==1
+            assert not hasattr(b,'frame_review')
             # Dispatch the hover event through Qt even when another desktop app
             # owns foreground focus; a native cursor move can go to that app.
             b.right_tabs.setCurrentIndex(0)
@@ -93,7 +90,7 @@ def main():
         write_json(root/'acceptance.json',dict(passed=True,actual_registered_settings=True,actual_assets=True,
             reused_real_recognition=str(a.plan.resolve()),no_generation_submitted=True,no_analysis_on_import=True,
             independent_reference_preview=True,generated_result_preserved=True,reference_uses=['appearance','style','custom'],
-            animation_buttons=['分析动作'],editable_actions=True,negative_nonempty=True,
+            animation_buttons=[],editable_actions=True,negative_nonempty=True,
             duration_seconds=w.video_controller.seconds.value(),source_sha256=before))
         w.close();QTest.qWait(40)
     print('Actual assets / independent references / generated result retained / custom purpose / compact UI: PASS')
