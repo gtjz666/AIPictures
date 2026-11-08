@@ -25,4 +25,4 @@
 
 4秒实测正常完成，耗时1892.91秒，按24FPS交付96帧，11张模型对齐尾帧未进入成片。参考编码和采样进程均已正常退出。检查0–3.75秒每0.25秒的全身及脚部画面对照：目标身份/白衬衫/深色短裤与袜大致保持；出现部分抬脚，但开头仍有中性站立停顿，源视频的近脸/双臂动作仍被简化，脚部时刻及侧别不一致。结论为**动作保真未通过，精准度提升未证实**。没有反复生成挑选成功样例，也不将不同片长结果冒充严格A/B。
 
-下一步候选是H3训练过的姿态控制分支：[Comfy官方Fun ControlNet说明](https://raw.githubusercontent.com/Comfy-Org/docs/main/tutorials/video/minimax/minimax-h3-fun-controlnet.mdx)明确可与现有Ref2VA模型配合，接收Pose等控制视频。它需要另行验证姿态提取、目标体型映射及12GB显存部署；当前没有下载控制权重、运行姿态提取或开放界面。用户此前要求停用动画内容分析，已询问是否允许后台姿态/轨迹约束而不生成文字时间轴，待选择后再做相关操作。
+下一步候选是H3训练过的姿态控制分支：[Comfy官方Fun ControlNet说明](https://raw.githubusercontent.com/Comfy-Org/docs/main/tutorials/video/minimax/minimax-h3-fun-controlnet.mdx)明确可与现有Ref2VA模型配合，接收Pose等控制视频。用户现已接受先验证后台姿态/轨迹约束，不生成文字时间轴。DWPose对本例Q版角色漏点严重；SDPose已完成CPU少量帧和GPU前4秒40帧验证，基本结构比旧方法完整、显卡源帧中位数约1.64秒，仍有遮挡手腕漏点。仅姿态阶段设备总显存采样峰值约4.87GiB；不是H3+控制分支的运行证明。源与目标的分段体型比例明显不同，不能简单统一放大骨架。完整体型重定向、控制分支与真实成片尚未验收，没有新增H3生成或普通界面开关，也不宣称生成精准度已改善。详见[后台姿态验证](POSE_CONTROL_VALIDATION.md)。
