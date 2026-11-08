@@ -229,10 +229,12 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
         plan = parse_plan(output, {a['id'] for a in evidence['assets']}, evidence['duration'])
         if motion:
             from dataclasses import replace
+            from .motion_prompt import generated_constraints
             from .prompt_timeline import remove_generated_summary
             text=remove_generated_summary(plan.positive_prompt,plan.timeline)
+            text,exclusions=generated_constraints(text,brief+'\n'+reference_usage,negative)
             guide='动作顺序、节奏、运动方向、表情和镜头以实际动作参考为准；用目标主体替换参考主体，保留目标外观与配色，仅执行用户明确要求的改变。'
-            plan=replace(plan,timeline=[] if direct_motion else plan.timeline,positive_prompt=text+'\n'+guide)
+            plan=replace(plan,timeline=[],positive_prompt=(text+'\n'+guide).strip(),negative_prompt=exclusions)
         if plan.timeline:
             from dataclasses import replace
             plan=replace(plan,timeline=[])

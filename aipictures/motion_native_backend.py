@@ -160,6 +160,9 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
     from .video_io import encode_pngs
     from .workflow_library import digest
     from PIL import Image,ImageOps
+    from .motion_prompt import FORMAT,compile_prompt
+    prompt_format=params.get('motion_prompt_format','reference_roles_v1')
+    if prompt_format not in ('reference_roles_v1',FORMAT):raise ValueError('未知动作提示词格式，未提交生成。')
     folder=Path(folder);config=params.get('motion_native_settings',{})
     length=output_frames(params['seconds'])
     if not config.get('validated') and not params.get('_native_probe'):
@@ -183,10 +186,13 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
                 rgba=ImageOps.exif_transpose(original).convert('RGBA')
                 rgb=Image.new('RGB',rgba.size,(232,232,232));rgb.paste(rgba,mask=rgba.getchannel('A'))
                 rgb.save(server.input/'character.png');image='character.png'
-        text=prompt(params['prompt'],bool(image),reference_role=params.get('reference_role','appearance'),
+        compiler=compile_prompt if prompt_format==FORMAT else prompt
+        text=compiler(params['prompt'],bool(image),reference_role=params.get('reference_role','appearance'),
                     reference_usage=params.get('reference_usage',''))
         if params.get('negative','').strip():text+='\nAvoid: '+params['negative'].strip()
         (folder/'prompt.txt').write_text(text,'utf-8')
+        write_json(folder/'prompt-policy.json',dict(format=prompt_format,motion_timeline_clock='output',
+            reference_role=params.get('reference_role','appearance'),source_video_is_editing_source=prompt_format==FORMAT))
         graph=encoding(server.info,text,params['seed'],config.get('width',768),config.get('height',1024),
                     length,'motion/frames.json',image)
         if params.get('continuation_frame'):

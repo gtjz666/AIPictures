@@ -15,9 +15,10 @@ from tools.verify_dock_workspace import drop,wait_until
 
 def main():
     app=create_application([]);proof=Path('data/acceptance/manual-motion-editor-20261107/ui').resolve()
-    proof.mkdir(parents=True,exist_ok=True);calls=[]
+    proof.mkdir(parents=True,exist_ok=True);calls=[];briefs=[]
     def organize(*args,**kwargs):
         calls.append(kwargs)
+        briefs.append(args[1])
         # An old/nonconforming model response must never populate the grid.
         return dict(plan=dict(kind='animation',positive_prompt='蓝色机器人，保留水彩线条。',negative_prompt='身份突变',
             summary='仅界面协议检查',observations=[],questions=[],timeline=[dict(start=0,end=99,description='错误自动动作')]))
@@ -90,9 +91,11 @@ def main():
         assert '错误自动动作' not in w.positive.toPlainText() and len(t.rows())==1
         assert '蓝色机器人，保留水彩线条。' in w.positive.toPlainText()
         assert w.positive.toPlainText().count('用户修改的动作时间线')==1
+        QTest.mouseClick(c.organize,Qt.MouseButton.LeftButton);wait_until(lambda:not c.running)
+        assert briefs[-1]==briefs[-2],'Generated appearance captions must not become new user requirements.'
         w.grab().save(str(proof/'prompt-actions.png'))
         c.start(False,motion_detail=True);c.start(False,frame_only=True)
-        assert len(calls)==1 and not c.running
+        assert len(calls)==2 and not c.running
         # An incomplete table edit during a slow prompt request must invalidate
         # that result even though the last valid prompt footer has not changed.
         release=threading.Event();before=w.positive.toPlainText()

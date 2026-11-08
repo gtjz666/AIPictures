@@ -49,7 +49,8 @@ def test_visual_priority_preserves_explicit_user_changes_and_reference_tags():
     ('style','','only for visual style'),
     ('custom','只借用衣服配色，不复制人物和站姿','not automatically for identity or pose'),
 ])
-def test_actual_backend_encodes_video_and_selected_image_role(tmp_path,monkeypatch,role,usage,marker):
+@pytest.mark.parametrize('experimental',[False,True])
+def test_actual_backend_encodes_video_and_selected_image_role(tmp_path,monkeypatch,role,usage,marker,experimental):
     from aipictures import motion_native_backend as backend,motion_native_graph as native
     source=tmp_path/'source.gif'
     Image.new('RGB',(16,24),'red').save(source,save_all=True,
@@ -76,6 +77,7 @@ def test_actual_backend_encodes_video_and_selected_image_role(tmp_path,monkeypat
             if self.folder.name=='native_encode':
                 refs=graph['references']['inputs'];encoded=refs['prompt']
                 assert marker in encoded and '<Video 1>' in encoded
+                assert ('[video editing + reference generation]' in encoded)==experimental
                 assert '1.000–2.000秒：右手挥向镜头' in encoded
                 assert usage in encoded and 'Avoid: 不要文字' in encoded
                 assert refs['ref_videos.ref_video_0']==['motion',0]
@@ -99,10 +101,13 @@ def test_actual_backend_encodes_video_and_selected_image_role(tmp_path,monkeypat
     params=dict(seconds=2.,seed=12,prompt='蓝色机器人\n'+MANUAL_TITLE+'\n1.000–2.000秒：右手挥向镜头',
         negative='不要文字',reference=str(image),reference_role=role,reference_usage=usage,
         motion_reference=str(source),motion_native_settings={'validated':True},defer_exports=True)
+    if experimental:params['motion_prompt_format']='source_video_edit_v1'
     folder=tmp_path/'job';folder.mkdir()
     result=backend.generate(folder,params,threading.Event(),lambda *_:None)
     graph=json.loads((folder/'workflow.json').read_text('utf-8'))
     assert (folder/'prompt.txt').read_text('utf-8')==graph['references']['inputs']['prompt']
+    policy=json.loads((folder/'prompt-policy.json').read_text('utf-8'))
+    assert policy['source_video_is_editing_source']==experimental
     assert image.read_bytes()==image_bytes
     assert all(s.closed for s in sessions) and result['staged'] and not result['video']
 

@@ -27,6 +27,7 @@ class IntentController:
         self.original_negative = ''
         self.generated_negative = None
         self.generated_positive = None
+        self.original_brief = ''
         panel = QWidget(); layout = QVBoxLayout(panel); layout.setContentsMargins(0, 0, 0, 0)
         top = QHBoxLayout()
         self.enabled = QCheckBox('本地创作助手'); self.enabled.setChecked(bool(self.config)); top.addWidget(self.enabled)
@@ -101,6 +102,7 @@ class IntentController:
             suffix=w.workbench.timeline.suffix
             if suffix and suffix in manual:manual=manual.replace(suffix,'',1)
         manual=manual.strip()
+        if manual==self.generated_positive:manual=self.original_brief
         brief = manual or self.input.toPlainText().strip()
         if not brief and (w.reference_path or w.video_controller.motion.path):
             brief = '依据已提供素材制作动画，外观与动作各按其参考用途。' if w.generation_type.currentData()=='walk' else '依据参考图整理主体外观、画风与构图，生成单张图片。'
@@ -157,6 +159,7 @@ class IntentController:
                 w.add_chat('软件', self.note.text()); w.status.setText('请在需求栏补充后重新发送。')
             else:
                 self.original_negative = negative
+                self.original_brief = brief
                 self.apply(data,manual_timeline=manual_timeline)
                 self.notify('')
                 w.add_chat('你', brief, str(reference) if reference else None)

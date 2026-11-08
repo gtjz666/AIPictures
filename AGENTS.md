@@ -24,6 +24,7 @@
 - `video_controller.py` / `video_generation.py` / `video_preview.py`：MiniMax H3完整自由动画先预览，再自主选帧导出；没有已验证H3时明确不可用，不切回Wan。`h3_backend.py`使用独立环境。
 - `animation_timeline.py` / `prompt_timeline.py`：动画页始终显示空白自定义动作表，可添加/删除时段；只有用户填写内容同步提示词。时间为绝对成片秒数，不随时长同比缩放；不完整/倒序/重叠/越界阻止入队。参考起点、循环或用途更换保留手填要求，不需重新分析。直接替换/删除的提示词优先，不能恢复隐藏旧表；自动生成提示词须保留手填动作，生成期间未完成的表格编辑也要使旧结果失效。用途选择与浅蓝「自动生成提示词」按钮在正向标题右侧同排。
 - 有实际动作参考时按reference_first_manual_v2：只有手填时段进入motion_timeline，不生成motion_analysis_timeline；user_prompt保留可见原文。真实Ref2VA提示词按视频提供动作/节奏/表情/镜头，按冻结的reference_role/reference_usage使用图片，不固定全身或机位。空表不依赖识别即可生成，旧分析结果不得自动填表。不得把语义时刻要求说成硬关键帧控制。见docs/REFERENCE_MOTION_PRIORITY.md。
+- `motion_prompt.py`约束助手生成词：带动作素材只用质量异常反词基础+用户原文，避免助手擅加机位/构图/重复帧禁令或瞬时表情/站姿；明确的正文和custom用法保留。再次自动整理复用原需求，不把未编辑旧自动描述升级成用户要求。不要在实际生成时过滤用户手动正文。source_video_edit_v1候选4秒实测虽完成，但动作仍不达标，仅显式探针可选，普通界面保留reference_roles_v1；prompt-policy.json记录真实格式。姿态/轨迹方案待用户确认，未下载/启用。见docs/MOTION_FIDELITY_AUDIT.md。
 - `video_chain.py`保留串行短段研究，普通末帧I2V、Ref2VA AddGuide；OS锁、条件保存和SHA避免重复任务。当前用户界面及历史未完成长片继续均暂不开放超过8秒生成，已完成成片仍可播放/导出。不把测试拼接或单段续接说成长片画质验收。详见docs/ANIMATION_EDITOR.md。
 - `motion_reference_ui.py` / `motion_guide.py` / `frame_motion_input.py`：动画模式独立动作视频/GIF或PNG序列按钮，角色图不混用；PNG自然排序/FPS与GIF逐帧延时入队冻结。`motion_native_backend.py` / `motion_native_graph.py`使用专用Ref2VA及私有Comfy进程，不能用FreeVideo FL2VA/VDN快速权重冒充。新模型/环境经完整生成和目视验收后注册，未通过不开放生成。`motion_reference.py`是原研究模块，不覆盖其历史接口。
 - Windows参考动画使用自有逐张量读取器避免safetensors整文件映射瞬时提交，先完整保存官方编码条件并退出编码进程，再独立采样；条件/嵌套AV潜变量必须原字节保留，不用pickle。私有进程同步卸载、禁锁页传输并reserve-vram3GiB；不凭失败后的RAM数值推断失败瞬间峰值，不擅自改系统分页。详见docs/WINDOWS_MODEL_LOADING.md。
