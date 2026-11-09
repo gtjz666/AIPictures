@@ -291,6 +291,8 @@ def build_studio(w):
     w.video_controller=VideoController(w)
     from .intent_controller import IntentController
     w.intent_controller=IntentController(w)
+    from .reference_chat import ReferenceChat
+    w.reference_chat=ReferenceChat(w)
     from .workbench import Workbench
     w.workbench=Workbench(w)
     w.update_intent_hint()

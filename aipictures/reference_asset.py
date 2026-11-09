@@ -1,6 +1,6 @@
 """Reference previews with an accessible hover-to-remove control."""
 from PySide6.QtCore import Qt,Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QPixmap,QImageReader
 from PySide6.QtWidgets import QPushButton,QHBoxLayout,QToolButton,QLabel,QSizePolicy
 from .transparent_preview import TransparentPreview
 
@@ -32,7 +32,13 @@ class ReferenceAsset(QPushButton):
         super().leaveEvent(event);self.close_button.hide()
 
     def set_source(self,poster:str):
-        self._pixmap=QPixmap(poster) if poster else QPixmap();self.fit_preview()
+        self._pixmap=QPixmap()
+        if poster:
+            reader=QImageReader(poster);reader.setAutoTransform(True);size=reader.size()
+            if size.isValid() and max(size.width(),size.height())>1024:
+                size.scale(1024,1024,Qt.AspectRatioMode.KeepAspectRatio);reader.setScaledSize(size)
+            self._pixmap=QPixmap.fromImage(reader.read())
+        self.fit_preview()
         self.close_button.setVisible(not self._pixmap.isNull() and self.underMouse())
 
     def fit_preview(self):

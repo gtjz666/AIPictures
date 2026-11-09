@@ -4,7 +4,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QLabel,QPushButton,
     QButtonGroup,QDialog,QTabWidget,QScrollArea,
-    QSizePolicy,QToolBar,QSplitter,QSlider,QCheckBox,QComboBox)
+    QSizePolicy,QToolBar,QSplitter,QSlider,QCheckBox,QComboBox,QGridLayout)
 from .playback_button import PlaybackButton
 from .storage import write_json
 
@@ -97,7 +97,7 @@ class Workbench:
         w.generation_type.hide();w.animation_action.setCurrentIndex(w.animation_action.findData('custom'))
         w.positive.setMinimumHeight(80);w.negative.setMinimumHeight(64)
         w.positive.setMaximumHeight(16777215);w.negative.setMaximumHeight(16777215)
-        w.intent_controller.panel.setParent(self.hidden);w.intent_controller.input.hide()
+        w.intent_controller.panel.setParent(self.hidden)
         w.video_controller.motion.changed.connect(self.motion_changed)
         self.refresh_reference();QTimer.singleShot(0,self.restore_layout)
 
@@ -136,23 +136,51 @@ class Workbench:
             items.addWidget(QLabel(title));items.addWidget(card,1);items.addWidget(caption)
             if controls:items.addWidget(controls)
             self.reference_items.addWidget(page);card.enable_file_drop(c.import_files)
+        # Independent numbered slots. Removing an image never renumbers the rest.
+        first=self.reference_items.widget(0);form=first.layout()
+        form.itemAt(0).widget().setText('参考图 · 最多4张')
+        form.removeWidget(self.reference_item);self.reference_note.hide()
+        grid=QGridLayout();self.reference_cards={1:self.reference_item}
+        for number in range(1,5):
+            card=self.reference_item if number==1 else ReferenceAsset(f'图{number} · 拖入参考图',large=True)
+            if number==1:
+                card.setAccessibleName('图1 · 拖入参考图')
+                card.clicked.disconnect();card.closed.disconnect();card.thumb.files_dropped.disconnect()
+            card.clicked.connect(lambda checked=False,n=number:self.reference_card_clicked(n))
+            card.closed.connect(lambda n=number:w.reference_chat.remove(n))
+            if number==1:card.thumb.files_dropped.connect(lambda paths:w.reference_chat.import_images(paths,number=1))
+            else:card.enable_file_drop(lambda paths,n=number:w.reference_chat.import_images(paths,number=n))
+            self.reference_cards[number]=card
+            card.setMinimumWidth(96)
+            cell=QWidget();stack=QVBoxLayout(cell);stack.setContentsMargins(0,0,0,0);stack.setSpacing(2)
+            stack.addWidget(QLabel(f'图{number}'));stack.addWidget(card,1)
+            grid.addWidget(cell,(number-1)//2,(number-1)%2)
+        form.insertLayout(1,grid,1)
+        dialog=QWidget();chat=QVBoxLayout(dialog);chat.setContentsMargins(8,4,8,4)
+        chat.addWidget(QLabel('参考要求'))
+        c.input.show();c.input.setMinimumHeight(60);c.input.setMaximumHeight(110)
+        c.input.setPlaceholderText('例如：保留图1的人物和衣服，采用图2的姿势，融合图3与图4的画风。')
+        chat.addWidget(c.input)
+        c.organize.setText('生成提示词');c.organize.setObjectName('promptGenerate')
+        chat.addWidget(c.organize)
+        chat.addWidget(c.note)
+        self.reference_items.insertWidget(1,dialog);self.reference_items.setSizes([320,240,180])
         w.attach_reference_button.setParent(self.hidden)
         remove=QPushButton('移除',self.hidden);remove.clicked.connect(self.remove_asset)
         self.remove_reference=remove
         remove.setSizePolicy(QSizePolicy.Policy.Maximum,QSizePolicy.Policy.Preferred)
         c.role.setParent(self.hidden)
+        self.reference_splitter=self.reference_items
+        self.reference_items=self.scroll_page(self.reference_splitter)
 
     def make_prompts(self,w):
         c=w.intent_controller;content=QWidget();layout=QVBoxLayout(content);layout.setContentsMargins(8,6,8,6)
         positive_layout=w.positive.parentWidget().layout()
         title=positive_layout.takeAt(0).widget();heading=QHBoxLayout();heading.addWidget(title);heading.addStretch();heading.addWidget(c.role)
-        c.organize.setText('自动生成提示词');c.organize.setObjectName('promptGenerate')
-        c.organize.setToolTip('识别参考图用途并整理正反提示词，保留手动动作时段。')
-        heading.addWidget(c.organize)
+        c.organize.setToolTip('分析参考图并按对话要求整理提示词；不会自动开始图片或动画生成。')
         positive_layout.insertLayout(0,heading);c.role.show()
         positive_layout.insertWidget(1,c.role_note)
         layout.addWidget(self.prompts,1)
-        layout.addWidget(c.note)
         self.prompt_page=self.scroll_page(content)
 
     def make_animation(self,w):
@@ -248,6 +276,14 @@ class Workbench:
     def refresh_reference(self):
         w=self.window;present=bool(w.reference_path)
         self.reference_item.set_source(str(w.reference_path) if present else '')
+        if hasattr(self,'reference_cards'):
+            refs=w.reference_chat.references()
+            multi=bool(w.reference_chat.extra)
+            w.intent_controller.role.setVisible(not multi)
+            w.intent_controller.role_note.setVisible(not multi and w.intent_controller.role.currentData()=='custom')
+            for n,card in self.reference_cards.items():
+                card.set_source(str(refs[n]) if n in refs else '')
+                card.setToolTip(f'图{n}'+(' · '+refs[n].name if n in refs else ' · 拖入图片或点击添加'))
         self.reference_note.set_hint((w.reference_display_name or Path(w.reference_path).name) if present else '')
         self.refresh_motion_asset();self.refresh_asset_selection()
 
@@ -264,6 +300,10 @@ class Workbench:
     def show_reference(self):
         self.refresh_reference();self.right_tabs.setCurrentWidget(self.reference_items)
         self.reference_item.setChecked(False)
+
+    def reference_card_clicked(self,number):
+        self.reference_cards[number].setChecked(False)
+        if number not in self.window.reference_chat.references():self.window.reference_chat.choose(number)
 
     def show_motion_reference(self,*,play=False,position=0):
         panel=self.window.video_controller.motion

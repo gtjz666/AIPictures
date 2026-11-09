@@ -44,7 +44,7 @@ class IntentController:
         layout.addWidget(self.input,1)
         self.send_shortcut = QShortcut(QKeySequence('Ctrl+Return'), self.input)
         self.send_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        self.send_shortcut.activated.connect(window.enqueue)
+        self.send_shortcut.activated.connect(lambda:self.start(False))
         self.note = QLabel()
         self.note.setWordWrap(True); self.note.setTextFormat(Qt.TextFormat.PlainText)
         self.note.setObjectName('muted'); layout.addWidget(self.note); self.note.hide()
@@ -59,7 +59,9 @@ class IntentController:
     def notify(self, text):
         self.note.setText(text); self.note.setVisible(bool(text))
         if text and hasattr(self.window,'workbench'):
-            workbench=self.window.workbench;workbench.right_tabs.setCurrentWidget(workbench.prompt_page)
+            workbench=self.window.workbench;workbench.right_tabs.setCurrentWidget(workbench.reference_items)
+            if hasattr(workbench.reference_items,'ensureWidgetVisible'):
+                workbench.reference_items.ensureWidgetVisible(self.note)
 
     def source_changed(self):
         self.applied = self.applied_context = None
@@ -70,6 +72,7 @@ class IntentController:
     def fingerprint(self, *, prompts=True) -> str:
         w = self.window; motion = w.video_controller.motion
         paths = [w.reference_path, motion.path]
+        if hasattr(w,'reference_chat'):paths.extend(w.reference_chat.extra.values())
         stamps = [(str(p), Path(p).stat().st_size, Path(p).stat().st_mtime_ns) if p and Path(p).exists() else None for p in paths]
         value = [self.input.toPlainText(), w.positive.toPlainText() if prompts else None, w.negative.toPlainText() if prompts else None,
                  w.generation_type.currentData(), self.role.currentData(),self.role_note.text() if self.role.currentData()=='custom' else '', stamps, motion.start.value(),
@@ -83,6 +86,8 @@ class IntentController:
 
     def start(self, generate: bool, *, frame_only=False, motion_detail=False):
         w = self.window
+        if hasattr(w,'reference_chat') and w.reference_chat.extra and w.generation_type.currentData()=='walk':
+            self.notify('多图组合目前用于单张图片。可先生成角色替换后的图片，再将成品用于动画；动画入口仍只支持一张角色图与动作素材。');return
         if frame_only or motion_detail:
             self.notify('动画内容分析已停用，请在动画页手动填写动作时段。');return
         if self.running or w.preparing:
@@ -103,7 +108,8 @@ class IntentController:
             if suffix and suffix in manual:manual=manual.replace(suffix,'',1)
         manual=manual.strip()
         if manual==self.generated_positive:manual=self.original_brief
-        brief = manual or self.input.toPlainText().strip()
+        chat=self.input.toPlainText().strip()
+        brief = chat if chat and chat!=self.original_brief else manual or chat
         if not brief and (w.reference_path or w.video_controller.motion.path):
             brief = '依据已提供素材制作动画，外观与动作各按其参考用途。' if w.generation_type.currentData()=='walk' else '依据参考图整理主体外观、画风与构图，生成单张图片。'
         if not brief:
@@ -124,12 +130,25 @@ class IntentController:
         if negative == self.generated_negative:
             negative = self.original_negative
         initial = self.fingerprint()
+        multi=hasattr(w,'reference_chat') and w.reference_chat.active()
+        references=w.reference_chat.references() if multi else {}
+        # The reference requirement is a single current instruction, not a
+        # hidden conversation whose earlier requests could change its meaning.
+        history=[]
         self.applied = self.applied_context = None;self.current_record = folder
         self.running = w.preparing = True; self.cancel_event.clear()
         w.generate_button.setEnabled(False); self.organize.setEnabled(False)
         w.task_display.start(); w.progress.setRange(0, 0)
         self.notify(''); w.status.setText('正在识别生成需求…')
+        if hasattr(w,'reference_chat'):w.reference_chat.append('你',brief)
         def run(emit):
+            if multi:
+                from .motion_native_backend import release_shared
+                records=release_shared({'url':w.client.url if w.connected else None},cancel=self.cancel_event)
+                from .multi_reference import analyze as analyze_many
+                result=analyze_many(self.config,brief,negative,references,folder,self.cancel_event,emit,history=history)
+                write_json(folder/'shared-release.json',dict(backends=records))
+                return result
             if w.connected:
                 queue = w.client.request('/queue')
                 if queue.get('queue_running') or queue.get('queue_pending'):
@@ -150,6 +169,7 @@ class IntentController:
             if kind != 'result':
                 self.notify('识别已取消，原输入保留。' if self.cancel_event.is_set() else '识别未完成：'+str(data))
                 w.status.setText(self.note.text()); w.add_chat('软件', self.note.text())
+                if hasattr(w,'reference_chat'):w.reference_chat.append('软件',self.note.text())
             elif self.cancel_event.is_set():
                 self.notify('已取消；识别结果未应用。')
             elif not unchanged:
@@ -157,6 +177,7 @@ class IntentController:
             elif data['plan']['questions']:
                 self.notify('需要补充：'+'；'.join(data['plan']['questions']))
                 w.add_chat('软件', self.note.text()); w.status.setText('请在需求栏补充后重新发送。')
+                if hasattr(w,'reference_chat'):w.reference_chat.append('软件',self.note.text())
             else:
                 self.original_negative = negative
                 self.original_brief = brief
@@ -164,6 +185,7 @@ class IntentController:
                 self.notify('')
                 w.add_chat('你', brief, str(reference) if reference else None)
                 w.add_chat('软件', data['plan']['summary'], job=str(folder))
+                if hasattr(w,'reference_chat'):w.reference_chat.append('软件',data['plan']['summary']+'\n已更新提示词，可在提示词页修改后点击生成。')
                 w.status.setText('需求识别完成')
                 if generate:
                     QTimer.singleShot(0, w.enqueue)
@@ -199,6 +221,13 @@ class IntentController:
 
     def record(self, folder: Path, params: dict):
         if self.current_record and self.applied_context == self.fingerprint(prompts=False):
+            multi=self.current_record/'result.json'
+            if multi.is_file():
+                result=json.loads(multi.read_text('utf-8'))
+                if result.get('policy')=='numbered_references_v1':
+                    params['intent_plan_source']=str(multi)
+                    write_json(Path(folder)/'intent-plan.json',result)
+                    return
             source = self.current_record/'plan.json'
             if source.is_file():
                 result = json.loads(source.read_text('utf-8'))
@@ -222,6 +251,8 @@ class IntentController:
             if any(not p.is_file() for p in paths):raise ValueError('请拖入有效的图片、视频、GIF或PNG动画帧文件夹。')
             images = [p for p in paths if p.suffix.lower() in ('.png', '.jpg', '.jpeg', '.webp', '.bmp')]
             motions = [p for p in paths if p.suffix.lower() in EXTENSIONS]
+            if images and not motions and len(images)==len(paths) and w.generation_type.currentData()!='walk' and hasattr(w,'reference_chat'):
+                w.reference_chat.import_images(images);return
             if len(images)+len(motions) != len(paths) or len(motions)>1:
                 raise ValueError('每次可添加一张外观图和一个动作视频/GIF；多张PNG可作为动作帧序列。')
             if len(images)>1:

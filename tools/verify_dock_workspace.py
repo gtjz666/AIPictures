@@ -203,7 +203,7 @@ def main():
         restored.grab().save(str(proof/'compact.png'))
         restored.workbench.right_tabs.setCurrentIndex(1);restored.positive.clear()
         restored.intent_controller.start(False);QTest.qWait(20)
-        assert restored.workbench.right_tabs.currentIndex()==2 and restored.intent_controller.note.isVisible()
+        assert restored.workbench.right_tabs.currentIndex()==0 and restored.intent_controller.note.isVisible()
         assert restored.editor._web is None
         restored.editor.connect_url('http://127.0.0.1:9',load=False)
         assert restored.editor._web is None

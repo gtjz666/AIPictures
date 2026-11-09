@@ -624,6 +624,8 @@ class Window(QMainWindow):
                 self.editor.sync_inputs(graph)
 
     def graph_snapshot(self, reference_name=''):
+        if hasattr(self,'reference_chat') and self.reference_chat.active():
+            return self.reference_chat.snapshot()
         from .image_family import effective_family
         family=effective_family(self,bool(reference_name))
         if family=='flux_klein':
@@ -638,6 +640,8 @@ class Window(QMainWindow):
         raise ValueError('请选择自动、Z-Image或FLUX；SDXL普通生成已退役。')
 
     def load_draft_in_editor(self):
+        if hasattr(self,'reference_chat') and self.reference_chat.active():
+            self.add_chat('软件','多图参考请生成后从记录查看本次完整工作流。');return
         if self.preparing:
             self.status.setText('请等待当前参考图准备完成。'); return
         try:
@@ -684,6 +688,11 @@ class Window(QMainWindow):
 
     def enqueue(self):
         try:
+            if hasattr(self,'reference_chat'):
+                if self.generation_type.currentData()=='walk' and self.reference_chat.extra:
+                    raise ValueError('多图参考组合用于单张图片。动画目前支持一张角色图与动作素材，请先移除图2–图4。')
+                if self.intent_controller.running:return
+                if self.reference_chat.intercept():return
             if self.intent_controller.intercept():return
             if self.video_controller.intercept():return
             if self.api_controller.intercept(): return

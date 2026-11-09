@@ -12,6 +12,8 @@ def effective_family(window, reference=None):
     """Automatic routing is explicit in the engine choice and frozen per job."""
     family = window.model_family.currentData()
     if family == 'auto':
+        if hasattr(window,'reference_chat') and window.reference_chat.extra:
+            return 'flux_klein'
         return 'flux_klein' if (window.reference_path if reference is None else reference) else 'zimage'
     return family
 
@@ -40,7 +42,7 @@ def apply_ui(window):
     info = getattr(window, 'info', {}).get('object_info', {})
     native = effective_family(window) == 'zimage'
     flux = effective_family(window) == 'flux_klein'
-    referenced = bool(window.reference_path)
+    referenced = bool(window.reference_path or getattr(getattr(window,'reference_chat',None),'extra',{}))
     for choice, ready in (
         ('auto', flux_klein.enabled(info, window.api_controller.data) if referenced else zimage.available(info)),
         ('zimage', (zimage.reference_available if referenced else zimage.available)(info)),

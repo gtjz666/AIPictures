@@ -80,11 +80,10 @@ def main():
             create.assert_not_called()
         t.table.selectRow(1);QTest.mouseClick(t.remove,Qt.MouseButton.LeftButton)
         assert t.rows()[0]['description']=='右手向镜头挥拳'
-        # The prompt action is beside the purpose selector, with a separate style.
-        b.right_tabs.setCurrentWidget(b.prompt_page);QTest.qWait(30)
-        role_point=c.role.mapTo(w,QPoint(0,0));button_point=c.organize.mapTo(w,QPoint(0,0))
-        assert button_point.x()>=role_point.x()+c.role.width() and abs(button_point.y()-role_point.y())<8
-        assert c.organize.parentWidget()==w.positive.parentWidget() and c.organize.objectName()=='promptGenerate'
+        # Prompt generation now belongs to the reference conversation.
+        b.right_tabs.setCurrentWidget(b.reference_items);QTest.qWait(30)
+        assert c.organize.isVisible() and c.input.isVisible()
+        assert c.organize.parentWidget()==c.input.parentWidget() and c.organize.objectName()=='promptGenerate'
         QTest.mouseClick(c.organize,Qt.MouseButton.LeftButton);wait_until(lambda:not c.running)
         assert len(calls)==1 and calls[0]['describe_motion'] is False
         assert t.rows()[0]['description']=='右手向镜头挥拳' and '右手向镜头挥拳' in w.positive.toPlainText()
