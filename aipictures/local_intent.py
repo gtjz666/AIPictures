@@ -222,54 +222,60 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
                 parse_plan(output, {a['id'] for a in evidence['assets']}, evidence['duration'])
                 from .intent_quality import repair_anatomy
                 output = repair_anatomy(session, output, observations, brief, folder)
-        # The process is gone before a caller can submit a GPU generation.
-        if cancel.is_set():
-            raise Cancelled('需求识别已取消；没有提交生成。')
-        write_json(folder/'response.json', dict(content=output, **stats))
-        plan = parse_plan(output, {a['id'] for a in evidence['assets']}, evidence['duration'])
-        if motion:
-            from dataclasses import replace
-            from .motion_prompt import generated_constraints
-            from .prompt_timeline import remove_generated_summary
-            text=remove_generated_summary(plan.positive_prompt,plan.timeline)
-            text,exclusions=generated_constraints(text,brief+'\n'+reference_usage,negative)
-            guide='动作顺序、节奏、运动方向、表情和镜头以实际动作参考为准；用目标主体替换参考主体，保留目标外观与配色，仅执行用户明确要求的改变。'
-            plan=replace(plan,timeline=[],positive_prompt=(text+'\n'+guide).strip(),negative_prompt=exclusions)
-        if plan.timeline:
-            from dataclasses import replace
-            plan=replace(plan,timeline=[])
-        if reference:
-            from dataclasses import replace
-            facts = []
-            if 'appearance' in observations:
-                facts.append(dict(asset='appearance', description='；'.join(observations['appearance'].values())[:1800]))
-            plan = replace(plan, observations=facts)
-        if plan.kind != selected_kind:
-            from dataclasses import replace
-            title = '动画' if plan.kind == 'animation' else '单张图片'
-            plan = replace(plan, questions=[*plan.questions, f'需求更像{title}，请确认并切换生成类型后重新发送。'])
-        for asset in evidence['assets']:
-            if digest(Path(asset['source'])) != asset['sha256']:
-                raise ValueError('识别期间素材发生变化，请重新导入；未提交生成。')
-        # Never silently drop an explicitly supplied exclusion.
-        if negative.strip() and negative.strip() not in plan.negative_prompt:
-            from dataclasses import replace
-            plan = replace(plan, negative_prompt=(plan.negative_prompt+'\n'+negative.strip()).strip())
-        if not plan.negative_prompt.strip():
-            from dataclasses import replace
-            # Small fail-safe for a valid JSON reply that ignored the negative field.
-            fallback = ('主体身份突变，配色无故变化，画面闪烁，动作突然跳变' if selected_kind=='animation'
-                        else '主体无故重复，局部结构破损，非预期文字水印')
-            plan = replace(plan, negative_prompt=fallback)
-        selected_route = None if plan.questions else route(plan, reference=bool(reference), motion=bool(motion))
-        result = dict(schema_version=1, plan=plan.to_dict(), route=selected_route, evidence=evidence,
-            timeline_clock='output',
-            request=dict(brief=brief, negative=negative, selected_kind=selected_kind, reference_role=role,reference_usage=reference_usage),
-            resolved_reference_role=observations.get('appearance',{}).get('reference_use') if reference else None,
-            elapsed_seconds=round(time.monotonic()-started, 3), model=config.get('name'),
-            engine_released=True, status='needs_input' if plan.questions else 'ready')
-        write_json(folder/'plan.json', result)
-        return result
+            # Keep the loaded session until the English request pair is produced;
+            # this is text-only and never reads the images a second time.
+            if cancel.is_set():
+                raise Cancelled('需求识别已取消；没有提交生成。')
+            write_json(folder/'response.json', dict(content=output, **stats))
+            plan = parse_plan(output, {a['id'] for a in evidence['assets']}, evidence['duration'])
+            if motion:
+                from dataclasses import replace
+                from .motion_prompt import generated_constraints
+                from .prompt_timeline import remove_generated_summary
+                text=remove_generated_summary(plan.positive_prompt,plan.timeline)
+                text,exclusions=generated_constraints(text,brief+'\n'+reference_usage,negative)
+                guide='动作顺序、节奏、运动方向、表情和镜头以实际动作参考为准；用目标主体替换参考主体，保留目标外观与配色，仅执行用户明确要求的改变。'
+                plan=replace(plan,timeline=[],positive_prompt=(text+'\n'+guide).strip(),negative_prompt=exclusions)
+            if plan.timeline:
+                from dataclasses import replace
+                plan=replace(plan,timeline=[])
+            if reference:
+                from dataclasses import replace
+                facts = []
+                if 'appearance' in observations:
+                    facts.append(dict(asset='appearance', description='；'.join(observations['appearance'].values())[:1800]))
+                plan = replace(plan, observations=facts)
+            if plan.kind != selected_kind:
+                from dataclasses import replace
+                title = '动画' if plan.kind == 'animation' else '单张图片'
+                plan = replace(plan, questions=[*plan.questions, f'需求更像{title}，请确认并切换生成类型后重新发送。'])
+            for asset in evidence['assets']:
+                if digest(Path(asset['source'])) != asset['sha256']:
+                    raise ValueError('识别期间素材发生变化，请重新导入；未提交生成。')
+            # Never silently drop an explicitly supplied exclusion.
+            if negative.strip() and negative.strip() not in plan.negative_prompt:
+                from dataclasses import replace
+                plan = replace(plan, negative_prompt=(plan.negative_prompt+'\n'+negative.strip()).strip())
+            if not plan.negative_prompt.strip():
+                from dataclasses import replace
+                # Small fail-safe for a valid JSON reply that ignored the negative field.
+                fallback = ('主体身份突变，配色无故变化，画面闪烁，动作突然跳变' if selected_kind=='animation'
+                            else '主体无故重复，局部结构破损，非预期文字水印')
+                plan = replace(plan, negative_prompt=fallback)
+            english={}
+            if plan.kind == 'image' and not plan.questions:
+                from .prompt_language import complete_pair
+                english=complete_pair(session,dict(positive_prompt=plan.positive_prompt,
+                    negative_prompt=plan.negative_prompt),folder,negative=negative)
+            selected_route = None if plan.questions else route(plan, reference=bool(reference), motion=bool(motion))
+            result = dict(schema_version=1, plan=plan.to_dict(), english=english, route=selected_route, evidence=evidence,
+                timeline_clock='output',
+                request=dict(brief=brief, negative=negative, selected_kind=selected_kind, reference_role=role,reference_usage=reference_usage),
+                resolved_reference_role=observations.get('appearance',{}).get('reference_use') if reference else None,
+                elapsed_seconds=round(time.monotonic()-started, 3), model=config.get('name'),
+                engine_released=True, status='needs_input' if plan.questions else 'ready')
+            write_json(folder/'plan.json', result)
+            return result
     except BaseException as exc:
         write_json(folder/'failure.json', dict(status='cancelled' if cancel.is_set() else 'failed', error=str(exc),
                                               elapsed_seconds=round(time.monotonic()-started, 3)))

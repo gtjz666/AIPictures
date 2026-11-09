@@ -87,8 +87,8 @@ class Workbench:
         cv.addWidget(w.animation_player);cv.addWidget(w.video_controller.player)
         w.image_save.setEnabled(False);w.image_reuse.setEnabled(False)
         self.make_settings(w);self.make_prompts(w);self.make_animation(w)
-        self.tool_pages={'reference':self.reference_items,'animation':self.animation,'prompts':self.prompt_page}
-        for key,title in [('reference','参考'),('animation','动画'),('prompts','提示词')]:
+        self.tool_pages={'reference':self.reference_items,'animation':self.animation}
+        for key,title in [('reference','单张图片'),('animation','动画')]:
             self.right_tabs.addTab(self.tool_pages[key],title)
         self.task=QWidget();task_layout=QVBoxLayout(self.task);task_layout.setContentsMargins(0,3,0,0)
         task_layout.setSpacing(2);task_layout.addWidget(QLabel('当前任务'));task_layout.addWidget(w.task_display)
@@ -136,6 +136,7 @@ class Workbench:
             items.addWidget(QLabel(title));items.addWidget(card,1);items.addWidget(caption)
             if controls:items.addWidget(controls)
             self.reference_items.addWidget(page);card.enable_file_drop(c.import_files)
+            if controls:self.motion_reference_page=page
         # Independent numbered slots. Removing an image never renumbers the rest.
         first=self.reference_items.widget(0);form=first.layout()
         form.itemAt(0).widget().setText('参考图 · 最多4张')
@@ -162,9 +163,14 @@ class Workbench:
         c.input.setPlaceholderText('例如：保留图1的人物和衣服，采用图2的姿势，融合图3与图4的画风。')
         chat.addWidget(c.input)
         c.organize.setText('生成提示词');c.organize.setObjectName('promptGenerate')
-        chat.addWidget(c.organize)
+        buttons=QHBoxLayout();buttons.addWidget(c.organize,1)
+        self.prompt_button=QPushButton('查看／编辑提示词');self.prompt_button.clicked.connect(self.open_prompts)
+        buttons.addWidget(self.prompt_button);chat.addLayout(buttons)
+        hint=QLabel('提示词以中文显示；提交给图片引擎时使用对应的英文。');hint.setObjectName('muted');hint.setWordWrap(True)
+        chat.addWidget(hint)
         chat.addWidget(c.note)
-        self.reference_items.insertWidget(1,dialog);self.reference_items.setSizes([320,240,180])
+        self.motion_reference_page.setParent(self.hidden)
+        self.reference_items.addWidget(dialog);self.reference_items.setSizes([420,180])
         w.attach_reference_button.setParent(self.hidden)
         remove=QPushButton('移除',self.hidden);remove.clicked.connect(self.remove_asset)
         self.remove_reference=remove
@@ -180,13 +186,31 @@ class Workbench:
         c.organize.setToolTip('分析参考图并按对话要求整理提示词；不会自动开始图片或动画生成。')
         positive_layout.insertLayout(0,heading);c.role.show()
         positive_layout.insertWidget(1,c.role_note)
+        note=QLabel('这里显示中文正反提示词，可直接修改；提交生成时使用与之对应的英文。');note.setObjectName('muted');note.setWordWrap(True)
+        layout.addWidget(note)
         layout.addWidget(self.prompts,1)
         self.prompt_page=self.scroll_page(content)
+        self.prompts_dialog=QDialog(w);self.prompts_dialog.setWindowTitle('提示词');self.prompts_dialog.resize(700,650)
+        popup=QVBoxLayout(self.prompts_dialog);popup.addWidget(self.prompt_page,1)
+        self.prompt_note=QLabel();self.prompt_note.setWordWrap(True);self.prompt_note.hide();popup.addWidget(self.prompt_note)
+        actions=QHBoxLayout()
+        generate=QPushButton('重新生成正反提示词');generate.setObjectName('promptGenerate')
+        generate.setEnabled(c.organize.isEnabled());generate.clicked.connect(lambda:c.start(False))
+        c.prompt_actions.append(generate);actions.addWidget(generate)
+        close=QPushButton('关闭');close.clicked.connect(self.prompts_dialog.close);actions.addWidget(close)
+        popup.addLayout(actions)
+
+    def open_prompts(self):
+        self.prompts_dialog.show();self.prompts_dialog.raise_();self.prompts_dialog.activateWindow()
 
     def make_animation(self,w):
         content=QWidget();layout=QVBoxLayout(content);layout.setContentsMargins(8,6,8,6)
         self.animation_header=QWidget();header=QVBoxLayout(self.animation_header);header.setContentsMargins(0,0,0,0)
         self.animation_header.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
+        self.motion_reference_page.setMaximumHeight(320)
+        header.addWidget(self.motion_reference_page);self.motion_reference_page.show()
+        self.animation_prompt_button=QPushButton('查看／编辑提示词');self.animation_prompt_button.clicked.connect(self.open_prompts)
+        header.addWidget(self.animation_prompt_button)
         w.animation_action_label.setParent(self.hidden);w.animation_action.setParent(self.hidden)
         self.creation_kind=QComboBox();self.creation_kind.addItem('动画素材','sprite');self.creation_kind.addItem('长视频（暂未开放）','long_video')
         self.creation_kind.model().item(1).setEnabled(False)
@@ -308,6 +332,7 @@ class Workbench:
     def show_motion_reference(self,*,play=False,position=0):
         panel=self.window.video_controller.motion
         if not panel.path or not panel.preview_paths:return
+        self.right_tabs.setCurrentWidget(self.animation)
         self.reference_player.load(panel.preview_paths,panel.preview_fps)
         self.reference_player.slider.setValue(min(position,len(panel.preview_paths)-1))
         if play:self.reference_player.toggle()
@@ -333,7 +358,7 @@ class Workbench:
         panel=self.window.video_controller.motion
         self.refresh_motion_asset()
         if panel.path and panel.preview_paths:
-            self.right_tabs.setCurrentWidget(self.reference_items)
+            self.right_tabs.setCurrentWidget(self.animation)
             self.show_motion_reference()
         else:
             self.reference_player.clear()

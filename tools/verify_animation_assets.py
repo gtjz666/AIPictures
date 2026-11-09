@@ -62,11 +62,12 @@ def main():
         w.resize(1280,800);QTest.qWait(50)
         assert w.size().height()<=820 and not b.motion_item._pixmap.isNull()
         w.grab().save(str(root/'compact.png'))
-        b.right_tabs.setCurrentIndex(2);QTest.qWait(30);w.grab().save(str(root/'prompts.png'))
+        b.open_prompts();QTest.qWait(30);b.prompts_dialog.grab().save(str(root/'prompts.png'))
         c=w.intent_controller;c.role.setCurrentIndex(c.role.findData('custom'))
         c.role_note.setText('只参考黑白服装配色和细描边，主体换成机器人，不参考发型与站姿')
         QTest.qWait(30);assert c.role.isVisible() and c.role_note.isVisible()
-        w.grab().save(str(root/'custom-purpose.png'))
+        b.prompts_dialog.grab().save(str(root/'custom-purpose.png'))
+        b.prompts_dialog.close()
         w.video_controller.seconds.setValue(32);b.right_tabs.setCurrentIndex(1);QTest.qWait(30)
         assert w.video_controller.seconds.value()==8
         assert not w.current and not w.pending and not w.intent_controller.running

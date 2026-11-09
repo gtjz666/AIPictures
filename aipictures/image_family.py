@@ -91,13 +91,16 @@ def snapshot(window, reference_name=''):
     seed=int(window.seed.text())
     if seed==-1:seed=secrets.randbelow(2**53)
     if not 0<=seed<2**64:raise ValueError('种子范围应为 0–2^64-1，或 -1 随机。')
-    positive,negative=window.positive.toPlainText(),window.negative.toPlainText()
+    from .prompt_language import texts
+    visible,visible_negative=window.positive.toPlainText(),window.negative.toPlainText()
+    positive,negative=texts(window)
     request=ImageRequest(zimage.UNET,positive,negative,window.width.value(),window.height.value(),9,1.,seed,'euler','simple')
     denoise=window.denoise.value() if reference_name else 1.
     graph,mapping=zimage.build(request,window.info['object_info'],reference_name,denoise)
     params=asdict(request)
-    params.update(mode='chat',model_family='zimage',user_prompt=positive,user_negative=negative,
-        image_route=window.model_family.currentData(),template='Z-Image Turbo · 参考重绘' if reference_name else 'Z-Image Turbo · 中文直出',
+    params.update(mode='chat',model_family='zimage',user_prompt=visible,user_negative=visible_negative,
+        prompt_language='chinese_display_english_request',
+        image_route=window.model_family.currentData(),template='Z-Image Turbo · 参考重绘' if reference_name else 'Z-Image Turbo · 文字生图',
         bindings=mapping,denoise=denoise,reference_policy='img2img' if reference_name else 'none',reference_strength=None if reference_name else 0.,
         reference_preprocessing='contain_pad_rgb' if reference_name else None,
         output_background=window.output_background.currentData(),intent={'unmatched':''},negative_unmatched='',
@@ -126,12 +129,15 @@ def reference_snapshot(window, reference_name):
     seed=int(window.seed.text())
     if seed==-1:seed=secrets.randbelow(2**53)
     if not 0<=seed<2**64:raise ValueError('种子范围应为0–2^64-1，或-1随机。')
-    positive,negative=window.positive.toPlainText(),window.negative.toPlainText()
+    from .prompt_language import texts
+    visible,visible_negative=window.positive.toPlainText(),window.negative.toPlainText()
+    positive,negative=texts(window)
     request=ImageRequest(reference_edit.MODEL,positive,negative,
         max(256,round(window.width.value()/16)*16),max(256,round(window.height.value()/16)*16),40,4.,seed,'euler','simple')
     graph,mapping=reference_edit.build(request,reference_name,window.info['object_info'])
     params=asdict(request)
-    params.update(mode='chat',model_family='qwen_edit',user_prompt=positive,user_negative=negative,
+    params.update(mode='chat',model_family='qwen_edit',user_prompt=visible,user_negative=visible_negative,
+        prompt_language='chinese_display_english_request',
         template='Qwen-Image-Edit 2511',bindings=mapping,denoise=1.,reference_policy='semantic',
         reference_strength=None,output_background=window.output_background.currentData(),
         intent={'unmatched':''},negative_unmatched='',lora_style=None,quality_mode='off',edge_smoothing=False)
@@ -145,11 +151,14 @@ def flux_snapshot(window, reference_name=''):
         raise ValueError('FLUX使用独立自动工作流，请把“后台预设”切回“自动选择”。')
     seed=int(window.seed.text())
     if seed==-1:seed=secrets.randbelow(2**53)
-    positive,negative=window.positive.toPlainText(),window.negative.toPlainText()
+    from .prompt_language import texts
+    visible,visible_negative=window.positive.toPlainText(),window.negative.toPlainText()
+    positive,negative=texts(window)
     request=ImageRequest(flux_klein.UNET,positive,negative,window.width.value(),window.height.value(),4,1.,seed,'euler','flux2')
     graph,mapping=flux_klein.build(request,window.info['object_info'],reference_name)
     params=asdict(request)
-    params.update(mode='chat',model_family='flux_klein',user_prompt=positive,user_negative=negative,
+    params.update(mode='chat',model_family='flux_klein',user_prompt=visible,user_negative=visible_negative,
+        prompt_language='chinese_display_english_request',
         image_route=window.model_family.currentData(),template='FLUX.2 Klein 4B',bindings=mapping,denoise=1.,
         reference_policy='semantic' if reference_name else 'none',reference_strength=None,
         output_background=window.output_background.currentData(),intent={'unmatched':''},negative_unmatched='',

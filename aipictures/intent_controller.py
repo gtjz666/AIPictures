@@ -37,6 +37,7 @@ class IntentController:
         self.role_note.textChanged.connect(self.source_changed)
         top.addWidget(self.role); top.addStretch()
         self.organize = QPushButton('整理提示词'); self.organize.clicked.connect(lambda: self.start(False)); top.addWidget(self.organize)
+        self.prompt_actions=[self.organize]
         layout.addLayout(top)
         self.input = QPlainTextEdit(); self.input.setMinimumHeight(56)
         self.input.setAcceptDrops(False); self.input.setPlaceholderText('描述你想创作的内容…')
@@ -58,6 +59,9 @@ class IntentController:
 
     def notify(self, text):
         self.note.setText(text); self.note.setVisible(bool(text))
+        if hasattr(self.window,'workbench') and hasattr(self.window.workbench,'prompt_note'):
+            b=self.window.workbench;b.prompt_note.setText(text);b.prompt_note.setVisible(bool(text))
+            if b.prompts_dialog.isVisible():return
         if text and hasattr(self.window,'workbench'):
             workbench=self.window.workbench;workbench.right_tabs.setCurrentWidget(workbench.reference_items)
             if hasattr(workbench.reference_items,'ensureWidgetVisible'):
@@ -137,7 +141,8 @@ class IntentController:
         history=[]
         self.applied = self.applied_context = None;self.current_record = folder
         self.running = w.preparing = True; self.cancel_event.clear()
-        w.generate_button.setEnabled(False); self.organize.setEnabled(False)
+        w.generate_button.setEnabled(False)
+        for button in self.prompt_actions:button.setEnabled(False)
         w.task_display.start(); w.progress.setRange(0, 0)
         self.notify(''); w.status.setText('正在识别生成需求…')
         if hasattr(w,'reference_chat'):w.reference_chat.append('你',brief)
@@ -162,7 +167,8 @@ class IntentController:
             if kind not in ('result', 'error', 'cancelled'):
                 return
             unchanged = self.fingerprint() == initial
-            self.running = w.preparing = False; self.organize.setEnabled(True)
+            self.running = w.preparing = False
+            for button in self.prompt_actions:button.setEnabled(True)
             w.progress.setRange(0, 100); w.progress.setValue(100 if kind=='result' else 0)
             w.task_display.finish('completed' if kind=='result' else 'cancelled' if self.cancel_event.is_set() else 'failed')
             w.generation_type_changed()
@@ -185,7 +191,7 @@ class IntentController:
                 self.notify('')
                 w.add_chat('你', brief, str(reference) if reference else None)
                 w.add_chat('软件', data['plan']['summary'], job=str(folder))
-                if hasattr(w,'reference_chat'):w.reference_chat.append('软件',data['plan']['summary']+'\n已更新提示词，可在提示词页修改后点击生成。')
+                if hasattr(w,'reference_chat'):w.reference_chat.append('软件',data['plan']['summary']+'\n已更新中文正反提示词，可点击查看／编辑提示词。')
                 w.status.setText('需求识别完成')
                 if generate:
                     QTimer.singleShot(0, w.enqueue)
@@ -206,6 +212,13 @@ class IntentController:
         w.positive.setPlainText(plan['positive_prompt']); w.negative.setPlainText(plan['negative_prompt'])
         self.generated_positive = plan['positive_prompt'].strip()
         self.generated_negative = plan['negative_prompt']
+        from .prompt_language import clear_pair,set_pair
+        english=result.get('english') or {}
+        if english.get('positive') and english.get('negative'):
+            source=self.current_record/'english.json' if self.current_record else ''
+            set_pair(self,plan['positive_prompt'],plan['negative_prompt'],
+                     english['positive'],english['negative'],source)
+        else:clear_pair(self)
         w.generation_type_changed()
         self.applied = self.fingerprint()
         self.applied_context = self.fingerprint(prompts=False)

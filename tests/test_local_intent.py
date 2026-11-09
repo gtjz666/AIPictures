@@ -151,7 +151,8 @@ def test_negative_prompt_never_silently_empty_and_retains_user_words(tmp_path):
         def __init__(self,*args):pass
         def __enter__(self):return self
         def __exit__(self,*args):pass
-        def complete(self,messages):
+        def complete(self,messages,**kwargs):
+            if kwargs.get('schema'):return json.dumps(dict(positive_prompt='A dreamy glowing object.',negative_prompt='')),{}
             data=plan();data['negative_prompt']='';return json.dumps(data),{}
     result=analyze({'name':'test'},'梦幻模糊光晕的物件','',None,None,tmp_path/'empty',threading.Event(),session_factory=Session)
     assert result['plan']['negative_prompt'] and '模糊' not in result['plan']['negative_prompt']
@@ -171,6 +172,9 @@ def test_explicit_reference_purpose_and_custom_use_reach_planner(tmp_path,role,e
         def __enter__(self):return self
         def __exit__(self,*args):pass
         def complete(self,messages,**kwargs):
+            if messages[0]['content'].startswith('你是提示词翻译员'):
+                return json.dumps(dict(positive_prompt='A robot with black and white clothing and a thin outline.',
+                    negative_prompt='text, watermark')),{}
             if kwargs.get('schema'):
                 if role=='custom':assert usage in messages[1]['content'][-1]['text']
                 return json.dumps(dict(identity='紫发少女',clothing_colors='黑白服装',style='细描边动漫',layout='正面站立',uncertainties='')),{}

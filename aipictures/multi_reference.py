@@ -110,21 +110,22 @@ def analyze(config, brief, negative, references, folder, cancel, emit, *, histor
         plan_schema = {'type': 'object', 'additionalProperties': False, 'properties': {
             'summary': {'type': 'string', 'maxLength': 600},
             'positive_prompt': {'type': 'string', 'maxLength': 4000},
+            'negative_prompt': {'type':'string','maxLength':2000},
             'render_order': {'type':'array','minItems':len(references),'maxItems':len(references),
                              'items':{'type':'integer','enum':list(references)}},
             'questions': {'type': 'array', 'maxItems': 3, 'items': {'type': 'string'}}},
-            'required': ['summary', 'positive_prompt', 'render_order', 'questions']}
-        task = dict(latest_user_request=brief, previous_dialog=list(history)[-6:], observations=observations)
+            'required': ['summary', 'positive_prompt', 'negative_prompt', 'render_order', 'questions']}
+        task = dict(latest_user_request=brief, user_exclusions=negative,previous_dialog=list(history)[-6:], observations=observations)
         raw, stats = session.complete([{'role': 'system', 'content':
             '按用户最新要求把多张参考图组合成一张成品。以前对话仅供上下文，最新要求优先。'
-            'summary用中文说明每张图实际借用的部分；positive_prompt用简洁英文，但所有图片编号必须写为“图1”“图2”等用户原编号。'
+            'summary用中文说明每张图实际借用的部分；positive_prompt与negative_prompt必须为完整简体中文，不能输出英文句子。图片编号写“图1”“图2”等原编号。'
             '主体、衣着、姿势、画风、背景/构图分别按用户指定的图取用，不能把风格图的人物身份或姿势擅自带入。'
             '用户指定人物替换时明确替换来源与目标，保留用户指定的衣着发色等身份特征。未要求的静态站姿和表情不能锁定。'
-            '指定借用某图的姿势时以真实参考图为准：直接写“Match the exact pose and hand gesture in 图N”，禁止把观察员的姿势概括再写入提示词。'
-            '人物替换任务先写“Recreate 图N with its subject replaced by the character from 图M”，再写画风/比例与身份服装细节。'
+            '指定借用某图的姿势时以真实参考图为准：写“严格采用图N的实际姿势和手势”，禁止把观察员的姿势概括再写入提示词。'
+            '人物替换任务先写“以图N为基准，将其中主体替换为图M中的人物”，再写画风/比例与身份服装细节。'
             'render_order列出全部原图编号各一次，第一张优先选用户要求保留姿势或构图的基准图，然后是人物来源和其他图；不是改用户编号。'
             '只引用存在的编号。用途冲突或不明确时questions询问，不猜。没有疑问questions为空。'
-            '不生成动作文字时间轴或视频时刻；不增加用户未要求的限制或反向词。'
+            '不生成动作文字时间轴或视频时刻。negative_prompt必须非空，结合本次需求排除主体串用、肢体异常等质量问题，并保留user_exclusions的排除项；不要擅自禁止用户需要的姿势、风格、背景或表情。'
             'positive_prompt只写成品的视觉要求，禁止写入“不增加限制”“没有问题”“不生成动作时间轴”等整理过程的说明或禁令。输出JSON。'},
             {'role': 'user', 'content': json.dumps(task, ensure_ascii=False)}], schema=plan_schema, max_tokens=2400)
         plan = json.loads(raw)
@@ -136,10 +137,24 @@ def analyze(config, brief, negative, references, folder, cancel, emit, *, histor
         bind_text(plan['positive_prompt'], references)
         if not plan['questions'] and not plan['positive_prompt'].strip():
             raise ValueError('没有可用提示词。')
+        from .prompt_language import has_chinese
+        if not plan['questions'] and not has_chinese(plan['positive_prompt']):
+            raise ValueError('多图整理未返回中文提示词，未改动提示词；请重新生成。')
+        if not plan['questions'] and negative.strip() and negative.strip() not in plan['negative_prompt']:
+            plan['negative_prompt']=(plan['negative_prompt']+'\n'+negative.strip()).strip()
+        if not plan['questions'] and not plan['negative_prompt'].strip():
+            plan['negative_prompt']='主体串用，肢体结构异常，非预期文字水印'
+        english={}
+        if not plan['questions']:
+            from .prompt_language import complete_pair
+            english=complete_pair(session,plan,folder,negative=negative,ids=tuple(references),multi=True)
+            if english:
+                try:bind_text(english['positive'],references);bind_text(english['negative'],references)
+                except ValueError:english={}
     if cancel.is_set(): raise Cancelled('多图识别已取消。')
     if any(digest(Path(a['source'])) != a['sha256'] for a in assets):
         raise ValueError('参考图在识别期间发生变化，请重新整理。')
-    result = dict(plan=dict(kind='image', negative_prompt=negative, timeline=[], **plan), assets=assets,
+    result = dict(plan=dict(kind='image', timeline=[], **plan), english=english, assets=assets,
                   observations=observations, stats=stats, policy='numbered_references_v1')
     write_json(folder/'result.json', result)
     return result

@@ -32,17 +32,38 @@ def main():
         refs=w.reference_chat.references()
         assert list(refs)==[1,2,3,4] and w.output is None and w.pixmap.isNull()
         assert w.intent_controller.input.isVisible() and w.intent_controller.organize.isVisible()
+        assert w.workbench.right_tabs.count()==2
+        assert [w.workbench.right_tabs.tabText(i) for i in range(2)]==['单张图片','动画']
+        assert w.workbench.animation.isAncestorOf(w.workbench.motion_item)
+        assert not w.workbench.reference_items.isAncestorOf(w.workbench.motion_item)
         assert not w.reference_chat.view.isVisible()
         assert w.intent_controller.organize.parent()!=w.workbench.prompt_page
         w.intent_controller.input.setPlainText('图1的人物，图2的姿势，图3和图4的画风。')
         def analyze(*args,**kwargs):
             calls.append(args[3])
-            return dict(policy='numbered_references_v1',plan=dict(kind='image',summary='图1人物、图2姿势，融合图3图4画风',
-                positive_prompt='Use identity from 图1, pose from 图2, styles from 图3 and 图4.',negative_prompt='',timeline=[],questions=[]))
+            return dict(policy='numbered_references_v1',english=dict(positive='Use the person from Image 1, the pose from Image 2 and the styles from Images 3 and 4.',
+                negative='Mixed subjects, deformed limbs'),
+                plan=dict(kind='image',summary='图1人物、图2姿势，融合图3图4画风',
+                positive_prompt='采用图1的人物、图2的姿势，融合图3和图4的画风。',negative_prompt='主体混淆，肢体结构异常',timeline=[],questions=[]))
         with patch('aipictures.multi_reference.analyze',side_effect=analyze):
             w.intent_controller.start(False);wait_until(lambda:not w.preparing)
         assert len(calls)==1 and list(calls[0])==[1,2,3,4], (calls,w.intent_controller.note.text(),w.status.text(),w.reference_chat.view.toPlainText())
-        assert '图4' in w.positive.toPlainText() and '已更新提示词' in w.reference_chat.view.toPlainText()
+        assert '图4' in w.positive.toPlainText() and '已更新中文正反提示词' in w.reference_chat.view.toPlainText()
+        # Chinese stays visible; the submitted request uses the matching English pair.
+        assert w.positive.toPlainText().startswith('采用图1') and w.negative.toPlainText()=='主体混淆，肢体结构异常'
+        graph,params=w.reference_chat.snapshot()
+        assert 'Use the person from Image 1' in graph['text']['inputs']['text']
+        assert '采用图1' not in graph['text']['inputs']['text']
+        assert params['user_prompt']=='采用图1的人物、图2的姿势，融合图3和图4的画风。'
+        assert params['positive'].startswith('Use the person from Image 1') and params['prompt_language']=='chinese_display_english_request'
+        QTest.mouseClick(w.workbench.prompt_button, __import__('PySide6.QtCore',fromlist=['Qt']).Qt.MouseButton.LeftButton)
+        QTest.qWait(30)
+        assert w.workbench.prompts_dialog.isVisible() and w.positive.isVisible() and w.negative.isVisible()
+        assert w.negative.toPlainText()=='主体混淆，肢体结构异常'
+        w.negative.setPlainText('不要文字，不要服装串用')
+        w.workbench.prompts_dialog.grab().save(str(proof/'prompt-dialog.png'))
+        w.workbench.prompts_dialog.close()
+        assert w.negative.toPlainText()=='不要文字，不要服装串用'
         w.workbench.right_tabs.setCurrentWidget(w.workbench.reference_items);QTest.qWait(50)
         w.grab().save(str(proof/'four-references.png'))
         # Stable IDs and invalid references block submission before upload/queue.

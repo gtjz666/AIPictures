@@ -50,8 +50,8 @@ def main():
         w=Window();w.timer.stop();w.resize(1440,940);w.show();QTest.qWait(80);b=w.workbench;c=w.intent_controller
         assert w.windowTitle()=='AlI' and not c.input.acceptDrops()
         assert w.editor._web is None and w.editor._profile is None
-        assert b.canvas.x()<b.right_tabs.x() and b.right_tabs.count()==3
-        assert [b.right_tabs.tabText(i) for i in range(3)]==['参考','动画','提示词']
+        assert b.canvas.x()<b.right_tabs.x() and b.right_tabs.count()==2
+        assert [b.right_tabs.tabText(i) for i in range(2)]==['单张图片','动画']
         assert b.right_tabs.currentWidget()==b.reference_items
         assert not b.right_tabs.isMovable() and not b.workspace.childrenCollapsible()
         assert all(not dock.isVisible() for dock in w.findChildren(QDockWidget))
@@ -68,11 +68,11 @@ def main():
         QTest.qWait(300);panel=w.video_controller.motion
         assert w.reference_path==reference and panel.path and w.preview_role is None and len(calls)==0
         assert b.reference_player.isVisible() and b.reference_player.paths
-        assert b.right_tabs.currentIndex()==0 and not b.motion_selection.isVisible() and not b.prompts.isVisible()
+        assert b.right_tabs.currentIndex()==1 and b.motion_selection.isVisible() and not b.prompts.isVisible()
         assert b.motion_item.isVisible() and not panel.asset_header.isVisible()
-        assert b.reference_items.isAncestorOf(b.motion_item) and b.reference_items.isAncestorOf(b.reference_item)
+        assert b.animation.isAncestorOf(b.motion_item) and b.reference_items.isAncestorOf(b.reference_item)
         assert not b.canvas.isAncestorOf(b.reference_item) and not w.attach_reference_button.isVisible()
-        assert b.reference_item.mapTo(w,QPoint(0,0)).y()<b.motion_item.mapTo(w,QPoint(0,0)).y()
+        assert not b.reference_items.isAncestorOf(b.motion_item)
         # Both previews are independent from a generated still and generated animation.
         w.show_image(str(image));output_state=(w.output,w.preview_path,w.preview_role,w.pixmap.cacheKey())
         source_state=w.reference_path,panel.path,w.generation_type.currentData(),w.positive.toPlainText()
@@ -96,7 +96,7 @@ def main():
         assert b.reference_player.play.accessibleName()=='暂停'
         assert w.preview_role=='animation' and w.animation_player.timer.isActive() and b.reference_player.timer.isActive()
         b.reference_player.toggle();assert w.animation_player.timer.isActive();w.animation_player.stop()
-        b.reference_player.toggle();b.right_tabs.setCurrentIndex(2);QTest.qWait(100)
+        b.reference_player.toggle();b.right_tabs.setCurrentIndex(0);b.open_prompts();QTest.qWait(100)
         assert not b.reference_player.timer.isActive(),'Hidden references must stop rendering.'
         assert b.prompts.isVisible() and not panel.isVisible() and c.role.isVisible()
         assert c.role.parentWidget()==w.positive.parentWidget()
@@ -105,11 +105,11 @@ def main():
         c.role.setCurrentIndex(2);assert c.role_note.isVisible()
         before_fingerprint=c.fingerprint();c.role_note.setText('只参考构图，替换人物与画风');assert c.fingerprint()!=before_fingerprint
         assert not calls,'Changing reference use must not invoke recognition.'
-        w.positive.setPlainText('生成一张图');QTest.mouseClick(c.organize,Qt.MouseButton.LeftButton);wait_until(lambda:not c.running)
+        w.positive.setPlainText('生成一张图');QTest.mouseClick(c.prompt_actions[1],Qt.MouseButton.LeftButton);wait_until(lambda:not c.running)
         assert calls[-1]['role']=='custom' and calls[-1]['reference_usage']=='只参考构图，替换人物与画风'
-        c.role_note.clear();QTest.mouseClick(c.organize,Qt.MouseButton.LeftButton);assert not c.running and len(calls)==1
+        c.role_note.clear();QTest.mouseClick(c.prompt_actions[1],Qt.MouseButton.LeftButton);assert not c.running and len(calls)==1
         c.role.setCurrentIndex(1);assert not c.role_note.isVisible()
-        b.right_tabs.setCurrentIndex(1)
+        b.prompts_dialog.close();b.right_tabs.setCurrentIndex(1)
         assert all(not button.isVisible() for button in (panel.play,panel.add,panel.add_frames,panel.remove,b.remove_reference))
         assert not panel.range_button.isVisible() and not hasattr(b,'analyze_motion') and b.timeline.isVisible()
         panel.range_slider.setValue(min(500,panel.range_slider.maximum()));assert panel.start.value()>0
@@ -155,6 +155,7 @@ def main():
         b.right_tabs.setCurrentIndex(0)
         QTest.mouseClick(b.reference_item,Qt.MouseButton.LeftButton)
         w.show_image(str(image));output_state=(w.output,w.preview_path,w.preview_role,w.pixmap.cacheKey())
+        b.right_tabs.setCurrentIndex(1);QTest.qWait(30)
         point=QPoint(b.motion_item.width()-10,4);global_point=b.motion_item.mapToGlobal(point)
         app.sendEvent(b.motion_item,QEnterEvent(QPointF(point),QPointF(w.mapFromGlobal(global_point)),QPointF(global_point)))
         assert b.motion_item.close_button.isVisible()
@@ -163,6 +164,7 @@ def main():
         assert (w.output,w.preview_path,w.preview_role,w.pixmap.cacheKey())==output_state
         # Removing the still while a motion is present keeps the other source available.
         drop(app,w.preview,[gif]);wait_until(lambda:not w.preparing);QTest.qWait(40)
+        b.right_tabs.setCurrentIndex(0);QTest.qWait(30)
         QTest.mouseClick(b.reference_item,Qt.MouseButton.LeftButton)
         point=QPoint(b.reference_item.width()-10,4);global_point=b.reference_item.mapToGlobal(point)
         app.sendEvent(b.reference_item,QEnterEvent(QPointF(point),QPointF(w.mapFromGlobal(global_point)),QPointF(global_point)))
@@ -180,9 +182,9 @@ def main():
         assert 'temporary' not in w.status.text() and not w.task_display.detail.isVisible() and b.task.height()<110
         w.grab().save(str(proof/'workspace.png'))
         assert b.task.mapTo(w,QPoint(0,0)).x()+b.task.width()<=b.canvas.mapTo(w,QPoint(0,0)).x()+b.canvas.width()+2
-        b.workspace.setSizes([760,540]);b.prompt_splitter.setSizes([240,160]);b.right_tabs.setCurrentIndex(2)
+        b.workspace.setSizes([760,540]);b.prompt_splitter.setSizes([240,160]);b.right_tabs.setCurrentIndex(1)
         b.save_layout();saved=json.loads((root/'cache/workspace-layout.json').read_text('utf-8'))
-        assert saved['schema_version']==3 and saved['right_tab']=='prompts'
+        assert saved['schema_version']==3 and saved['right_tab']=='animation'
         ratio=saved['columns'][0]/sum(saved['columns'])
         w.close();QTest.qWait(40)
         restored=Window();restored.timer.stop();restored.show();QTest.qWait(70)

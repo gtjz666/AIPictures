@@ -41,7 +41,7 @@ def main():
         drop(app,w.preview,[clip]);wait_until(lambda:not w.preparing)
         assert not calls and not w.intent_controller.running and not w.current
         assert w.reference_path is None and w.pixmap.isNull() and not b.motion_item._pixmap.isNull()
-        assert b.right_tabs.currentWidget()==b.reference_items
+        assert b.right_tabs.currentWidget()==b.animation
         vc.seconds.setValue(4);w.positive.setPlainText('蓝色机器人，跟随参考动画。')
         # Generate without ever organizing prompts or analyzing the motion.
         with patch.object(vc,'enqueue') as enqueue:

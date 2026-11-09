@@ -31,7 +31,7 @@ def main():
         window.workbench.right_tabs.setCurrentIndex(1)
         assert not window.animation_action.isVisible() and window.workbench.creation_kind.isVisible()
         window.workbench.settings.close()
-        window.workbench.right_tabs.setCurrentIndex(2)
+        window.workbench.open_prompts()
         assert '完整动画预览' in window.intent_hint.text()
         assert window.animation_engine.currentData()=='h3'
         assert not window.research_bones_button.isVisible()

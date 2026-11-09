@@ -42,8 +42,8 @@ def prepare_reference(rgba, width: int, height: int):
 def prompt_text(positive: str, negative: str) -> str:
     if not positive.strip():raise ValueError('请填写画面描述。')
     # Turbo's published CFG-1 path has no independent negative-conditioning pass.
-    # Keep the user's exclusions as explicit natural-language soft constraints.
-    return positive.strip()+('\n画面约束：避免出现以下内容：'+negative.strip() if negative.strip() else '')
+    # Keep exclusions as explicit natural-language soft constraints in the request language.
+    return positive.strip()+('\nAvoid these visual elements: '+negative.strip() if negative.strip() else '')
 
 
 def build(request: ImageRequest, info: dict, reference: str='', denoise: float=.45) -> tuple[dict,dict]:

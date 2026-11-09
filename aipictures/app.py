@@ -692,7 +692,9 @@ class Window(QMainWindow):
                 if self.generation_type.currentData()=='walk' and self.reference_chat.extra:
                     raise ValueError('多图参考组合用于单张图片。动画目前支持一张角色图与动作素材，请先移除图2–图4。')
                 if self.intent_controller.running:return
-                if self.reference_chat.intercept():return
+            from .prompt_language import ensure_for_generation
+            if ensure_for_generation(self):return
+            if hasattr(self,'reference_chat') and self.reference_chat.intercept():return
             if self.intent_controller.intercept():return
             if self.video_controller.intercept():return
             if self.api_controller.intercept(): return

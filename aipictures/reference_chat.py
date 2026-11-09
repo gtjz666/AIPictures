@@ -89,10 +89,12 @@ class ReferenceChat:
             raise ValueError('多图参考请选择“自动”或“FLUX”。')
         if w.custom_graph is not None:raise ValueError('多图参考请把后台预设恢复为自动选择。')
         if not flux_klein.enabled(w.info['object_info'], self.data):raise ValueError('请连接已配置的图片引擎。')
-        positive, negative = w.positive.toPlainText(), w.negative.toPlainText()
+        visible, visible_negative = w.positive.toPlainText(), w.negative.toPlainText()
+        from .prompt_language import texts
+        positive, negative = texts(w)
         if not positive.strip():raise ValueError('请先描述各张图的用途并生成提示词，或直接填写提示词。')
         c=w.intent_controller
-        if c.current_record and c.applied_context==c.fingerprint(prompts=False) and positive.strip()==c.generated_positive:
+        if c.current_record and c.applied_context==c.fingerprint(prompts=False) and visible.strip()==c.generated_positive:
             plan_file=c.current_record/'result.json'
             if plan_file.is_file():
                 order=json.loads(plan_file.read_text('utf-8')).get('plan',{}).get('render_order',list(refs))
@@ -101,8 +103,9 @@ class ReferenceChat:
         if seed == -1:seed = secrets.randbelow(2**53)
         req = ImageRequest(flux_klein.UNET, positive, negative, w.width.value(), w.height.value(), 4, 1., seed, 'euler', 'flux2')
         graph, mapping = multi_reference.build(req, w.info['object_info'], uploads or {n:f'__image_{n}__' for n in refs})
-        params = dict(asdict(req), mode='chat', model_family='flux_klein', user_prompt=positive,
-            user_negative=negative, template='多图参考', image_route=w.model_family.currentData(), bindings=mapping,
+        params = dict(asdict(req), mode='chat', model_family='flux_klein', user_prompt=visible,
+            user_negative=visible_negative, prompt_language='chinese_display_english_request',
+            template='多图参考', image_route=w.model_family.currentData(), bindings=mapping,
             denoise=1., reference_policy='numbered_references_v1', reference_strength=None,
             output_background=w.output_background.currentData(), intent={'unmatched':''}, negative_unmatched='',
             lora_style=None, quality_mode='off', edge_smoothing=False,

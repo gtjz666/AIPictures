@@ -50,12 +50,17 @@ def test_ground_each_picture_separately_then_plan_without_mixed_visual_roles(tmp
         def complete(self,messages,**kwargs):
             calls.append(messages)
             if len(calls)<=3:return json.dumps(dict(subject='人物',appearance='服装',style='画法',pose_composition='举手',uncertain='')),{}
-            return json.dumps(dict(summary='保留图1人物，图2姿势，图4画风',positive_prompt='Use the person from 图1, pose from 图2, style from 图4.',render_order=[2,1,4],questions=[])),{}
+            if len(calls)==4:
+                return json.dumps(dict(summary='保留图1人物，图2姿势，图4画风',positive_prompt='采用图1的人物、图2的姿势和图4的画风。',negative_prompt='不要文字',render_order=[2,1,4],questions=[])),{}
+            return json.dumps(dict(positive_prompt='Use the person from Image 1, the pose from Image 2 and the style from Image 4.',
+                negative_prompt='No text')),{}
     result=analyze({},'图1人物，图2姿势，图4画风','不要文字',references,tmp_path/'run',threading.Event(),lambda *a:None,session_factory=Session)
-    assert closed and len(calls)==4
+    assert closed and len(calls)==5
     for call in calls[:3]:assert sum(v.get('type')=='image_url' for v in call[1]['content'])==1
-    assert isinstance(calls[-1][1]['content'],str)
+    assert isinstance(calls[3][1]['content'],str) and isinstance(calls[4][1]['content'],str)
     assert result['plan']['timeline']==[] and result['plan']['negative_prompt']=='不要文字'
+    assert result['english']['positive'].startswith('Use the person from Image 1') and result['english']['negative']=='No text'
+    assert sum(v.get('type')=='image_url' for call in calls[3:] for v in (call[1]['content'] if isinstance(call[1]['content'],list) else []))==0
     assert [v['number'] for v in result['assets']]==[1,2,4]
     with pytest.raises(ValueError,match='图3'):
         analyze({},'使用图3','',references,tmp_path/'bad',threading.Event(),lambda *a:None,session_factory=Session)
