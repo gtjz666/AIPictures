@@ -128,6 +128,14 @@ def package(folder, video, seconds, params, cancel):
         with av.open(str(video)) as c:present=bool(c.streams.audio)
         if present:native=read_audio(video,seconds,cancel=cancel);save_wav(native_path,native)
     imported=params.get('music_file')
+    if params.get('audio_mode')=='h3_native' and not imported:
+        if not present:raise ValueError('此路线没有生成原生音轨，不能交付带声成片；画面和日志已保留。')
+        if float(np.sqrt(np.mean(native**2)))<.0001:raise ValueError('H3原生音轨接近静音，请检查本次生成；不会用合成旋律替代。')
+        save_wav(folder/'soundtrack.wav',native)
+        silent=folder/'video_silent.mp4';target=folder/'video_with_audio.mp4'
+        mux(silent,native,target,cancel)
+        return dict(video=str(target.resolve()),silent_video=str(silent.resolve()),audio=str((folder/'soundtrack.wav').resolve()),
+            music=None,native_audio=str(native_path.resolve()),music_source='h3_native',native_audio_present=True,sample_rate=rate,duration_seconds=seconds)
     music=read_audio(imported,seconds,loop=True,cancel=cancel) if imported else compose_music(seconds,params.get('music_style','gentle'),params['seed'])
     mix=native*.8+music*(.35 if present else .85)
     peak=float(np.max(np.abs(mix)))

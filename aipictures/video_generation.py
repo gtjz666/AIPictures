@@ -24,7 +24,7 @@ def generation_prompt(params: dict,reference: bool) -> str:
     text=params['prompt'].strip()
     if not text:raise ValueError('请在正向提示词中描述画面与动作。')
     if reference:text+='\n以参考图保留未要求改变的主体身份、衣着、配色和画风，执行文字明确要求的动作与变化。'
-    if params.get('creation_kind')=='short_video':return text
+    if params.get('creation_kind') in ('short_video','long_video','long_segment','long_video_edit'):return text
     return text+'\n完整主体保持在画面内，动作连贯，配色与细节稳定，不切镜、不突然缩放。'
 
 
@@ -35,11 +35,15 @@ def generate(client, folder: Path, params: dict, cancel, emit) -> dict:
     save=lambda:write_json(folder/'video.json',manifest)
     save()
     try:
-        if params.get('creation_kind')=='short_video':
+        if params.get('creation_kind') in ('short_video','long_video','long_video_edit'):
             from .video_script import validate
             validate(params.get('short_script'),params['seconds'])
         if params['engine']=='h3':
-            if params['seconds']>8 or params.get('resume_chain'):
+            if params.get('creation_kind')=='long_video_edit':
+                from .video_edit_chain import generate as h3_generate
+            elif params.get('creation_kind')=='long_video' and params['seconds']>8:
+                from .native_long_video import generate as h3_generate
+            elif params['seconds']>8 or params.get('resume_chain'):
                 from .video_chain import generate as h3_generate
             elif params.get('motion_reference'):
                 from .motion_native_backend import generate as h3_generate
@@ -75,7 +79,7 @@ def generate(client, folder: Path, params: dict, cancel, emit) -> dict:
             manifest.update(model_frame_count=count,alignment_tail_frames=count-kept,video_export_pending=True)
             paths=paths[:kept];count=kept
             if 'native_frame_sha256' in manifest:manifest['native_frame_sha256']=manifest['native_frame_sha256'][:kept]
-        if params.get('creation_kind')=='short_video':
+        if params.get('creation_kind') in ('short_video','long_video','long_video_edit'):
             from .video_io import encode_native_rgb
             emit('video_stage',dict(message='画面已完成，正在制作配乐并合成音画…'))
             silent=folder/'video_silent.mp4'
@@ -84,7 +88,7 @@ def generate(client, folder: Path, params: dict, cancel, emit) -> dict:
             from .video_audio import package
             tracks=package(folder,source,count/fps,params,cancel);source=Path(tracks['video'])
             manifest.update(**{k:v for k,v in tracks.items() if k!='video'},video_export_pending=False,
-                            short_script=params.get('short_script'),title='短视频（含配乐）')
+                            short_script=params.get('short_script'),title='长视频' if params.get('creation_kind') in ('long_video','long_video_edit') else '短视频（含配乐）')
         manifest.update(status='completed',source_video=str(source.resolve()) if source else None,source_sha256=digest(source) if source else None,
             frames=[{'image':str(p.resolve().relative_to(folder.resolve()))} for p in paths],fps=fps,
             frame_count=count,duration_seconds=count/fps,elapsed_seconds=round(time.monotonic()-started,2),

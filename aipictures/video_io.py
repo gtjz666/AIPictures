@@ -16,7 +16,7 @@ def native_rgb_info(source: Path) -> tuple[int,int,int]:
         if array.dtype!=np.uint8 or array.ndim!=4 or array.shape[-1]!=3:
             raise ValueError('原生颜色数据不是有效的uint8 RGB动画，原始文件保留。')
         count,height,width,_=array.shape
-        if not 1<=count<=480 or not 1<=height*width<=8_000_000:
+        if not 1<=count<=1440 or not 1<=height*width<=8_000_000:
             raise ValueError('原生颜色数据超出当前预览限制。')
         return count,height,width
     finally:
@@ -113,7 +113,7 @@ def native_rgb_frames(source: Path,folder: Path,cancel: threading.Event,emit,*,f
         if array.dtype!=np.uint8 or array.ndim!=4 or array.shape[-1]!=3:
             raise ValueError('原生颜色数据不是有效的uint8 RGB动画，原始文件保留。')
         count,height,width,_=array.shape
-        if not 1<=count<=480 or not 1<=height*width<=8_000_000:
+        if not 1<=count<=1440 or not 1<=height*width<=8_000_000:
             raise ValueError('原生颜色数据超出当前预览限制。')
         if frame_count is not None:
             if type(frame_count) is not int or not 1<=frame_count<=count:raise ValueError('导出帧数超出原动画范围。')

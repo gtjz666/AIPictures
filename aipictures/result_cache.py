@@ -10,7 +10,7 @@ from .storage import DATA, write_json
 class ResultCache:
     def __init__(self,data=DATA):
         self.data=Path(data).resolve()
-        self.roots={'image':self.data/'jobs','walk':self.data/'animations','video':self.data/'videos'}
+        self.roots={'image':self.data/'jobs','walk':self.data/'animations','video':self.data/'videos','audio':self.data/'audio'}
         self.saved_index=self.data/'saved-files.json'
 
     def entries(self,kind):

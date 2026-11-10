@@ -74,6 +74,9 @@ def main():
         if args.manifest:result=dict(manifest=str(args.manifest.resolve()))
         else:
             job=root/'fixture';job.mkdir();rgb,_,array=picture_source(job,48)
+            import numpy as np
+            artifacts=job/'animation.artifacts';artifacts.mkdir()
+            t=np.arange(64000)/32000;np.save(artifacts/'audio.npy',np.tile(.15*np.sin(2*np.pi*220*t),(2,1)).astype('float32'))
             fixture=dict(params,reference=None,music_file=None)
             with patch('aipictures.h3_backend.generate',return_value=dict(native_rgb=str(rgb))):
                 result=generate(None,job,fixture,threading.Event(),lambda *_:None)

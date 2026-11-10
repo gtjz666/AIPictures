@@ -259,13 +259,25 @@ class IntentController:
             folders=[p for p in paths if p.is_dir()]
             if folders:
                 other=[p for p in paths if not p.is_dir()]
-                if len(folders)!=1 or len(other)>1 or any(not p.is_file() or p.suffix.lower() not in ('.png','.jpg','.jpeg','.webp','.bmp') for p in other):
+                long=getattr(getattr(w,'workbench',None),'category','')=='long_video'
+                if len(folders)!=1 or len(other)>(4 if long else 1) or any(not p.is_file() or p.suffix.lower() not in ('.png','.jpg','.jpeg','.webp','.bmp') for p in other):
                     raise ValueError('每次可拖入一个PNG动画帧文件夹，并可附带一张角色或风格图。')
-                if other:w.set_reference(str(other[0]))
+                if long and other:
+                    if len(other)+len(w.reference_chat.references())>4:raise ValueError('最多4张参考图，请先移除不需要的图片。')
+                    for path in other:w.reference_chat.validate(path)
+                    w.reference_chat.import_images(other)
+                elif other:w.set_reference(str(other[0]))
                 self.animation_mode();w.video_controller.motion.set_folder(folders[0]);self.source_changed();return
             if any(not p.is_file() for p in paths):raise ValueError('请拖入有效的图片、视频、GIF或PNG动画帧文件夹。')
             images = [p for p in paths if p.suffix.lower() in ('.png', '.jpg', '.jpeg', '.webp', '.bmp')]
             motions = [p for p in paths if p.suffix.lower() in EXTENSIONS]
+            if getattr(getattr(w,'workbench',None),'category','')=='long_video' and images:
+                if len(motions)>1 or len(images)+len(motions)!=len(paths):raise ValueError('一次可导入最多4张参考图及一个参考视频。')
+                if len(images)+len(w.reference_chat.references())>4:raise ValueError('最多4张参考图，请先移除不需要的图片。')
+                for path in images:w.reference_chat.validate(path)
+                w.reference_chat.import_images(images)
+                if motions:self.animation_mode();w.video_controller.motion.set_file(motions[0])
+                self.source_changed();return
             if images and not motions and len(images)==len(paths) and w.generation_type.currentData()!='walk' and hasattr(w,'reference_chat'):
                 w.reference_chat.import_images(images);return
             if len(images)+len(motions) != len(paths) or len(motions)>1:

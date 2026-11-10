@@ -51,7 +51,7 @@ def main():
         assert w.windowTitle()=='AlI' and not c.input.acceptDrops()
         assert w.editor._web is None and w.editor._profile is None
         assert b.canvas.x()<b.right_tabs.x() and b.right_tabs.count()==2
-        assert [b.right_tabs.tabText(i) for i in range(2)]==['单张图片','动画']
+        assert [b.right_tabs.tabText(i) for i in range(2)]==['单张','动画帧']
         assert b.right_tabs.currentWidget()==b.reference_items
         assert not b.right_tabs.isMovable() and not b.workspace.childrenCollapsible()
         assert all(not dock.isVisible() for dock in w.findChildren(QDockWidget))

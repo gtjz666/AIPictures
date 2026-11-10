@@ -70,3 +70,19 @@ class LoadConditioning:
         root=Path(folder_paths.get_input_directory()).resolve();path=(root/manifest).resolve(strict=True)
         if not path.is_relative_to(root):raise ValueError('条件文件不在本次任务目录中。')
         return load_packet(path)
+
+
+class SaveAudioLatent:
+    @classmethod
+    def INPUT_TYPES(cls):return {'required':{'latent':('LATENT',)}}
+    RETURN_TYPES=();FUNCTION='save';OUTPUT_NODE=True;CATEGORY='AIPictures/motion'
+    def save(self,latent):
+        import numpy as np
+        streams=latent['samples'].unbind()
+        if len(streams)!=2:raise ValueError('缺少H3音频潜变量。')
+        audio=streams[1].detach().float().cpu().numpy()
+        if audio.ndim!=4 or audio.shape[:3]!=(1,32,2) or not np.isfinite(audio).all():raise ValueError('H3音频潜变量无效。')
+        root=Path(folder_paths.get_output_directory())/'audio';root.mkdir(exist_ok=True)
+        target=root/'latent.npy';temporary=root/'latent.part.npy'
+        np.save(temporary,audio,allow_pickle=False);temporary.replace(target)
+        return {'ui':{'latents':[dict(filename='latent.npy',subfolder='audio',type='output')]}}

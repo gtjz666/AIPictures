@@ -165,8 +165,9 @@ class MotionReferencePanel(QWidget):
                     self.poster.setPixmap(QPixmap(self.preview_paths[0]).scaled(self.poster.size(),Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation))
                     self.poster.show()
                     self.start.setMaximum(max(0.,self.meta['duration']-1/self.preview_fps));self.start.setValue(0.)
-                    self.seconds.setValue(max(2.,math.floor(self.meta['duration']*1000)/1000))
-                    self.repeat.setChecked(self.meta['duration']<2.)
+                    long=getattr(getattr(w,'workbench',None),'category','')=='long_video'
+                    if not long:self.seconds.setValue(max(2.,math.floor(self.meta['duration']*1000)/1000))
+                    self.repeat.setChecked(self.meta['duration']<2. and not long)
                     self.play.setEnabled(True);self.remove.setEnabled(True);self.update_range();self.changed.emit()
                     if frame_folder and hasattr(w,'workbench'):w.workbench.show_motion_reference(play=True)
                     w.status.setText('动作参考已就绪')

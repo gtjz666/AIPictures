@@ -688,8 +688,9 @@ class Window(QMainWindow):
 
     def enqueue(self):
         try:
+            if hasattr(self,'audio_controller') and self.workbench.category=='audio':self.audio_controller.enqueue();return
             if hasattr(self,'reference_chat'):
-                if self.generation_type.currentData()=='walk' and self.reference_chat.extra:
+                if self.generation_type.currentData()=='walk' and self.reference_chat.extra and not (self.workbench.category=='long_video' and self.video_controller.motion.path):
                     raise ValueError('多图参考组合用于单张图片。动画目前支持一张角色图与动作素材，请先移除图2–图4。')
                 if self.intent_controller.running:return
             from .prompt_language import ensure_for_generation
@@ -833,11 +834,12 @@ class Window(QMainWindow):
         if self.current or self.preparing or not self.pending: return
         index = next((i for i,job in enumerate(self.pending) if self.connected or
             (job[1].get('mode')=='smart_image' and job[1].get('backend')=='api') or
-            (job[1].get('mode')=='video' and job[1].get('backend')=='standalone')),None)
+            (job[1].get('mode') in ('video','audio') and job[1].get('backend')=='standalone')),None)
         if index is None: return
         graph, params, folder, item = self.pending.pop(index)
         from .seed_controls import show_seed
         show_seed(self,params.get('seed'))
+        if params.get('mode')=='audio':self.audio_controller.start(params,folder,item);return
         if params.get('mode')=='video':
             self.video_controller.start(params,folder,item);return
         if params.get('mode')=='smart_image':
@@ -932,7 +934,7 @@ class Window(QMainWindow):
     def clear_pending(self):
         for _, params, folder, item in self.pending:
             self.api_controller.runtime.pop(str(folder),None)
-            write_json(folder / 'job.json', {'schema_version': 1, 'kind': {'walk':'walk','video':'video'}.get(params.get('mode'),'image'), 'status': 'cancelled', 'params': params})
+            write_json(folder / 'job.json', {'schema_version': 1, 'kind': {'walk':'walk','video':'video','audio':'audio'}.get(params.get('mode'),'image'), 'status': 'cancelled', 'params': params})
             item.setText(task_name(params) + ' · 已清除')
             if params.get('mode') == 'chat': self.add_chat('软件', '已从队列移除此任务。', job=str(folder))
         self.pending.clear()
@@ -1083,6 +1085,7 @@ class Window(QMainWindow):
             except (OSError,ValueError,KeyError) as exc: QMessageBox.warning(self, '保存失败', str(exc))
 
     def closeEvent(self, event):
+        if hasattr(self,'audio_controller'):self.audio_controller.stop()
         self.video_controller.motion.cancel_preview()
         self.video_controller.player.stop()
         if hasattr(self,'workbench'):

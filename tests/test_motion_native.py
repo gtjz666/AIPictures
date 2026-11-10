@@ -17,6 +17,30 @@ def test_output_duration_is_independent_of_short_reference():
     with pytest.raises(ValueError):output_frames(float('nan'))
 
 
+def test_saved_sampling_can_finish_audio_without_starting_the_sampler(tmp_path):
+    import numpy as np
+    from PIL import Image
+    from aipictures import motion_native_backend as backend
+    from aipictures.storage import write_json
+    from aipictures.workflow_library import digest
+    from unittest.mock import patch
+    image=tmp_path/'rendered.png';Image.new('RGB',(16,24),'purple').save(image)
+    params=dict(seconds=2,seed=3,defer_exports=True,audio_mode='h3_native',h3_settings={})
+    result=dict(native_frames=[str(image)],frame_sha256=[digest(image)],video=None)
+    write_json(tmp_path/'sampled-output.json',dict(params_signature=backend._request_signature(params),result=result))
+    def decode(folder,*args):
+        out=folder/'animation.artifacts';out.mkdir();np.save(out/'audio.npy',np.ones((2,64000),np.float32)*.1)
+    with patch.object(backend,'NativeSession',side_effect=AssertionError('Sampling must not repeat')),patch('aipictures.reference_audio.decode',side_effect=decode) as audio:
+        assert backend.recover_sample(tmp_path,params,threading.Event(),lambda *_:None)==result
+        backend.recover_sample(tmp_path,params,threading.Event(),lambda *_:None)
+    assert audio.call_count==1
+    with pytest.raises(ValueError,match='参数不一致'):
+        backend.recover_sample(tmp_path,dict(params,seed=4),threading.Event(),lambda *_:None)
+    Image.new('RGB',(16,24),'blue').save(image)
+    with pytest.raises(ValueError,match='画面已变化'):
+        backend.recover_sample(tmp_path,params,threading.Event(),lambda *_:None)
+
+
 @pytest.mark.skipif(os.name!='nt',reason='Windows process exit code')
 def test_access_violation_has_specific_error_without_calling_it_oom(tmp_path):
     session=NativeSession({},tmp_path,threading.Event(),lambda *a:None)

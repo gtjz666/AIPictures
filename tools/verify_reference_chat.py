@@ -33,7 +33,7 @@ def main():
         assert list(refs)==[1,2,3,4] and w.output is None and w.pixmap.isNull()
         assert w.intent_controller.input.isVisible() and w.intent_controller.organize.isVisible()
         assert w.workbench.right_tabs.count()==2
-        assert [w.workbench.right_tabs.tabText(i) for i in range(2)]==['单张图片','动画']
+        assert [w.workbench.right_tabs.tabText(i) for i in range(2)]==['单张','动画帧']
         assert w.workbench.animation.isAncestorOf(w.workbench.motion_item)
         assert not w.workbench.reference_items.isAncestorOf(w.workbench.motion_item)
         assert not w.reference_chat.view.isVisible()

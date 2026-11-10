@@ -81,6 +81,9 @@ def segment_params(params:dict,part:dict,endpoint:Path|None)->dict:
     if source_clock and params.get('motion_repeat'):text+=f"\n参考时间线以{params['motion_source']['duration']:.3f}秒为一轮重复，本段参考起点为{window:.3f}秒。"
     if rows:text+='\n优先执行本段时序：\n'+'\n'.join(rows)
     out['prompt']=text
+    if params.get('creation_kind')=='long_video_edit':
+        from .native_long_video import segment_prompt
+        out['prompt']=segment_prompt(params,part)
     return out
 
 
@@ -124,7 +127,7 @@ def _generate(folder:Path,params:dict,cancel,emit)->dict:
             endpoint=paths[-1] if paths else None
             request=segment_params(params,part,endpoint)
             recover=folder/prior['folder'] if prior else None
-            if recover and (recover/'backend-result.json').is_file():
+            if recover and ((recover/'backend-result.json').is_file() or params.get('motion_reference') and (recover/'sampled-output.json').is_file()):
                 target=recover;row=prior
                 if json.loads((target/'params.json').read_text('utf-8'))!=request:
                     raise ValueError('已完成采样的片段参数不同，不自动重做。')
@@ -145,7 +148,10 @@ def _generate(folder:Path,params:dict,cancel,emit)->dict:
             emit('chain_progress',dict(fraction=i/len(parts),message=f'第{i+1}/{len(parts)}段 · 准备中'))
             if (target/'backend-result.json').is_file():result=json.loads((target/'backend-result.json').read_text('utf-8'))
             else:
-                result=backend(target,request,cancel,progress)
+                if params.get('motion_reference') and (target/'sampled-output.json').is_file():
+                    from .motion_native_backend import recover_sample
+                    result=recover_sample(target,request,cancel,progress)
+                else:result=backend(target,request,cancel,progress)
                 write_json(target/'backend-result.json',result)
             native=True
             preview=target/'preview_frames'
@@ -165,9 +171,10 @@ def _generate(folder:Path,params:dict,cancel,emit)->dict:
                 sha256=[digest(p) for p in selected],source_result=result,native_rgb_preserved=native,
                 seed=request['seed'],dropped_guide_frames=skip,trimmed_alignment_frames=len(frames)-skip-len(selected))
             paths.extend(selected);save()
-        target=folder/'animation_master.mp4';encode_pngs(paths,target,FPS,cancel)
+        target=folder/'animation_master.mp4'
+        if not params.get('defer_exports'):encode_pngs(paths,target,FPS,cancel)
         state['status']='completed';state['frame_count']=len(paths);save()
-        return dict(video=str(target.resolve()),native_frames=[str(p.resolve()) for p in paths],
+        return dict(video=None if params.get('defer_exports') else str(target.resolve()),native_frames=[str(p.resolve()) for p in paths],
             frame_sha256=[digest(p) for p in paths],backend='H3/serial-continuation',chain=str(path.resolve()),
             native_rgb_preserved=all(r['native_rgb_preserved'] for r in state['parts']),warnings=state['warnings'])
     except BaseException as exc:

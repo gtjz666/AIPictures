@@ -65,7 +65,7 @@ class VideoPreview(QWidget):
             w.preview_path=str(self.rgb_source)
         w.output=None;w.preview_role='video';w.preview.set_clickable(False)
         w.image_save.hide();w.image_reuse.hide()
-        w.caption.setText('短视频预览 · 导出可分别保存音频与画面' if self.has_audio else '完整动画预览 · 导出可自主选择动画帧');w.fit_preview()
+        w.caption.setText('视频预览 · 导出可分别保存音频与画面' if self.has_audio else '完整动画预览 · 导出可自主选择动画帧');w.fit_preview()
         self.label.setText(f'{index+1}/{self.count} · {index/self.fps:.2f}s')
         if self.has_audio and abs(self.sound.position()-round(index/self.fps*1000))>120:
             self.sound.setPosition(round(index/self.fps*1000))
@@ -88,6 +88,9 @@ class VideoPreview(QWidget):
         self.window.image_save.show();self.window.image_reuse.show()
 
     def toggle(self):
+        if self.has_audio and self.sound.source().isEmpty():
+            playable=self.audio_source if self.audio_source and self.audio_source.is_file() else self.source
+            if playable:self.sound.setSource(QUrl.fromLocalFile(str(playable)));self.sound.setPosition(round(self.index/self.fps*1000))
         if self.timer.isActive():self.timer.stop();self.sound.pause();self.play.set_playing(False)
         elif self.count:
             if self.index==self.count-1:self.slider.setValue(0)

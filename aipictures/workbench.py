@@ -88,7 +88,7 @@ class Workbench:
         w.image_save.setEnabled(False);w.image_reuse.setEnabled(False)
         self.make_settings(w);self.make_prompts(w);self.make_animation(w)
         self.tool_pages={'reference':self.reference_items,'animation':self.animation}
-        for key,title in [('reference','单张图片'),('animation','动画')]:
+        for key,title in [('reference','单张'),('animation','动画帧')]:
             self.right_tabs.addTab(self.tool_pages[key],title)
         self.task=QWidget();task_layout=QVBoxLayout(self.task);task_layout.setContentsMargins(0,3,0,0)
         task_layout.setSpacing(2);task_layout.addWidget(QLabel('当前任务'));task_layout.addWidget(w.task_display)
@@ -157,7 +157,7 @@ class Workbench:
             stack.addWidget(QLabel(f'图{number}'));stack.addWidget(card,1)
             grid.addWidget(cell,(number-1)//2,(number-1)%2)
         form.insertLayout(1,grid,1)
-        dialog=QWidget();chat=QVBoxLayout(dialog);chat.setContentsMargins(8,4,8,4)
+        dialog=QWidget();self.image_requirements=dialog;chat=QVBoxLayout(dialog);chat.setContentsMargins(8,4,8,4)
         chat.addWidget(QLabel('参考要求'))
         c.input.show();c.input.setMinimumHeight(60);c.input.setMaximumHeight(110)
         c.input.setPlaceholderText('例如：保留图1的人物和衣服，采用图2的姿势，融合图3与图4的画风。')
@@ -215,7 +215,7 @@ class Workbench:
         self.creation_kind=QComboBox();self.creation_kind.addItem('动画素材','sprite');self.creation_kind.addItem('短视频（含配乐）','short_video');self.creation_kind.addItem('长视频（后续开放）','long_video')
         self.creation_kind.model().item(2).setEnabled(False)
         self.creation_kind.model().item(2).setToolTip('长视频分段衔接尚未完成整段验证。')
-        kind_row=QHBoxLayout();kind_row.addWidget(QLabel('制作类型'));kind_row.addWidget(self.creation_kind,1);kind_row.addWidget(w.video_controller.motion.frame_rate_row);header.addLayout(kind_row)
+        kind_row=QHBoxLayout();self.creation_kind_label=QLabel('制作类型');kind_row.addWidget(self.creation_kind_label);kind_row.addWidget(self.creation_kind,1);kind_row.addWidget(w.video_controller.motion.frame_rate_row);header.addLayout(kind_row)
         w.video_controller.motion.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
         w.video_controller.motion.asset_header.setParent(self.hidden)
         panel=w.video_controller.motion
@@ -240,7 +240,7 @@ class Workbench:
         from .short_video_ui import ShortVideoPanel
         w.short_video=ShortVideoPanel(w,self.creation_kind);layout.addWidget(w.short_video,1);w.short_video.hide()
         def creation_changed():
-            short=self.creation_kind.currentData()=='short_video'
+            short=self.creation_kind.currentData() in ('short_video','long_video')
             self.timeline_region.setVisible(not short);w.short_video.setVisible(short)
             w.video_controller.apply_ui()
         self.creation_kind.currentIndexChanged.connect(creation_changed)
@@ -249,11 +249,17 @@ class Workbench:
     def make_toolbar(self,w):
         bar=QToolBar('创作');bar.setObjectName('creationToolbar');bar.setMovable(False);w.addToolBar(bar)
         self.group=QButtonGroup(w);self.group.setExclusive(True);self.modes=[]
-        for index,title in enumerate(('单张图片','动画')):
+        self.category='sprite';self._category_change=False;self.category_keys=('long_video','sprite','audio');self.long_duration=30;self.sprite_duration=4
+        for index,title in enumerate(('长视频','精灵图','音频')):
             b=QPushButton(title);b.setCheckable(True);b.setObjectName('modeCard');self.group.addButton(b,index);self.modes.append(b);bar.addWidget(b)
-        self.group.idClicked.connect(w.generation_type.setCurrentIndex)
-        w.generation_type.currentIndexChanged.connect(lambda index:self.modes[index].setChecked(True))
-        self.modes[w.generation_type.currentIndex()].setChecked(True);bar.addSeparator()
+        self.group.idClicked.connect(lambda index:self.select_category(self.category_keys[index]))
+        self.sprite_mode=QComboBox();self.sprite_mode.addItem('单张','image');self.sprite_mode.addItem('动画帧','walk');self.sprite_action=bar.addWidget(self.sprite_mode)
+        self.sprite_mode.currentIndexChanged.connect(lambda index:self.set_sprite_mode(index))
+        w.generation_type.currentIndexChanged.connect(self.sync_category)
+        self.modes[1].setChecked(True);bar.addSeparator()
+        from .audio_workspace import AudioWorkspace
+        w.audio_controller=AudioWorkspace(w);w.tabs.addTab(w.audio_controller.page,'音频')
+        self.creation_kind.hide();self.creation_kind_label.hide()
         self.settings_button=QPushButton('创作设置',self.hidden);self.settings_button.clicked.connect(lambda:self.open_settings('image'))
         spacer=QWidget();spacer.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Preferred);bar.addWidget(spacer)
         w.cancel_button.setText('取消');bar.addWidget(w.cancel_button);bar.addWidget(w.generate_button)
@@ -264,6 +270,45 @@ class Workbench:
         w.menuBar().addAction('API',w.api_controller.open_settings)
         view=w.menuBar().addMenu('窗口')
         view.addAction('恢复默认布局',self.reset_layout);self.view_menu=view
+
+    def set_sprite_mode(self,index):
+        if self._category_change:return
+        if self.category!='sprite':self.select_category('sprite')
+        self.window.generation_type.setCurrentIndex(index)
+        self.right_tabs.setCurrentWidget(self.reference_items if index==0 else self.animation)
+
+    def sync_category(self,index):
+        if self._category_change:return
+        if self.category=='sprite':
+            self.sprite_mode.blockSignals(True);self.sprite_mode.setCurrentIndex(index);self.sprite_mode.blockSignals(False)
+
+    def select_category(self,key):
+        w=self.window
+        if key not in self.category_keys:return
+        if self.category=='long_video':self.long_duration=w.video_controller.seconds.value()
+        elif self.category=='sprite' and w.generation_type.currentData()=='walk':self.sprite_duration=w.video_controller.seconds.value()
+        self._category_change=True;self.category=key;self.modes[self.category_keys.index(key)].setChecked(True)
+        w.audio_controller.player.pause();w.video_controller.player.sound.pause()
+        audio=key=='audio';long=key=='long_video'
+        self.image_requirements.setVisible(not long)
+        self.right_tabs.setTabText(0,'角色／风格参考' if long else '单张')
+        self.right_tabs.setTabText(1,'视频要求' if long else '动画帧')
+        self.sprite_action.setVisible(key=='sprite');self.creation_kind.hide()
+        if audio:
+            w.tabs.setCurrentWidget(w.audio_controller.page);w.audio_controller.left.layout().addWidget(self.task)
+            w.generate_button.setText('生成音频');w.generate_button.setEnabled(bool(w.audio_controller.config) and not w.preparing)
+        else:
+            self.canvas.layout().addWidget(self.task);w.tabs.setCurrentWidget(self.workspace)
+            w.generation_type.setCurrentIndex(1 if long else self.sprite_mode.currentIndex())
+            self.creation_kind.setCurrentIndex(self.creation_kind.findData('long_video' if long else 'sprite'))
+            w.video_controller.seconds.setRange(2,45) if long else w.video_controller.seconds.setRange(2,8)
+            w.video_controller.seconds.setDecimals(0 if long else 3)
+            w.video_controller.seconds.setValue(self.long_duration if long else self.sprite_duration)
+            if long:self.right_tabs.setCurrentWidget(self.animation)
+            w.generation_type_changed()
+            if w.generation_type.currentData()=='walk' and w.video_controller.player.manifest and w.preview_role=='video':
+                w.video_controller.player.show();w.image_save.hide();w.image_reuse.hide()
+        self._category_change=False
 
     def reset_layout(self,checked=False,*,save=True):
         self._restored=False

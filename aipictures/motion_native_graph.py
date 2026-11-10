@@ -25,16 +25,19 @@ def build(info,prompt,seed,width,height,length,manifest,image=''):
                     'sigmas':['sigmas',0],'latent_image':['references',1]}},
         'decode':{'class_type':'VAEDecode','inputs':{'samples':['sample',0],'vae':['vae',0]}},
         'save':{'class_type':'SaveImage','inputs':{'images':['decode',0],'filename_prefix':'AIPictures/reference_motion'}}}
-    if image:
-        graph['character']={'class_type':'LoadImage','inputs':{'image':image}}
-        refs['ref_images.ref_image_0']=['character',0]
+    images=list(image) if isinstance(image,(list,tuple)) else [image] if image else []
+    if len(images)>4:raise ValueError('视频编辑一次最多4张参考图。')
+    for i,path in enumerate(images):
+        key='character' if i==0 else f'reference_{i+1}'
+        graph[key]={'class_type':'LoadImage','inputs':{'image':path}}
+        refs[f'ref_images.ref_image_{i}']=[key,0]
     return graph
 
 
 def encoding(info,prompt,seed,width,height,length,manifest,image=''):
     if 'AIPicturesSaveConditioning' not in info:raise ValueError('专用后端缺少分阶段条件保存节点，请更新私有节点。')
     full=build(info,prompt,seed,width,height,length,manifest,image)
-    graph={k:v for k,v in full.items() if k in ('clip','vae','motion','references','character')}
+    graph={k:v for k,v in full.items() if k in ('clip','vae','motion','references','character') or k.startswith('reference_')}
     graph['checkpoint']={'class_type':'AIPicturesSaveConditioning','inputs':{'conditioning':['references',0],'latent':['references',1]}}
     return graph
 

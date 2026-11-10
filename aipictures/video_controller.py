@@ -25,6 +25,10 @@ class VideoController:
         window.animation_engine.addItem('MiniMax H3','h3')
         from .h3_backend import settings
         self.h3=settings(self.data)
+        try:self.long_ready=bool(json.loads((self.data/'long-video-settings.json').read_text('utf-8')).get('validated'))
+        except (OSError,ValueError):self.long_ready=False
+        try:self.edit_ready=bool(json.loads((self.data/'video-edit-settings.json').read_text('utf-8')).get('validated'))
+        except (OSError,ValueError):self.edit_ready=False
         from .motion_native_backend import settings as motion_settings
         self.motion_settings=motion_settings(self.data)
         window.animation_engine.setCurrentIndex(0)
@@ -35,6 +39,7 @@ class VideoController:
         window.walk_form.insertRow(1,'片段时长（秒）',self.seconds)
         from .motion_reference_ui import MotionReferencePanel
         self.motion=MotionReferencePanel(window,self.seconds)
+        self.seconds.valueChanged.connect(lambda *_:self.apply_ui())
         window.workspace_layout.insertWidget(window.workspace_layout.indexOf(window.intent_hint),self.motion)
         self.motion.changed.connect(self.motion_changed)
         self.motion.hide()
@@ -81,6 +86,12 @@ class VideoController:
 
     def apply_ui(self):
         w=self.window;walking=w.generation_type.currentData()=='walk';free=self.free()
+        if hasattr(w,'short_video'):
+            editing=w.short_video.active() and w.short_video.kind.currentData()=='long_video' and bool(self.motion.path)
+            w.short_video.edit_hint.setVisible(editing)
+            w.short_video.brief.setPlaceholderText('例如：将源视频人物替换为图1的人物和服装，图2只提供画风，保留原动作顺序、背景与镜头。' if editing else '描述画面、情节、镜头与声音，例如：清晨湖面的小船缓慢前行，镜头轻推，配舒缓旋律。')
+        if hasattr(w,'workbench') and w.workbench.category=='audio':
+            w.generate_button.setText('生成音频');w.generate_button.setEnabled(bool(w.audio_controller.config) and not w.preparing);return
         self.sync_prompt_mode(walking and free)
         self.motion.setVisible(hasattr(w,'workbench') or walking and free)
         w.animation_action.setEnabled(not self.motion.path)
@@ -112,10 +123,15 @@ class VideoController:
             w.positive.setPlaceholderText('描述想要的动作…')
             w.context_label.setText('动画创作');w.generate_button.setText('生成动画')
             if hasattr(w,'short_video') and w.short_video.active():w.generate_button.setText('生成短视频')
+            if hasattr(w,'short_video') and w.short_video.kind.currentData()=='long_video':
+                w.generate_button.setText('生成长视频');w.generate_button.setEnabled(bool(self.h3) and self.long_ready and not w.preparing)
             w.intent_hint.setText('正向提示词描述画面与动作 → 完整动画预览 → 自主选帧导出' if self.h3 else 'MiniMax H3 尚未安装并验证；请先完成独立引擎设置。')
             if self.motion.path:
                 w.generate_button.setEnabled(not w.preparing and bool(self.motion_settings))
                 w.intent_hint.setText('动作跟随参考动画或PNG帧；图片与文字指定角色和画风。' if self.motion_settings else '动作素材已就绪；专用参考引擎尚未完成本机验证，暂不能生成。移除动作参考可继续普通动画。')
+            if hasattr(w,'short_video') and w.short_video.kind.currentData()=='long_video':
+                w.generate_button.setText('生成编辑视频' if self.motion.path else '生成长视频')
+                w.generate_button.setEnabled(not w.preparing and bool(self.h3) and (bool(self.motion_settings) and self.edit_ready and self.seconds.value()<=8 if self.motion.path else self.long_ready))
             w.creation_summary.setText('自由动画\nMiniMax H3\n先预览完整片段，再导出素材')
         w.animation_style.hide();w.style_link.hide()
 
@@ -125,6 +141,12 @@ class VideoController:
         if not self.free():raise ValueError('旧骨骼与 Wan 动画路线已停用，请选择 MiniMax H3。')
         if w.api_controller.cloud:return False
         if w.preparing:return True
+        long=hasattr(w,'short_video') and w.short_video.kind.currentData()=='long_video'
+        if long and not self.long_ready:raise ValueError('本机长视频还在完整验收，尚不能提交。')
+        editing=long and bool(self.motion.path)
+        if editing and not self.edit_ready:raise ValueError('参考视频编辑还在完整验收，尚不能提交。')
+        if editing and not self.h3:raise ValueError('视频编辑的原生音轨组件尚未就绪，未启动生成。')
+        if editing and self.seconds.value()>8:raise ValueError('参考视频编辑当前试用2–8秒；长片续接仍有场景跳变，暂不开放。普通长视频可继续生成30秒。')
         engine='h3'
         if not self.motion.path and not self.h3:raise ValueError('MiniMax H3 尚未安装并验证，不能生成动画；不会切回已停用的 Wan。')
         if self.motion.path and not self.motion_settings:raise ValueError('专用动作参考引擎尚未完成本机验证，请先移除动作参考以使用普通动画。')
@@ -143,6 +165,15 @@ class VideoController:
         if short and w.short_video.script is None:
             from .video_script import prompt as script_prompt
             prompt=script_prompt(script)
+        refs=w.reference_chat.references() if editing else {}
+        if editing:
+            from .multi_reference import bind_text,image_ids
+            bind_text(prompt,refs);bind_text(w.negative.toPlainText(),refs)
+            mentioned=image_ids(prompt+'\n'+w.negative.toPlainText())
+            if len(refs)>1 and not mentioned:raise ValueError('请用图1、图2等编号说明各图提供人物、画风或其他用途。')
+            if mentioned:refs={n:p for n,p in refs.items() if n in mentioned}
+            if not self.motion.repeat.isChecked() and self.motion.start.value()+self.seconds.value()>self.motion.meta['duration']+.05:
+                raise ValueError('源视频不足本次时长；请选择更长视频，或明确开启循环。不会自动用长时间定格补齐。')
         timeline=w.workbench.timeline.effective_rows() if hasattr(w,'workbench') and not short else []
         if self.motion.path and hasattr(w,'workbench') and not short:
             prompt,timeline=w.workbench.timeline.generation_input()
@@ -168,8 +199,16 @@ class VideoController:
             music_file=w.short_video.music_file
             if music_file:
                 target=folder/('music_input'+Path(music_file).suffix.lower());shutil.copyfile(music_file,target);music_file=str(target.resolve())
-            params.update(creation_kind='short_video',short_script=script,music_style=w.short_video.music.currentData(),music_file=music_file)
+            params.update(creation_kind='long_video' if long else 'short_video',audio_mode='h3_native',short_script=script,music_style=w.short_video.music.currentData(),music_file=music_file)
             write_script(folder,script)
+        if editing:
+            from .workflow_library import digest
+            from .video_edit import FORMAT
+            frozen_refs=[]
+            for order,(number,path) in enumerate(refs.items(),1):
+                target=folder/'references'/f'{number}{path.suffix.lower()}';target.parent.mkdir(exist_ok=True);shutil.copyfile(path,target)
+                frozen_refs.append(dict(number=number,model_input=order,path=str(target.resolve()),sha256=digest(target)))
+            params.update(creation_kind='long_video_edit',video_edit_refs=frozen_refs,motion_prompt_format=FORMAT)
         params['motion_timeline_clock']=w.workbench.timeline.clock if hasattr(w,'workbench') else 'output'
         if self.motion.path:
             params['motion_native_settings']=self.motion_settings.copy()
@@ -177,7 +216,7 @@ class VideoController:
             params['reference_role']=reference_role
             params['reference_usage']=reference_usage
             params.update(motion_reference=str(self.motion.path),motion_start=self.motion.start.value(),
-                          motion_allow_tail_hold=True,
+                          motion_allow_tail_hold=not editing,
                           motion_max_side=self.motion.detail.currentData(),
                           motion_repeat=self.motion.repeat.isChecked(),
                           motion_source=self.motion.meta.copy(),user_prompt=w.positive.toPlainText())
@@ -209,7 +248,8 @@ class VideoController:
     def enqueue(self,params,folder):
         if hasattr(self.window,'intent_controller') and not params.get('resume_chain'):self.window.intent_controller.record(folder,params)
         w=self.window;write_json(folder/'job.json',{'schema_version':1,'kind':'video','status':'queued','params':params})
-        item=QListWidgetItem('完整动画 · 等待');w.queue_list.addItem(item)
+        from .task_display import task_name
+        item=QListWidgetItem(task_name(params)+' · 等待');w.queue_list.addItem(item)
         from .seed_controls import show_seed
         show_seed(w,params['seed'])
         w.pending.append((None,params,folder,item));w.add_chat('你',params['prompt'])
@@ -220,7 +260,8 @@ class VideoController:
         w=self.window;cancel=threading.Event()
         client=ComfyClient(params['url']) if params.get('url') and not params.get('motion_reference') else None
         w.current={'folder':folder,'params':params,'cancel':cancel,'client':client}
-        w.connect_button.setEnabled(False);item.setText('完整动画 · 制作中')
+        from .task_display import task_name
+        w.connect_button.setEnabled(False);item.setText(task_name(params)+' · 制作中')
         w.task_display.start();w.progress.setRange(0,0)
         write_json(folder/'job.json',{'schema_version':1,'kind':'video','status':'running','params':params})
         def event(kind,data):
@@ -248,7 +289,7 @@ class VideoController:
                 write_json(folder/'job.json',{'schema_version':1,'kind':'video','status':status,'params':params,'error':None if kind=='result' else str(data)})
                 w.current=None;w.task_display.finish(status);w.progress.setRange(0,100);w.progress.setValue(100 if kind=='result' else 0)
                 w.connect_button.setEnabled(True)
-                item.setText('完整动画 · '+{'result':'完成','error':'失败','cancelled':'取消'}[kind])
+                item.setText(task_name(params)+' · '+{'result':'完成','error':'失败','cancelled':'取消'}[kind])
                 if kind=='result':
                     try:self.player.load(data['manifest'])
                     except (OSError,ValueError,KeyError) as exc:w.add_chat('软件','动画已生成，但预览读取失败：'+str(exc),job=str(folder))
@@ -312,18 +353,26 @@ class VideoController:
     def open_history(self,item):
         try:
             path=Path(item.data(Qt.ItemDataRole.UserRole));data=json.loads(path.read_text('utf-8'))
-            if data['status']!='completed' and (path.parent/'chain.json').is_file():
+            if data['status']!='completed' and ((path.parent/'chain.json').is_file() or (path.parent/'native-chain.json').is_file()):
                 self.resume_chain(path,data);return
+            if hasattr(self.window,'workbench'):
+                long=data.get('params',{}).get('creation_kind') in ('short_video','long_video','long_video_edit') or data.get('duration_seconds',0)>8
+                self.window.workbench.select_category('long_video' if long else 'sprite')
+                if not long:self.window.workbench.sprite_mode.setCurrentIndex(1)
             self.player.load(path);self.window.assets_dialog.close()
         except Exception as exc:self.window.add_chat('软件',str(exc))
 
     def resume_chain(self,path,data):
         from PySide6.QtWidgets import QMessageBox
         w=self.window
-        if data.get('params',{}).get('seconds',0)>8:raise ValueError('长视频续接尚未完成整段验证，暂未开放。已有成片仍可播放和导出。')
+        kind=data.get('params',{}).get('creation_kind')
+        if kind=='long_video_edit' and data['params'].get('seconds',0)>8:raise ValueError('长片参考替换未通过连续性验收，暂不继续。已有输出仍可播放和导出。')
+        allowed=((path.parent/'native-chain.json').is_file() and self.long_ready) or (kind=='long_video_edit' and self.edit_ready)
+        if data.get('params',{}).get('seconds',0)>8 and not allowed:raise ValueError('此长视频路线尚未验证，不能继续。已有成片仍可播放和导出。')
         if w.current or w.pending or w.preparing:raise ValueError('请先结束当前任务再继续长动画。')
-        chain=json.loads((path.parent/'chain.json').read_text('utf-8'))
-        completed=sum(r['status']=='completed' for r in chain['parts'])
+        chain_path=path.parent/('native-chain.json' if (path.parent/'native-chain.json').is_file() else 'chain.json')
+        chain=json.loads(chain_path.read_text('utf-8'))
+        completed=sum(r.get('status')=='completed' or 'result' in r for r in chain['parts'])
         if QMessageBox.question(w,'继续长动画',f'已完成{completed}/{len(chain["plan"])}段。保留完成部分，继续未完成的片段？')!=QMessageBox.StandardButton.Yes:return
         params=dict(data['params'],resume_chain=True)
         w.assets_dialog.close();self.enqueue(params,path.parent)

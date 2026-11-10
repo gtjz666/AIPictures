@@ -161,8 +161,9 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
     from .workflow_library import digest
     from PIL import Image,ImageOps
     from .motion_prompt import FORMAT,compile_prompt
+    from .video_edit import FORMAT as EDIT_FORMAT
     prompt_format=params.get('motion_prompt_format','reference_roles_v1')
-    if prompt_format not in ('reference_roles_v1',FORMAT):raise ValueError('未知动作提示词格式，未提交生成。')
+    if prompt_format not in ('reference_roles_v1',FORMAT,EDIT_FORMAT):raise ValueError('未知动作提示词格式，未提交生成。')
     folder=Path(folder);config=params.get('motion_native_settings',{})
     length=output_frames(params['seconds'])
     if not config.get('validated') and not params.get('_native_probe'):
@@ -179,20 +180,31 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
             allow_tail_hold=bool(params.get('continuation_frame') or params.get('motion_allow_tail_hold')))
         expected=params.get('motion_source',{}).get('sha256')
         if expected and expected!=motion['source']['sha256']:raise ValueError('动作参考与入队记录不一致。')
-        image=''
-        if params.get('reference'):
-            with Image.open(params['reference']) as original:
+        image='';images=[]
+        input_refs=params.get('video_edit_refs') or ([dict(number=1,path=params['reference'])] if params.get('reference') else [])
+        for ref in input_refs:
+            if ref.get('sha256') and digest(Path(ref['path']))!=ref['sha256']:raise ValueError('编号参考图已变化，未启动采样。')
+            with Image.open(ref['path']) as original:
                 if original.width*original.height>16_000_000:raise ValueError('角色参考图超过1600万像素，请先缩小。')
                 rgba=ImageOps.exif_transpose(original).convert('RGBA')
                 rgb=Image.new('RGB',rgba.size,(232,232,232));rgb.paste(rgba,mask=rgba.getchannel('A'))
-                rgb.save(server.input/'character.png');image='character.png'
+                name=f'reference_{ref["number"]}.png' if params.get('video_edit_refs') else 'character.png'
+                rgb.save(server.input/name);images.append(name)
+        image=images if params.get('video_edit_refs') else images[0] if images else ''
         compiler=compile_prompt if prompt_format==FORMAT else prompt
-        text=compiler(params['prompt'],bool(image),reference_role=params.get('reference_role','appearance'),
-                    reference_usage=params.get('reference_usage',''))
-        if params.get('negative','').strip():text+='\nAvoid: '+params['negative'].strip()
+        if prompt_format==EDIT_FORMAT:
+            from .video_edit import compile_prompt as compile_edit
+            text=compile_edit(params['prompt'],input_refs,reference_role=params.get('reference_role','appearance'),reference_usage=params.get('reference_usage',''))
+        else:text=compiler(params['prompt'],bool(image),reference_role=params.get('reference_role','appearance'),reference_usage=params.get('reference_usage',''))
+        if params.get('negative','').strip():
+            negative=params['negative'].strip()
+            if prompt_format==EDIT_FORMAT:
+                from .video_edit import bind_labels
+                negative=bind_labels(negative,input_refs)
+            text+='\nAvoid: '+negative
         (folder/'prompt.txt').write_text(text,'utf-8')
         write_json(folder/'prompt-policy.json',dict(format=prompt_format,motion_timeline_clock='output',
-            reference_role=params.get('reference_role','appearance'),source_video_is_editing_source=prompt_format==FORMAT))
+            reference_role=params.get('reference_role','appearance'),references=input_refs,source_video_is_editing_source=prompt_format in (FORMAT,EDIT_FORMAT)))
         graph=encoding(server.info,text,params['seed'],config.get('width',768),config.get('height',1024),
                     length,'motion/frames.json',image)
         if params.get('continuation_frame'):
@@ -226,6 +238,10 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
     with NativeSession(config,folder/'native_sample',cancel,emit) as server:
         shutil.copytree(packet,server.input/'conditioning')
         graph=sampling(server.info,params['seed'],config.get('width',768),config.get('height',1024),length)
+        audio=params.get('audio_mode')=='h3_native'
+        if audio:
+            if 'AIPicturesSaveAudioLatent' not in server.info:raise ValueError('私有后端缺少本项目的原生音轨保存节点。')
+            graph['save_audio']={'class_type':'AIPicturesSaveAudioLatent','inputs':{'latent':['sample',0]}}
         write_json(server.folder/'workflow.json',graph)
         try:result=server.client.generate(graph,server.folder/'native_result',event,cancel)
         except EngineUnavailable:
@@ -233,9 +249,33 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
             raise
         paths=[Path(p) for p in result['images']]
         if len(paths)!=length:raise ValueError('生成帧数不完整，已保存结果保留，请检查 native_sample。')
-    write_json(folder/'stages.json',dict(encoding='completed',sampling='completed',weights_loader='stream',encoder_process_exited=True),durable=True)
+        audio_latent=server.output_dir/'audio/latent.npy'
     target=folder/'animation_master.mp4'
-    if not params.get('defer_exports'):encode_pngs(paths,target,24,cancel)
-    return dict(video=None if params.get('defer_exports') else str(target.resolve()),native_frames=[str(p.resolve()) for p in paths],
-                backend='ComfyUI/H3-Ref2VA',style_lora=False,motion=motion,staged=True,weights_loader='stream',
-                frame_sha256=[digest(p) for p in paths])
+    saved=dict(video=None if params.get('defer_exports') else str(target.resolve()),native_frames=[str(p.resolve()) for p in paths],
+        backend='ComfyUI/H3-Ref2VA',style_lora=False,motion=motion,staged=True,weights_loader='stream',frame_sha256=[digest(p) for p in paths])
+    write_json(folder/'sampled-output.json',dict(params_signature=_request_signature(params),result=saved),durable=True)
+    return recover_sample(folder,params,cancel,emit)
+
+
+def _request_signature(params):
+    import hashlib
+    return hashlib.sha256(json.dumps({k:v for k,v in params.items() if k!='resume_chain'},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+
+
+def recover_sample(folder,params,cancel,emit):
+    """Explicit chain resume can finish audio/export without repeating sampling."""
+    from .workflow_library import digest
+    from .video_io import encode_pngs
+    folder=Path(folder);receipt=json.loads((folder/'sampled-output.json').read_text('utf-8'));saved=receipt['result']
+    if receipt['params_signature']!=_request_signature(params):raise ValueError('已采样画面的参数不一致，不重做或套用。')
+    paths=[Path(p) for p in saved['native_frames']]
+    if [digest(p) for p in paths]!=saved['frame_sha256']:raise ValueError('已完成的采样画面已变化，不自动重做。')
+    if params.get('audio_mode')=='h3_native' and not (folder/'animation.artifacts/audio.npy').is_file():
+        from .reference_audio import decode
+        decode(folder,folder/'native_sample/native_output/audio/latent.npy',params['h3_settings'],cancel,emit)
+    write_json(folder/'stages.json',dict(encoding='completed',sampling='completed',weights_loader='stream',encoder_process_exited=True),durable=True)
+    if not params.get('defer_exports'):
+        target=Path(saved['video'])
+        if target.exists():raise ValueError('已有导出文件，请先核对原结果，不自动覆盖。')
+        encode_pngs(paths,target,24,cancel)
+    return saved

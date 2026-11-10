@@ -18,7 +18,7 @@ def main():
          patch.object(Window,'restore_chat'),patch.object(Window,'refresh_stats'),\
          patch('aipictures.h3_backend.settings',return_value={'validated':True}):
         window=Window();window.timer.stop();window.show();QTest.qWait(30)
-        assert window.workbench.modes[0].isVisible() and window.workbench.modes[0].isChecked()
+        assert window.workbench.modes[1].isVisible() and window.workbench.modes[1].isChecked()
         assert not window.animation_action.isVisible()
         assert not window.reference_path and not window.reference_policy.isVisible()
         assert not window.generate_button.toolTip() and not window.positive.toolTip()
@@ -29,7 +29,7 @@ def main():
         assert window.workbench.modes[1].isChecked() and not window.reference_policy.isVisible()
         window.open_settings('creation')
         window.workbench.right_tabs.setCurrentIndex(1)
-        assert not window.animation_action.isVisible() and window.workbench.creation_kind.isVisible()
+        assert not window.animation_action.isVisible() and window.workbench.sprite_mode.isVisible()
         window.workbench.settings.close()
         window.workbench.open_prompts()
         assert '完整动画预览' in window.intent_hint.text()

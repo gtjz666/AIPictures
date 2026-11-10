@@ -45,7 +45,14 @@ def generate(folder: Path, params: dict, cancel: threading.Event, emit) -> dict:
         '--cache',config['cache'],'--base',config['base'],'--checkpoint',config['checkpoint'],'--encoder-root',config['encoder_root'],
         '--encoder',config['encoder'],'--model-paths',config['model_paths'],'--seconds',str(params['seconds']),'--width',str(config.get('width',768)),
         '--height',str(config.get('height',1024)),'--seed',str(params['seed']),'--out',str(target),
-        '--resource-retries','0','--no-tuning','--no-two-pass']
+        '--resource-retries','0','--no-tuning','--two-pass' if params.get('h3_two_pass') else '--no-two-pass']
+    if params.get('h3_frames'):
+        command[command.index('--seconds')]='--frames';command[command.index('--frames')+1]=str(params['h3_frames'])
+    if params.get('h3_continue_video'):
+        previous=Path(params['h3_continue_video']).resolve()
+        from .workflow_library import digest
+        if not params.get('h3_two_pass') or digest(previous)!=params['h3_continue_sha256']:raise ValueError('续接画面已变化或未启用原生续接流程。')
+        command+=['--continue-from',str(previous),'--first-frame-reference']
     reuse=params.get('h3_reuse_conditioning')
     if reuse:
         from .workflow_library import digest
@@ -56,6 +63,7 @@ def generate(folder: Path, params: dict, cancel: threading.Event, emit) -> dict:
         media={'version':1,'conditioning_info':reuse['info']}
         (folder/'media.json').write_text(json.dumps(media,ensure_ascii=False),'utf-8')
         command+=['--task',reuse['info']['task'],'--media',str((folder/'media.json').resolve())]
+    elif params.get('h3_continue_video'):pass
     elif params.get('continuation_frame'):
         # The generated endpoint already has the target canvas; do not shrink it again.
         media={'version':1,'first':str(Path(params['continuation_frame']).resolve())}
@@ -134,6 +142,9 @@ def generate(folder: Path, params: dict, cancel: threading.Event, emit) -> dict:
 
 def stage_message(event: dict) -> str:
     name=event.get('event','')
+    if name in ('reference_assets_download','sampling_preset_download'):
+        total=event.get('total_bytes') or 1
+        return f"准备音画续接数据 · {round(100*event.get('done_bytes',0)/total)}%"
     if name=='prepared_blocks':return f"加载动画模型 · {event.get('blocks',0)}/{event.get('total',0)} 个模块"
     if name=='model_load_phase':return '正在加载动画模型…'
     if name.startswith('sampling_'):return f"制作完整动画 · 已完成 {event.get('completed_steps',0)}/{event.get('total',8)} 步"
