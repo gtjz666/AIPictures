@@ -11,7 +11,8 @@ from .audio_prompt import fingerprint
 class AudioPromptController:
     def __init__(self,audio,layout):
         self.audio=audio;self.window=audio.window;self.draft=None;self.manual_negative='';self.manual_positive='';self.record=None
-        row=QHBoxLayout();self.organize=QPushButton('生成提示词');self.organize.setObjectName('promptGenerate')
+        row=QHBoxLayout();self.organize=QPushButton('生成专业提示词');self.organize.setObjectName('promptGenerate')
+        self.organize.setToolTip('将一句话需求整理成配器、节奏、结构与混音要求；不开始作曲。')
         self.organize.clicked.connect(self.prepare);row.addWidget(self.organize)
         self.edit=QPushButton('查看／编辑提示词');self.edit.clicked.connect(self.open_dialog);row.addWidget(self.edit)
         layout.insertLayout(2,row)
@@ -53,7 +54,7 @@ class AudioPromptController:
             w.task_display.finish('cancelled' if cancelled else 'completed' if kind=='result' else 'failed')
             w.progress.setRange(0,100);w.progress.setValue(100 if kind=='result' and not cancelled else 0);w.generation_type_changed()
             if kind=='result' and unchanged and not cancelled:
-                self.draft=data;self.manual_positive=manual;self.manual_negative=exclusions;self.record=str(folder/'result.json');a.note.setText('配乐提示词已整理，可查看修改后生成音频。')
+                self.draft=data;self.manual_positive=manual;self.manual_negative=exclusions;self.record=str(folder/'result.json');a.note.setText('专业配乐提示词已生成。点击“查看／编辑提示词”检查配器、节奏与结构，再生成音频。')
             else:a.note.setText('输入已修改，旧提示词未应用。' if kind=='result' and not cancelled else '提示词整理已取消，原输入保留。' if cancelled else '提示词整理失败：'+str(data))
             QTimer.singleShot(0,w.start_next)
         w.launch(run,finish)

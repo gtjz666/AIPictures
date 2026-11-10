@@ -40,7 +40,7 @@ def generate(folder,params,cancel,emit):
             from .audio_prompt import TextSession
             emit('audio_stage',dict(message='正在整理音频要求…'))
             with TextSession(params['intent_settings'],folder/'prompt',cancel,emit) as session:
-                caption=translate(session,params['prompt'],negative)
+                caption=translate(session,params['prompt'],negative,compact=False)
         if caption is None:caption=params['prompt']+('\nAvoid: '+negative if negative else '')
         from .audio_duration import render_seconds,finish
         work_seconds=render_seconds(params['seconds'])

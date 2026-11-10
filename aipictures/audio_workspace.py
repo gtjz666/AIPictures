@@ -42,7 +42,7 @@ class AudioWorkspace:
         self.player.durationChanged.connect(lambda duration:self.slider.setRange(0,duration))
         self.player.positionChanged.connect(self.position);self.player.playbackStateChanged.connect(lambda state:self.play.set_playing(state==QMediaPlayer.PlaybackState.PlayingState))
         self.right=QWidget();right=QVBoxLayout(self.right);right.addWidget(QLabel('音频要求'))
-        self.prompt=QPlainTextEdit();self.prompt.setPlaceholderText('例如：30秒轻快的游戏背景配乐，钢琴与弦乐，节奏平稳，没有人声。');right.addWidget(self.prompt,1)
+        self.prompt=QPlainTextEdit();self.prompt.setPlaceholderText('用一句话描述想要的音乐，例如：舒缓但带有淡淡悲伤的背景音乐。\n点击下方“生成专业提示词”细化配器、节奏与结构。');right.addWidget(self.prompt,1)
         row=QHBoxLayout();row.addWidget(QLabel('时长 / 秒'));self.seconds=QDoubleSpinBox();self.seconds.setRange(10,180);self.seconds.setValue(30);self.seconds.setDecimals(0);row.addWidget(self.seconds,1);right.addLayout(row)
         note=QLabel('器乐配乐 · 独立生成，不计算视频画面。\n纯音效和语音尚未开放。');note.setWordWrap(True);right.addWidget(note)
         self.note=QLabel();self.note.setWordWrap(True);right.addWidget(self.note)
