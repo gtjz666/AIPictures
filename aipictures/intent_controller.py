@@ -90,6 +90,8 @@ class IntentController:
 
     def start(self, generate: bool, *, frame_only=False, motion_detail=False):
         w = self.window
+        if hasattr(w,'short_video') and w.short_video.active():
+            w.short_video.prepare();return
         if hasattr(w,'reference_chat') and w.reference_chat.extra and w.generation_type.currentData()=='walk':
             self.notify('多图组合目前用于单张图片。可先生成角色替换后的图片，再将成品用于动画；动画入口仍只支持一张角色图与动作素材。');return
         if frame_only or motion_detail:

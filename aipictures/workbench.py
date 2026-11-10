@@ -212,9 +212,9 @@ class Workbench:
         self.animation_prompt_button=QPushButton('查看／编辑提示词');self.animation_prompt_button.clicked.connect(self.open_prompts)
         header.addWidget(self.animation_prompt_button)
         w.animation_action_label.setParent(self.hidden);w.animation_action.setParent(self.hidden)
-        self.creation_kind=QComboBox();self.creation_kind.addItem('动画素材','sprite');self.creation_kind.addItem('长视频（暂未开放）','long_video')
-        self.creation_kind.model().item(1).setEnabled(False)
-        self.creation_kind.model().item(1).setToolTip('分段衔接尚未完成整段验证。')
+        self.creation_kind=QComboBox();self.creation_kind.addItem('动画素材','sprite');self.creation_kind.addItem('短视频（含配乐）','short_video');self.creation_kind.addItem('长视频（后续开放）','long_video')
+        self.creation_kind.model().item(2).setEnabled(False)
+        self.creation_kind.model().item(2).setToolTip('长视频分段衔接尚未完成整段验证。')
         kind_row=QHBoxLayout();kind_row.addWidget(QLabel('制作类型'));kind_row.addWidget(self.creation_kind,1);kind_row.addWidget(w.video_controller.motion.frame_rate_row);header.addLayout(kind_row)
         w.video_controller.motion.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
         w.video_controller.motion.asset_header.setParent(self.hidden)
@@ -237,6 +237,13 @@ class Workbench:
         region=QVBoxLayout(self.timeline_region);region.setContentsMargins(0,0,0,0)
         self.timeline=ActionTimeline(w);region.addWidget(self.timeline,1)
         layout.addWidget(self.timeline_region,1)
+        from .short_video_ui import ShortVideoPanel
+        w.short_video=ShortVideoPanel(w,self.creation_kind);layout.addWidget(w.short_video,1);w.short_video.hide()
+        def creation_changed():
+            short=self.creation_kind.currentData()=='short_video'
+            self.timeline_region.setVisible(not short);w.short_video.setVisible(short)
+            w.video_controller.apply_ui()
+        self.creation_kind.currentIndexChanged.connect(creation_changed)
         self.animation=self.scroll_page(content)
 
     def make_toolbar(self,w):

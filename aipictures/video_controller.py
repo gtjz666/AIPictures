@@ -111,6 +111,7 @@ class VideoController:
             w.custom_hint.setText('动作描述为准；生成完整动画后再选择拆帧，不需要调整骨骼。')
             w.positive.setPlaceholderText('描述想要的动作…')
             w.context_label.setText('动画创作');w.generate_button.setText('生成动画')
+            if hasattr(w,'short_video') and w.short_video.active():w.generate_button.setText('生成短视频')
             w.intent_hint.setText('正向提示词描述画面与动作 → 完整动画预览 → 自主选帧导出' if self.h3 else 'MiniMax H3 尚未安装并验证；请先完成独立引擎设置。')
             if self.motion.path:
                 w.generate_button.setEnabled(not w.preparing and bool(self.motion_settings))
@@ -128,16 +129,22 @@ class VideoController:
         if not self.motion.path and not self.h3:raise ValueError('MiniMax H3 尚未安装并验证，不能生成动画；不会切回已停用的 Wan。')
         if self.motion.path and not self.motion_settings:raise ValueError('专用动作参考引擎尚未完成本机验证，请先移除动作参考以使用普通动画。')
         description=''
+        short=hasattr(w,'short_video') and w.short_video.active()
         reference=w.reference_path if w.animation_source.currentData()=='reference' else None
         prompt=w.positive.toPlainText().strip()
+        if short and not prompt:prompt=w.short_video.brief.toPlainText().strip()
         if not prompt and self.motion.path and reference:prompt='按动作参考生成动画，保留角色参考图的主体、衣着、配色与画风。'
         if not prompt:raise ValueError('请在正向提示词中描述画面与动作。')
         if len(prompt)>16000 or len(description)>8000 or len(w.negative.toPlainText())>8000:
             raise ValueError('描述过长，请将画面提示词控制在16000字、动作及反向描述各8000字以内。')
-        if w.animation_source.currentData()=='reference' and not reference:raise ValueError('请添加参考图，或选择仅文字描述。')
+        if w.animation_source.currentData()=='reference' and not reference and not short:raise ValueError('请添加参考图，或选择仅文字描述。')
         if not reference and not prompt:raise ValueError('无参考图时，请填写画面或角色描述。')
-        timeline=w.workbench.timeline.effective_rows() if hasattr(w,'workbench') else []
-        if self.motion.path and hasattr(w,'workbench'):
+        script=w.short_video.snapshot() if short else None
+        if short and w.short_video.script is None:
+            from .video_script import prompt as script_prompt
+            prompt=script_prompt(script)
+        timeline=w.workbench.timeline.effective_rows() if hasattr(w,'workbench') and not short else []
+        if self.motion.path and hasattr(w,'workbench') and not short:
             prompt,timeline=w.workbench.timeline.generation_input()
             if not prompt:prompt='按动作参考生成动画，保留文字和参考图指定的目标外观。'
         intent=getattr(w,'intent_controller',None)
@@ -156,6 +163,13 @@ class VideoController:
             'reference':reference,'seed':seed,'seconds':self.seconds.value(),'steps':w.animation_steps.value(),
             'checkpoint':w.model.currentText(),'url':w.client.url if w.connected else None,'lora':''}
         params['h3_settings']=self.h3.copy();params['motion_timeline']=timeline
+        if short:
+            from .video_script import write_script
+            music_file=w.short_video.music_file
+            if music_file:
+                target=folder/('music_input'+Path(music_file).suffix.lower());shutil.copyfile(music_file,target);music_file=str(target.resolve())
+            params.update(creation_kind='short_video',short_script=script,music_style=w.short_video.music.currentData(),music_file=music_file)
+            write_script(folder,script)
         params['motion_timeline_clock']=w.workbench.timeline.clock if hasattr(w,'workbench') else 'output'
         if self.motion.path:
             params['motion_native_settings']=self.motion_settings.copy()

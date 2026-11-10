@@ -1084,6 +1084,7 @@ class Window(QMainWindow):
 
     def closeEvent(self, event):
         self.video_controller.motion.cancel_preview()
+        self.video_controller.player.stop()
         if hasattr(self,'workbench'):
             self.workbench.reference_player.stop()
             try:self.workbench.save_layout()
