@@ -22,7 +22,7 @@ def settings(data):
 def generate(folder,params,cancel,emit):
     from .motion_native_backend import release_shared
     from .owned_process import OwnedProcessJob
-    from .video_audio import read_audio,save_wav
+    from .video_audio import save_wav
     folder=Path(folder);config=params['audio_settings'];started=time.monotonic()
     manifest=dict(kind='audio',status='running',params=params)
     write_json(folder/'audio.json',manifest)
@@ -32,16 +32,20 @@ def generate(folder,params,cancel,emit):
         if not isinstance(params.get('prompt'),str) or not params['prompt'].strip() or len(params['prompt'])>8000:raise ValueError('音频要求无效。')
         if type(params.get('seed')) is not int or not 0<=params['seed']<2**64:raise ValueError('音频种子无效。')
         release_shared(params,folder=folder,cancel=cancel)
-        caption=params['prompt']
-        if any('\u4e00'<=c<='\u9fff' for c in caption) and params.get('intent_settings'):
-            from .local_intent import LocalSession
-            schema=dict(type='object',properties=dict(caption=dict(type='string')),required=['caption'],additionalProperties=False)
+        from .audio_prompt import fingerprint,translate
+        negative=params.get('negative','')
+        cached=params.get('caption_english')
+        caption=cached.strip() if isinstance(cached,str) and cached.strip() and params.get('caption_fingerprint')==fingerprint(params['prompt'],negative) else None
+        if caption is None and any('\u4e00'<=c<='\u9fff' for c in params['prompt']+negative) and params.get('intent_settings'):
+            from .audio_prompt import TextSession
             emit('audio_stage',dict(message='正在整理音频要求…'))
-            with LocalSession(params['intent_settings'],folder/'prompt',cancel,emit) as session:
-                raw,_=session.complete([dict(role='system',content='Translate the user request into a faithful English instrumental music caption. Preserve instruments, mood, tempo and exclusions. No lyrics or invented story. Return JSON.'),dict(role='user',content=caption)],schema=schema,max_tokens=900)
-            caption=json.loads(raw)['caption'].strip()
-            if not caption:raise ValueError('音频要求未完成整理。')
-        request=dict(config,out=str((folder/'audio-master.wav').resolve()),caption=caption,seconds=params['seconds'],seed=params['seed'])
+            with TextSession(params['intent_settings'],folder/'prompt',cancel,emit) as session:
+                caption=translate(session,params['prompt'],negative)
+        if caption is None:caption=params['prompt']+('\nAvoid: '+negative if negative else '')
+        from .audio_duration import render_seconds,finish
+        work_seconds=render_seconds(params['seconds'])
+        generation_caption=caption+f'\nMaintain a complete musical performance across the full {work_seconds} seconds, with a brief natural closing cadence at the very end. Keep instrumentation audible throughout; no premature fade, extended silence or silent padding.'
+        request=dict(config,out=str((folder/'audio-master.wav').resolve()),caption=generation_caption,seconds=work_seconds,seed=params['seed'],deliver_seconds=params['seconds'])
         write_json(folder/'request.json',request)
         command=[config['python'],'-u',str(Path(__file__).with_name('audio_worker.py').resolve()),str((folder/'request.json').resolve())]
         emit('audio_stage',dict(message='正在生成独立器乐配乐…'))
@@ -62,12 +66,14 @@ def generate(folder,params,cancel,emit):
         lines=[line for line in (folder/'audio.log').read_text('utf-8',errors='replace').splitlines() if line.startswith('{')]
         detail=json.loads(lines[-1]) if lines else {}
         if process.returncode or not detail.get('ok'):raise ValueError('音频生成失败：'+str(detail.get('detail','请查看本次audio.log')))
-        audio=read_audio(folder/'audio-master.wav',params['seconds'],cancel=cancel)
+        audio,integrity=finish(folder/'audio-master.wav',params['seconds'])
+        write_json(folder/'duration-integrity.json',integrity)
         rms=float(np.sqrt(np.mean(audio**2)))
         if rms<.0001:raise ValueError('生成音频接近静音，未作为完成结果。')
         save_wav(folder/'audio.wav',audio)
         manifest.update(status='completed',audio=str((folder/'audio.wav').resolve()),sample_rate=48000,
-            duration_seconds=params['seconds'],rms=rms,elapsed_seconds=round(time.monotonic()-started,2),engine='ACE-Step 1.5 XL turbo',worker=detail,caption=caption)
+            duration_seconds=params['seconds'],rms=rms,elapsed_seconds=round(time.monotonic()-started,2),engine='ACE-Step 1.5 XL turbo',worker=detail,caption=caption,
+            generation_caption=generation_caption,render_duration_seconds=work_seconds,duration_integrity=integrity)
         write_json(folder/'audio.json',manifest);return dict(manifest=str(folder/'audio.json'))
     except BaseException as exc:
         manifest.update(status='cancelled' if isinstance(exc,Cancelled) else 'failed',error=str(exc));write_json(folder/'audio.json',manifest);raise

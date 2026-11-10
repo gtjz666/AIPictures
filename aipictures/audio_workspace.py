@@ -46,6 +46,8 @@ class AudioWorkspace:
         row=QHBoxLayout();row.addWidget(QLabel('时长 / 秒'));self.seconds=QDoubleSpinBox();self.seconds.setRange(10,180);self.seconds.setValue(30);self.seconds.setDecimals(0);row.addWidget(self.seconds,1);right.addLayout(row)
         note=QLabel('器乐配乐 · 独立生成，不计算视频画面。\n纯音效和语音尚未开放。');note.setWordWrap(True);right.addWidget(note)
         self.note=QLabel();self.note.setWordWrap(True);right.addWidget(self.note)
+        from .audio_prompt_ui import AudioPromptController
+        self.prompt_tools=AudioPromptController(self,right)
         self.page.addWidget(self.left);self.page.addWidget(self.right);self.page.setStretchFactor(0,3);self.page.setStretchFactor(1,1)
         self.history=QListWidget();self.history.itemDoubleClicked.connect(self.open_history);w.assets_dialog.tabs.addTab(self.history,'音频')
         self.load_history()
@@ -66,12 +68,11 @@ class AudioWorkspace:
         w=self.window
         if w.preparing:return
         if not self.config:raise ValueError('独立音频模型尚未完成安装与验证。')
-        prompt=self.prompt.toPlainText().strip()
-        if not prompt or len(prompt)>8000:raise ValueError('请填写8000字以内的音频要求。')
+        prepared=self.prompt_tools.snapshot()
         seed=int(w.seed.text());seed=secrets.randbelow(2**53) if seed==-1 else seed
         if not 0<=seed<2**64:raise ValueError('种子范围不正确。')
         folder=self.data/'audio'/(datetime.now().strftime('%Y%m%d_%H%M%S_')+uuid4().hex[:8]);folder.mkdir(parents=True)
-        params=dict(mode='audio',backend='standalone',prompt=prompt,seconds=self.seconds.value(),seed=seed,
+        params=dict(prepared,mode='audio',backend='standalone',seconds=self.seconds.value(),seed=seed,
             audio_settings=self.config.copy(),intent_settings=w.intent_controller.config,url=w.client.url if w.connected else None)
         write_json(folder/'job.json',dict(kind='audio',status='queued',params=params))
         item=QListWidgetItem('音频 · 等待');w.queue_list.addItem(item);w.pending.append((None,params,folder,item));w.start_next()
@@ -100,10 +101,12 @@ class AudioWorkspace:
         value=json.loads(Path(path).read_text('utf-8'))
         if value['status']!='completed':raise ValueError(value.get('error','音频尚未完成。'))
         self.player.stop();self.manifest=Path(path);self.audio=Path(value['audio']);self.player.setSource(QUrl.fromLocalFile(str(self.audio)))
+        self.prompt_tools.remember_caption(value.get('params',{}),value.get('caption'))
         for control in (self.play,self.slider,self.export):control.setEnabled(True)
         samples=read_audio(self.audio,value['duration_seconds']);mono=np.abs(samples).mean(axis=0)
         self.wave.values=np.array([np.max(chunk) for chunk in np.array_split(mono,400)]);self.wave.update()
-        self.title.setText('器乐配乐 · '+str(round(value['duration_seconds']))+'秒');self.note.setText('音频已就绪，可试听或导出。')
+        self.title.setText('器乐配乐 · '+str(round(value['duration_seconds']))+'秒')
+        self.note.setText('音频已就绪，已检查配乐时长与收尾，可试听或导出。' if value.get('duration_integrity') else '音频已就绪，可试听或导出。')
 
     def save(self):
         if not self.manifest:return
@@ -117,7 +120,7 @@ class AudioWorkspace:
     def load_history(self):
         self.history.clear()
         for path in sorted((self.data/'audio').glob('*/audio.json'),reverse=True):
-            try:value=json.loads(path.read_text('utf-8'));status=value['status'];title=value['params']['prompt']
+            try:value=json.loads(path.read_text('utf-8'));status=value['status'];title=value['params'].get('source_brief',value['params']['prompt'])
             except (OSError,ValueError,KeyError,TypeError):continue
             item=QListWidgetItem(title[:35]+' · '+{'completed':'完成','failed':'失败','cancelled':'已取消','running':'生成中'}.get(status,status))
             item.setData(Qt.ItemDataRole.UserRole,str(path));self.history.addItem(item)
