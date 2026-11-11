@@ -33,11 +33,15 @@ def install(b):
     b.structure_choice.addItem('关闭结构约束','off');structure_layout.addWidget(b.structure_choice,1)
     b.structure_choice.setToolTip('选择提供姿势与构图的图片；主体外观来自另一张图片。适用于人形与非人形素材。')
     layout.addWidget(b.structure_row)
+    b.subject_only=QCheckBox('仅借用主体外观，排除原场景干扰');b.subject_only.setChecked(True)
+    b.subject_only.setToolTip('姿势替换时只提取主体作为外观参考，原图保持不变。需要保留原场景时可取消。')
+    layout.addWidget(b.subject_only)
     b.structure_note=QLabel();b.structure_note.setWordWrap(True);b.structure_note.setObjectName('muted');layout.addWidget(b.structure_note)
     def structure_note():
         from .structure_control import resolve
         try:value=resolve(w.positive.toPlainText(),w.reference_chat.references(),b.structure_choice.currentData())
-        except ValueError as exc:b.structure_note.setText(str(exc));return
+        except ValueError as exc:b.structure_note.setText(str(exc));b.subject_only.setEnabled(False);return
+        b.subject_only.setEnabled(bool(value and value['structure']!=value['identity']))
         b.structure_note.setText(f'图{value["structure"]}提供姿势与构图；图{value["identity"]}提供主体外观。提示词只补充修改。' if value else '需要复刻姿势时，可指定结构来源；不会自动套用人体骨架。')
     b.structure_choice.currentIndexChanged.connect(structure_note);w.positive.textChanged.connect(structure_note)
     b.extra_constraints=QCheckBox('补充限制（可选）');layout.addWidget(b.extra_constraints)
@@ -73,6 +77,7 @@ def install(b):
         b.positive_title.setText('用户需求');w.negative.parentWidget().hide();b.extra_constraints.hide();c.role.hide();c.role_note.hide()
         b.prompts.setVisible(not long and not sound)
         b.structure_row.setVisible(not walking and not sound and not long)
+        b.subject_only.setVisible(not walking and not sound and not long)
         b.structure_note.setVisible(not walking and not sound and not long);structure_note()
         b.prepare_prompt.setEnabled(bool(c.config) and not w.preparing)
         if not walking and not sound:w.generate_button.setText('生成图片')

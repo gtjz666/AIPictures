@@ -128,6 +128,7 @@ class ReferenceChat:
             references=[dict(number=n, source=str(p), sha256=digest(p), model_input=i+1) for i,(n,p) in enumerate(refs.items())])
         if binding:
             params.update(structure_binding=binding,structure_settings=structure_config,reference_policy='trained_depth_structure_v1')
+            params['subject_only']=bool(binding['structure']!=binding['identity'] and w.workbench.subject_only.isChecked())
             for row in params['references']:
                 row.pop('model_input',None);row['model_inputs']=([1] if row['number']==binding['structure'] else [])+([2] if row['number']==binding['identity'] else [])
         return graph, params
@@ -155,6 +156,12 @@ class ReferenceChat:
         def run(emit):
             staging.mkdir(parents=True, exist_ok=False)
             binding=params.get('structure_binding')
+            subject=None
+            if params.get('subject_only'):
+                from .reference_subject import prepare,settings
+                identity=next(p for n,p,sha in refs if n==binding['identity'])
+                subject=prepare(identity,self.data,settings(self.data),w.prepare_cancel,emit)
+                params['subject_preparation']=subject
             if binding:
                 from .structure_control import extract
                 source=next(p for n,p,sha in refs if n==binding['structure'])
@@ -166,7 +173,7 @@ class ReferenceChat:
                 if w.prepare_cancel.is_set():raise Cancelled('参考图上传已取消。')
                 if digest(source) != sha:raise ValueError('参考图发生变化，未提交生成。')
                 if binding and number!=binding['identity']:continue
-                with Image.open(source) as im:rgb = opaque_reference(ImageOps.exif_transpose(im).convert('RGBA'))
+                with Image.open(subject['prepared'] if subject else source) as im:rgb = opaque_reference(ImageOps.exif_transpose(im).convert('RGBA'))
                 path = staging/f'image_{number}.png'; rgb.save(path)
                 name = client.upload_image(path)
                 graph['image_2' if binding else f'image_{number}']['inputs']['image'] = name
@@ -187,7 +194,7 @@ class ReferenceChat:
                 from .storage import write_json
                 write_json(folder/'reference-inputs.json', dict(references=params['references'], policy=params['reference_policy']))
                 if params.get('structure_binding'):
-                    write_json(folder/'structure-control.json',dict(binding=params['structure_binding'],evidence=params['structure_evidence'],model_inputs=params['bindings']['model_inputs']))
+                    write_json(folder/'structure-control.json',dict(binding=params['structure_binding'],evidence=params['structure_evidence'],subject_preparation=params.get('subject_preparation'),model_inputs=params['bindings']['model_inputs']))
                 w.last_chat_graph = json.loads(json.dumps(graph)); w.editor_needs_sync = True
             w.start_next()
         w.launch(run, finish)

@@ -59,7 +59,8 @@ def build(request,info,uploads,binding,config):
         return LABEL.sub(label,text)
     # Model-input numbering is private and independent of gallery slot numbering.
     ordered={1:'__structure_depth__',2:uploads[target]}
-    graph,mapping=references_graph(replace(request,positive='refcontrol. Image 1 provides geometry only. Image 2 provides subject identity and appearance. '+remap(request.positive),negative=remap(request.negative)),info,ordered)
+    instruction='refcontrol. Repose only the subject from Image 2 into the exact complete body pose shown in depth Image 1. Preserve the subject identity, face, hair, body build, clothing and rendering from Image 2. Image 1 determines the entire body layout and connected parts; Image 2 supplies appearance, not its original pose or scene. Produce one coherent subject. Apply explicit user edits below with priority. '
+    graph,mapping=references_graph(replace(request,positive=instruction+remap(request.positive),negative=remap(request.negative)),info,ordered)
     graph['structure_adapter']=dict(class_type='LoraLoaderModelOnly',inputs=dict(model=['model',0],lora_name=adapter,strength_model=strength))
     graph['release' if 'release' in graph else 'guider']['inputs']['model']=['structure_adapter',0]
     mapping.update(reference=['image_1','image_2'],structural_binding=binding,model_inputs=[dict(node='image_1',gallery_number=source,role='depth_geometry'),dict(node='image_2',gallery_number=target,role='identity_rgb')])

@@ -26,6 +26,8 @@ def main():
                 w.positive.setPlainText('将图1中的人物替换为图2中的角色，保持图1的姿势和构图')
                 w.workbench.prompt_output.setPlainText('An anime character, with geometry provided by the structure condition.')
                 c=w.generation_intent;assert c.current() and '图1' in w.workbench.structure_note.text()
+                w.workbench.subject_only.setChecked(False);assert c.current() is None
+                w.workbench.subject_only.setChecked(True);assert c.current()
                 w.workbench.structure_choice.setCurrentIndex(w.workbench.structure_choice.findData('off'))
                 assert c.current() is None
                 w.workbench.structure_choice.setCurrentIndex(0);assert c.current()
@@ -39,7 +41,10 @@ def main():
                 def extract(config,source,output,*_):
                     output.mkdir();path=output/'depth.png';Image.new('RGB',(512,512),'gray').save(path)
                     return dict(depth=str(path),device='cpu',source=str(source))
-                with patch('aipictures.structure_control.extract',side_effect=extract),patch.object(w,'start_next'):
+                def subject(*_):
+                    path=root/'prepared-subject.png';Image.new('RGB',(16,20),'red').save(path)
+                    return dict(prepared=str(path),device='cpu',cache_hit=False)
+                with patch('aipictures.reference_subject.prepare',side_effect=subject),patch('aipictures.structure_control.extract',side_effect=extract),patch.object(w,'start_next'):
                     w.enqueue();wait_until(lambda:not w.preparing)
                     assert len(w.pending)==1,w.status.text()
                     graph,params,folder,_=w.pending.pop()
@@ -48,10 +53,12 @@ def main():
                     assert graph['image_1']['inputs']['image']=='server_depth.png'
                     assert len(uploaded)==2 and Path(uploaded[0]).name=='depth.png'
                     assert params['reference_policy']=='trained_depth_structure_v1'
+                    assert params['subject_only'] and params['subject_preparation']['prepared'].endswith('prepared-subject.png')
+                    with Image.open(uploaded[1]) as im:assert im.getpixel((0,0))==(255,0,0)
                     assert (folder/'structure-control.json').is_file()
                 started=threading.Event();release=threading.Event();uploaded.clear()
                 def delayed(*args):started.set();assert release.wait(10);return extract(*args)
-                with patch('aipictures.structure_control.extract',side_effect=delayed),patch.object(w,'start_next'):
+                with patch('aipictures.reference_subject.prepare',side_effect=subject),patch('aipictures.structure_control.extract',side_effect=delayed),patch.object(w,'start_next'):
                     w.enqueue();wait_until(started.is_set)
                     w.workbench.structure_choice.setCurrentIndex(w.workbench.structure_choice.findData('2'));release.set()
                     wait_until(lambda:not w.preparing)

@@ -48,6 +48,7 @@ class GenerationIntent:
         except ValueError as exc:structural=None;error=str(exc)
         return dict(kind=kind,requirement=self.editor().toPlainText().strip(),
             structure_binding=structural,structure_choice=choice if kind=='image' else None,structure_error=error,
+            subject_only=bool(structural and structural['structure']!=structural['identity'] and w.workbench.subject_only.isChecked()),
             seconds=w.audio_controller.seconds.value() if kind=='audio' else w.video_controller.seconds.value() if kind!='image' else None,
             references=[dict(number=n,path=str(p),size=p.stat().st_size,mtime=p.stat().st_mtime_ns) for n,p in refs.items()],
             motion=str(motion.path) if kind in ('animation','video') and motion.path else None,
@@ -140,8 +141,12 @@ class GenerationIntent:
                 from .reference_prompt import organize
             else:
                 from .professional_prompt import organize
+            subject=None
+            if source.get('subject_only'):
+                from .reference_subject import prepare,settings
+                subject=prepare(refs[source['structure_binding']['identity']],c.data,settings(c.data),c.cancel_event,emit)
             return organize(config,brief,'',refs,Path(source['motion']) if source['motion'] else None,folder,c.cancel_event,emit,
-                selected_kind='image' if source['kind']=='image' else 'animation',role=source['role'],reference_usage=source['usage'],output_seconds=source['seconds'] or 4.,structure_binding=source.get('structure_binding'))
+                selected_kind='image' if source['kind']=='image' else 'animation',role=source['role'],reference_usage=source['usage'],output_seconds=source['seconds'] or 4.,structure_binding=source.get('structure_binding'),subject_preparation=subject)
         def finish(kind,data):
             if kind in ('audio_stage','intent_stage'):w.status.setText(data['message']);return
             if kind not in ('result','error','cancelled'):return

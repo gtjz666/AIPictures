@@ -55,6 +55,7 @@ def test_geometry_is_not_analyzed_by_language_model_or_copied_from_identity_pose
     composition=session.complete.call_args_list[1].args[0][1]['content']
     assert '错误旧站姿' not in composition and 'image_url' not in composition
     assert '正面站立' not in composition and '图1' not in composition and '图2' not in composition
+    assert '动漫线稿' not in composition  # A guessed style must not override actual identity pixels.
 
 
 def test_structure_native_queue_and_stale_edit_protocol():
