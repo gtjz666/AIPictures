@@ -57,6 +57,7 @@ def main():
             assert draft['latent']['class_type']=='EmptyFlux2LatentImage'
             assert draft['guider']['inputs']['positive']==['pos_ref',0]
         with patch.object(w,'start_next'):
+            w.workbench.prompt_output.setPlainText('黄色怪兽，梦核风格')
             w.enqueue();w.clear_reference();w.positive.setPlainText('下一张背景图')
             deadline=time.monotonic()+15
             while w.preparing or w.workers:

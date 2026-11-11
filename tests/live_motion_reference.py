@@ -33,6 +33,7 @@ def main():
         assert w.preview_role is None and not w.workbench.motion_item._pixmap.isNull();w.workbench.reference_player.toggle()
         image=root/'character.png';Image.new('RGBA',(64,96),(20,100,220,255)).save(image)
         w.set_reference(str(image));w.positive.setPlainText('保持蓝色衣服，跟随动作参考');w.seed.setText('1234')
+        w.workbench.prompt_output.setPlainText('保持蓝色衣服，跟随动作参考')
         with patch.object(w,'start_next'):
             QTest.mouseClick(w.generate_button,Qt.MouseButton.LeftButton)
             panel.clear();w.clear_reference();w.positive.setPlainText('下次任务');wait()
@@ -50,6 +51,7 @@ def main():
             QTest.mouseClick(panel.add_frames,Qt.MouseButton.LeftButton);wait()
         assert panel.path.suffix=='.json' and panel.meta['frame_count']==3 and not panel.repeat.isChecked()
         w.positive.setPlainText('黄色小怪物按照动作帧移动')
+        w.workbench.prompt_output.setPlainText('黄色小怪物按照动作帧移动')
         with patch.object(w,'start_next'):
             QTest.mouseClick(w.generate_button,Qt.MouseButton.LeftButton)
             panel.clear();wait()

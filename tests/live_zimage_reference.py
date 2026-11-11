@@ -35,6 +35,7 @@ def main():
         w.settings_dialogs['image'].hide()
         w.positive.setPlainText('保持参考角色，上衣改成蓝色');w.negative.setPlainText('水印')
         w.denoise.setValue(.65);w.seed.setText('1234')
+        w.workbench.prompt_output.setPlainText('保持参考角色，上衣改成蓝色')
         with patch.object(w,'start_next'):
             w.enqueue();w.positive.setPlainText('用于下次的新描述');w.denoise.setValue(.2)
             deadline=time.monotonic()+15

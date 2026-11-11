@@ -409,6 +409,7 @@ class Window(QMainWindow):
             from .image_family import apply_ui
             apply_ui(self)
         if hasattr(self,'video_controller'):self.video_controller.apply_ui()
+        if not walking and hasattr(self,'generation_intent'):self.generate_button.setText('生成图片')
 
     def preserving_reference(self):
         walking=self.generation_type.currentData()=='walk'

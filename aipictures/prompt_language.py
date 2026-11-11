@@ -20,9 +20,11 @@ EN_SCHEMA = {'type': 'object', 'additionalProperties': False, 'properties': {
     'required': ['positive_prompt', 'negative_prompt']}
 
 SYSTEM = (
-    '你是提示词翻译员。把给出的中文正向/反向提示词准确翻译成英文，只翻译，不改写创作目标、不补充风格或质量套话。'
-    '把“图1”“图2”等编号写成 Image 1、Image 2；保留原数字、时刻、动作顺序和需要绘制的原文文字。'
-    '反向词为空就返回空字符串；不要擅自增加排除项。译文必须全英文，不能保留中文句子。只返回指定JSON。')
+    'Translate the supplied finished prompts into ENGLISH. Translate faithfully without rewriting the creative goal, '
+    'adding style, descriptive details or quality slogans. Return JSON positive_prompt and negative_prompt only. '
+    'Translate 图1/图2 labels as Image 1/Image 2, preserve all numbers, times, action order and literal on-image text. '
+    'If negative_prompt is empty, return an empty string. Never invent exclusions. All descriptive prose must be English; '
+    'Chinese may remain only inside explicitly requested literal on-image text.')
 
 
 def has_chinese(text):
@@ -69,7 +71,7 @@ def clear_pair(controller):
 
 def _request(session, positive, negative, *, ids=()):
     """One text-only completion in an already loaded private session."""
-    payload = dict(positive_prompt=positive, negative_prompt=negative)
+    payload = dict(task='Translate into ENGLISH; do not return Chinese descriptive prose.',positive_prompt=positive, negative_prompt=negative)
     raw, stats = session.complete([{'role': 'system', 'content': SYSTEM},
         {'role': 'user', 'content': json.dumps(payload, ensure_ascii=False)}], schema=EN_SCHEMA, max_tokens=3000)
     value = json.loads(raw)

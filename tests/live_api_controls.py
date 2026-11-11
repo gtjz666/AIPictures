@@ -47,6 +47,7 @@ def main(url):
             assert not window.cfg.isEnabled() and not window.lora.isEnabled() and not window.seed.isEnabled()
             window.output_background.setCurrentIndex(window.output_background.findData('preserve'))
             window.positive.setPlainText('俯视木箱，蓝色水彩')
+            window.workbench.prompt_output.setPlainText('俯视木箱，蓝色水彩')
             # Real controller, worker, transport, image decode, cache, preview and gallery.
             window.enqueue()
             wait_for(lambda:window.current is None)
@@ -63,6 +64,7 @@ def main(url):
             values['edits'].setChecked(True); dialog.save()
             with patch.object(window,'start_next'):
                 window.set_reference(source)
+                window.workbench.prompt_output.setPlainText('俯视木箱，蓝色水彩')
                 window.enqueue()
                 graph,params,folder,item = window.pending[-1]
                 assert Path(params['reference']).read_bytes()==source.read_bytes()
@@ -73,6 +75,7 @@ def main(url):
                 assert json.loads((folder/'job.json').read_text('utf-8'))['status']=='cancelled'
             # Cancel and close an API job must never contact an existing ComfyUI client.
             window.client = Mock()
+            window.workbench.prompt_output.setPlainText('完全不同的场景')
             window.enqueue()
             ticket = window.current
             window.cancel_current()

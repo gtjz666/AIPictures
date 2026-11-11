@@ -1,6 +1,6 @@
 """Common, inline generation workspace; references never share prompt editing."""
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QLabel,QTabWidget,QWidgetAction,QCheckBox
+from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QLabel,QWidgetAction,QCheckBox,QPlainTextEdit,QPushButton
 
 
 def install(b):
@@ -18,7 +18,14 @@ def install(b):
     w.short_video.setParent(content);layout.addWidget(w.short_video)
     b.prompts_dialog.layout().removeWidget(b.prompt_page)
     b.prompt_page.setParent(b.hidden);b.prompt_page.hide()
-    layout.addWidget(b.prompts,3);b.prompts.show()
+    layout.addWidget(b.prompts);b.prompts.show();b.prompts.setMaximumHeight(190)
+    w.positive.setMaximumHeight(140)
+    b.prepare_prompt=QPushButton('生成提示词');b.prepare_prompt.setObjectName('promptGenerate')
+    b.prepare_prompt.clicked.connect(lambda:w.generation_intent.prepare());layout.addWidget(b.prepare_prompt)
+    layout.addWidget(QLabel('提示词（可修改）'))
+    b.prompt_output=QPlainTextEdit();b.prompt_output.setMinimumHeight(150)
+    b.prompt_output.setPlaceholderText('点击“生成提示词”后在这里查看和修改；确认后再点击下方生成按钮。')
+    layout.addWidget(b.prompt_output,3)
     b.extra_constraints=QCheckBox('补充限制（可选）');layout.addWidget(b.extra_constraints)
     b.extra_constraints.toggled.connect(lambda checked:w.negative.parentWidget().setVisible(checked))
     layout.addWidget(c.note);c.note.setParent(content)
@@ -38,9 +45,10 @@ def install(b):
     b.animation=b.generation_page;b.tool_pages={'reference':b.reference_items,'generation':b.generation_page}
     b.right_tabs.setTabText(0,'参考')
     audio=w.audio_controller
+    audio.prompt.setMinimumHeight(80);audio.prompt.setMaximumHeight(140)
     w.short_video.send_shortcut.setEnabled(False)
     audio.right.hide();audio.prompt_tools.organize.hide();audio.prompt_tools.edit.hide();audio.prompt_tools.shortcut.setEnabled(False)
-    layout.insertWidget(1,audio.prompt,2);layout.insertWidget(layout.count()-1,audio.parameters)
+    layout.insertWidget(1,audio.prompt);layout.insertWidget(layout.count()-1,audio.parameters)
     layout.insertWidget(layout.count()-1,audio.note)
     b.prompt_button.hide();b.animation_prompt_button.hide();w.short_video.edit.setText('镜头脚本…')
     def update():
@@ -50,6 +58,9 @@ def install(b):
         b.requirement_title.setText('用户需求');b.requirement_title.setVisible(sound);c.input.hide();c.organize.hide()
         b.positive_title.setText('用户需求');w.negative.parentWidget().hide();b.extra_constraints.hide();c.role.hide();c.role_note.hide()
         b.prompts.setVisible(not long and not sound)
+        b.prepare_prompt.setEnabled(bool(c.config) and not w.preparing)
+        if not walking and not sound:w.generate_button.setText('生成图片')
+        if hasattr(w,'generation_intent'):w.generation_intent.sync_mode()
         audio.prompt.setVisible(sound);audio.parameters.setVisible(sound);audio.note.setVisible(sound)
         b.right_tabs.setTabEnabled(0,not sound)
         if sound:b.right_tabs.setCurrentWidget(b.generation_page)
@@ -66,5 +77,5 @@ def install(b):
     b.update_generation_page=update
     w.generation_type.currentIndexChanged.connect(update);w.video_controller.seconds.valueChanged.connect(update);motion.changed.connect(update)
     from .generation_intent import GenerationIntent
-    w.generation_intent=GenerationIntent(w)
+    w.generation_intent=GenerationIntent(w,b)
     update()

@@ -47,7 +47,7 @@ class ShortVideoPanel(QWidget):
         if value.get('params',{}).get('creation_kind')!='long_video' or not value.get('native_rgb_source'):return
         self.continuation_source=Path(path);self.script=None;self.script_brief=None
         self.window.video_controller.seconds.setRange(2,7)
-        self.continuation_note.setText(f'已生成{value["duration_seconds"]:g}秒。填写下一段需求，点击生成即可接续；每段最多7秒。')
+        self.continuation_note.setText(f'已生成{value["duration_seconds"]:g}秒。填写下一段需求并生成提示词，再点击接续生成；每段最多7秒。')
         if self.brief.toPlainText().strip()==value.get('params',{}).get('source_brief','').strip():self.brief.clear()
         self.brief.setPlaceholderText('描述下一段发生什么；主体与场景参考前文接续。')
 

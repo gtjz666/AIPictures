@@ -14,7 +14,7 @@ def generate(folder: Path, graph: dict, params: dict, planner: AuthEndpoint | No
              image: AuthEndpoint | None, reference: Path | None, client,
              cancel: threading.Event, emit) -> dict:
     secrets = tuple(auth.key for auth in (planner, image) if auth)
-    prompt, negative = params['user_prompt'], params['user_negative']
+    prompt, negative = params.get('production_prompt',params['user_prompt']), params.get('production_negative',params['user_negative'])
     def check() -> None:
         if cancel.is_set():
             raise Cancelled('任务已取消；不会继续调用下一阶段。')

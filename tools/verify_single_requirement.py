@@ -1,4 +1,4 @@
-"""Native UI contract: sole request -> frozen inputs; never starts image/music/video inference."""
+"""Separate preparation/review/production, frozen inputs and stale-result protection."""
 import argparse
 import json
 import tempfile
@@ -34,7 +34,7 @@ def main():
             calls.append((brief,refs,kwargs));return dict(plan=dict(positive_prompt='整理：'+brief,negative_prompt=''),english=dict(positive='Prepared request: '+brief,negative=''))
         def music(config,brief,seconds,*args,**kwargs):
             positive='音乐整理：'+brief;return dict(positive_prompt=positive,negative_prompt='不要杂音',english_caption='Clear instrumental music, no artifacts.',caption_fingerprint=fingerprint(positive,'不要杂音'))
-        with patch('aipictures.professional_prompt.organize',side_effect=organize),patch('aipictures.audio_prompt.organize',side_effect=music):
+        with patch('aipictures.professional_prompt.organize',side_effect=organize),patch('aipictures.reference_prompt.organize',side_effect=organize),patch('aipictures.audio_prompt.organize',side_effect=music):
             for kind in ('image','animation','video','audio'):
                 w.workbench.select_category('audio' if kind=='audio' else 'long_video' if kind=='video' else 'sprite')
                 if kind in ('image','animation'):w.workbench.sprite_mode.setCurrentIndex(0 if kind=='image' else 1)
@@ -42,8 +42,10 @@ def main():
                 brief={'image':'将图1的人物改成双手抱头，保留外形','animation':'先抱头惊叹，然后捧腹大笑，最后躺地打滚','video':'下一段镜头向右移动，不重复开场','audio':'舒缓又有淡淡悲伤的钢琴音乐'}[kind]
                 editor=c.editor();editor.setPlainText(brief);w.negative.setPlainText('旧的紫发站姿与错误反词')
                 with patch.object(w,'enqueue') as submit:
-                    assert c.intercept();wait_until(lambda:not c.running);QTest.qWait(30)
-                    assert submit.call_count==1 and editor.toPlainText()==brief
+                    c.prepare();wait_until(lambda:not c.running);QTest.qWait(30)
+                    assert submit.call_count==0 and editor.toPlainText()==brief
+                assert w.workbench.prompt_output.isVisible() and w.workbench.prepare_prompt.isVisible()
+                assert w.workbench.prompt_output.toPlainText() and not c.intercept()
                 prepared=c.current();assert prepared and prepared['source']['requirement']==brief
                 assert prepared['source']['role']=='appearance' and not prepared['source']['usage']
                 params={};c.record(params);assert params['user_prompt']==brief and params['source_brief']==brief and params['user_negative']==''
@@ -60,13 +62,30 @@ def main():
                     frozen=w.pending[-1][1];assert frozen['source_brief']==brief and frozen['caption_english']=='Clear instrumental music, no artifacts.'
                     w.pending.clear()
                 if args.proof:w.grab().save(str(args.proof/(kind+'.png')))
+            # A manual prompt is authoritative; generating must not analyze again.
+            w.workbench.prompt_output.setPlainText('Soft solo piano, restrained dynamics, a gentle wistful melody.')
+            assert not c.intercept() and c.prompts()[0].startswith('Soft solo piano')
         # Editing during preprocessing must never send the previous requirement.
         started=threading.Event();release=threading.Event();previous=c.prepared
-        w.workbench.select_category('sprite');w.workbench.sprite_mode.setCurrentIndex(0);w.positive.setPlainText('第一份请求')
+        w.workbench.select_category('sprite');w.workbench.sprite_mode.setCurrentIndex(0);w.positive.setPlainText('第一份请求');previous=c.prepared
+        # Hand edits only translate their current text at production, never re-read images.
+        w.workbench.prompt_output.setPlainText('紫发角色双手抱头')
+        with patch('aipictures.prompt_language.translate',return_value=dict(positive='A purple-haired character holding both hands on her head.',negative='')) as translate,patch.object(w,'enqueue') as submit:
+            assert c.intercept();wait_until(lambda:not c.running);QTest.qWait(20)
+            assert submit.call_count==1 and translate.call_args.args[1]=='紫发角色双手抱头'
+            assert c.current()['english']['positive'].startswith('A purple-haired')
+        w.workbench.prompt_output.setPlainText('采用图4的画风')
+        import pytest
+        with pytest.raises(ValueError,match='图4'):c.intercept()
+        w.workbench.prompt_output.setPlainText('紫发角色双手抱头');previous=c.prepared
         def delayed(*args,**kwargs):started.set();assert release.wait(10);return organize(*args,**kwargs)
-        with patch('aipictures.professional_prompt.organize',side_effect=delayed),patch.object(w,'enqueue') as submit:
-            assert c.intercept();wait_until(started.is_set);w.positive.setPlainText('用户中途改成第二份请求');release.set();wait_until(lambda:not c.running);QTest.qWait(20)
+        with patch('aipictures.reference_prompt.organize',side_effect=delayed),patch.object(w,'enqueue') as submit:
+            c.prepare();wait_until(started.is_set);w.positive.setPlainText('用户中途改成第二份请求');release.set();wait_until(lambda:not c.running);QTest.qWait(20)
             assert submit.call_count==0 and c.prepared==previous and c.current() is None
+        import pytest
+        with pytest.raises(ValueError,match='修改'):c.intercept()
+        w.workbench.prompt_output.clear()
+        with pytest.raises(ValueError,match='生成提示词'):c.intercept()
         # Closing the export picker must stop protecting a completed boat cache.
         boat=w.api_controller.data/'videos'/'boat';boat.mkdir(parents=True);write_json(boat/'video.json',dict(status='completed',params=dict(prompt='船')))
         picker=QDialog(w);picker.manifest=boat/'video.json';picker.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose);w.frame_selection_dialog=picker;picker.show();picker.close();QTest.qWait(30)
@@ -74,7 +93,7 @@ def main():
         assert not boat.exists()
         assert all(w.assets_dialog.tabs.tabText(i) not in ('已保存文件','素材文件夹') for i in range(w.assets_dialog.tabs.count()))
         assert not w.assets_dialog.cache_status.isVisible()
-        if args.proof:write_json(args.proof/'acceptance.json',dict(single_requirement_all_modes=True,old_negative_not_submitted=True,
+        if args.proof:write_json(args.proof/'acceptance.json',dict(explicit_prompt_preparation_all_modes=True,editable_prompt_below=True,old_negative_not_submitted=True,
             original_text_preserved=True,no_visual_analysis=True,manual_one_segment=True,no_hidden_timeline=True,stale_result_not_submitted=True,
             busy_progress_finishes=True,closed_picker_cache_deletion=True,music_video_inference=False))
     print('Single request / all modes / frozen instructions / no visual analysis / progress / cache: PASS')

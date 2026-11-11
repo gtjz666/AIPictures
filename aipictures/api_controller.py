@@ -98,12 +98,16 @@ class ApiController:
     def enqueue(self) -> None:
         w = self.window
         local=getattr(w,'intent_controller',None)
-        reviewed = local and local.current_record and local.applied_context==local.fingerprint(prompts=False)
+        intent=getattr(w,'generation_intent',None);prepared=intent.current() if intent else None
+        reviewed = bool(prepared) or local and local.current_record and local.applied_context==local.fingerprint(prompts=False)
         # A reviewed local plan needs neither a paid rewrite nor a planner key.
         planner = self.settings.auth('planner') if self.settings.smart and not reviewed else None
         image = self.settings.auth('image') if self.cloud else None
         secrets = tuple(auth.key for auth in (planner,image) if auth)
         prompt, negative = w.positive.toPlainText(), w.negative.toPlainText()
+        if prepared:
+            from .prompt_language import texts
+            prompt,negative=texts(w)
         if len(prompt)>16000 or len(negative)>8000:
             raise ValueError('描述过长，请将正向提示词控制在 16000 字符、反向词在 8000 字符以内。')
         if not prompt.strip() and not w.reference_path:
@@ -144,6 +148,9 @@ class ApiController:
                 raise ValueError('透明输出需要现有去背景模型；请先安装或选择完整画面。')
         params.update(mode='smart_image',backend='api' if image else 'local',smart=bool(planner),
             planner_model=planner.endpoint.model if planner else None,automatic_post_retries=0)
+        if prepared:
+            params.update(production_prompt=prompt,production_negative=negative)
+            intent.record(params)
         no_secret(json.dumps(params,ensure_ascii=False),*secrets)
         # Snapshot the reference, so changing the UI or original file never changes a queued job.
         folder = self.data/'jobs'/(datetime.now().strftime('%Y%m%d_%H%M%S_')+uuid4().hex[:8])

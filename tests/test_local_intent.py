@@ -172,7 +172,7 @@ def test_explicit_reference_purpose_and_custom_use_reach_planner(tmp_path,role,e
         def __enter__(self):return self
         def __exit__(self,*args):pass
         def complete(self,messages,**kwargs):
-            if messages[0]['content'].startswith('你是提示词翻译员'):
+            if kwargs.get('schema',{}).get('required')==['positive_prompt','negative_prompt']:
                 return json.dumps(dict(positive_prompt='A robot with black and white clothing and a thin outline.',
                     negative_prompt='text, watermark')),{}
             if kwargs.get('schema'):

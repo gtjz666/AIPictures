@@ -103,6 +103,8 @@ class IntentController:
 
     def start(self, generate: bool, *, frame_only=False, motion_detail=False):
         w = self.window
+        if hasattr(w,'generation_intent'):
+            w.generation_intent.prepare();return
         if hasattr(w,'short_video') and w.short_video.active():
             w.short_video.prepare();return
         if hasattr(w,'reference_chat') and w.reference_chat.extra and w.generation_type.currentData()=='walk' and not w.video_controller.motion.path:
