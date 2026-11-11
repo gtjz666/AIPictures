@@ -1,6 +1,6 @@
 """Common, inline generation workspace; references never share prompt editing."""
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QLabel,QWidgetAction,QCheckBox,QPlainTextEdit,QPushButton
+from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QLabel,QWidgetAction,QCheckBox,QPlainTextEdit,QPushButton,QComboBox
 
 
 def install(b):
@@ -26,6 +26,20 @@ def install(b):
     b.prompt_output=QPlainTextEdit();b.prompt_output.setMinimumHeight(150)
     b.prompt_output.setPlaceholderText('点击“生成提示词”后在这里查看和修改；确认后再点击下方生成按钮。')
     layout.addWidget(b.prompt_output,3)
+    b.structure_row=QWidget();structure_layout=QHBoxLayout(b.structure_row);structure_layout.setContentsMargins(0,0,0,0)
+    structure_layout.addWidget(QLabel('姿势／结构来源'));b.structure_choice=QComboBox()
+    b.structure_choice.addItem('自动按需求选择','auto')
+    for n in range(1,5):b.structure_choice.addItem('图'+str(n),str(n))
+    b.structure_choice.addItem('关闭结构约束','off');structure_layout.addWidget(b.structure_choice,1)
+    b.structure_choice.setToolTip('选择提供姿势与构图的图片；主体外观来自另一张图片。适用于人形与非人形素材。')
+    layout.addWidget(b.structure_row)
+    b.structure_note=QLabel();b.structure_note.setWordWrap(True);b.structure_note.setObjectName('muted');layout.addWidget(b.structure_note)
+    def structure_note():
+        from .structure_control import resolve
+        try:value=resolve(w.positive.toPlainText(),w.reference_chat.references(),b.structure_choice.currentData())
+        except ValueError as exc:b.structure_note.setText(str(exc));return
+        b.structure_note.setText(f'图{value["structure"]}提供姿势与构图；图{value["identity"]}提供主体外观。提示词只补充修改。' if value else '需要复刻姿势时，可指定结构来源；不会自动套用人体骨架。')
+    b.structure_choice.currentIndexChanged.connect(structure_note);w.positive.textChanged.connect(structure_note)
     b.extra_constraints=QCheckBox('补充限制（可选）');layout.addWidget(b.extra_constraints)
     b.extra_constraints.toggled.connect(lambda checked:w.negative.parentWidget().setVisible(checked))
     layout.addWidget(c.note);c.note.setParent(content)
@@ -58,6 +72,8 @@ def install(b):
         b.requirement_title.setText('用户需求');b.requirement_title.setVisible(sound);c.input.hide();c.organize.hide()
         b.positive_title.setText('用户需求');w.negative.parentWidget().hide();b.extra_constraints.hide();c.role.hide();c.role_note.hide()
         b.prompts.setVisible(not long and not sound)
+        b.structure_row.setVisible(not walking and not sound and not long)
+        b.structure_note.setVisible(not walking and not sound and not long);structure_note()
         b.prepare_prompt.setEnabled(bool(c.config) and not w.preparing)
         if not walking and not sound:w.generate_button.setText('生成图片')
         if hasattr(w,'generation_intent'):w.generation_intent.sync_mode()

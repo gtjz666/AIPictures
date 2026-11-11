@@ -821,7 +821,7 @@ class Window(QMainWindow):
         if hasattr(self,'generation_intent'):self.generation_intent.record(params)
         if not self.connected: raise ValueError('请先连接 ComfyUI')
         from .lora_policy import plain_workflow
-        graph = plain_workflow(graph)
+        graph = plain_workflow(graph,trained_structure=params.get('reference_policy')=='trained_depth_structure_v1')
         if not graph: raise ValueError('工作流没有可运行节点')
         missing = {n['class_type'] for n in graph.values()} - set(self.info['nodes'])
         if missing: raise ValueError('缺少节点：' + ', '.join(sorted(missing)))

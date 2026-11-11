@@ -41,7 +41,13 @@ class GenerationIntent:
         w=self.window;category=w.workbench.category;motion=w.video_controller.motion
         kind='audio' if category=='audio' else 'video' if category=='long_video' else 'animation' if w.generation_type.currentData()=='walk' else 'image'
         refs=w.reference_chat.references() if kind!='audio' else {}
+        from .structure_control import resolve
+        choice=w.workbench.structure_choice.currentData()
+        error=''
+        try:structural=resolve(self.editor().toPlainText().strip(),refs,choice) if kind=='image' else None
+        except ValueError as exc:structural=None;error=str(exc)
         return dict(kind=kind,requirement=self.editor().toPlainText().strip(),
+            structure_binding=structural,structure_choice=choice if kind=='image' else None,structure_error=error,
             seconds=w.audio_controller.seconds.value() if kind=='audio' else w.video_controller.seconds.value() if kind!='image' else None,
             references=[dict(number=n,path=str(p),size=p.stat().st_size,mtime=p.stat().st_mtime_ns) for n,p in refs.items()],
             motion=str(motion.path) if kind in ('animation','video') and motion.path else None,
@@ -75,6 +81,7 @@ class GenerationIntent:
     def validate(self,source,output=''):
         from .multi_reference import image_ids
         brief=source['requirement']
+        if source.get('structure_error'):raise ValueError(source['structure_error'])
         if len(brief)>12000:raise ValueError('请将用户需求控制在12000字以内。')
         if source['kind']!='audio':
             missing=image_ids(brief+'\n'+output)-{row['number'] for row in source['references']}
@@ -134,7 +141,7 @@ class GenerationIntent:
             else:
                 from .professional_prompt import organize
             return organize(config,brief,'',refs,Path(source['motion']) if source['motion'] else None,folder,c.cancel_event,emit,
-                selected_kind='image' if source['kind']=='image' else 'animation',role=source['role'],reference_usage=source['usage'],output_seconds=source['seconds'] or 4.)
+                selected_kind='image' if source['kind']=='image' else 'animation',role=source['role'],reference_usage=source['usage'],output_seconds=source['seconds'] or 4.,structure_binding=source.get('structure_binding'))
         def finish(kind,data):
             if kind in ('audio_stage','intent_stage'):w.status.setText(data['message']);return
             if kind not in ('result','error','cancelled'):return
