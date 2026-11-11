@@ -193,6 +193,8 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
         task += ' 外观图与动作图用途独立。正反提示词都必须生成，反向词补充与本次目标相关的异常约束，保留用户排除项；未指定的背景省略，不把动作素材的背景搬入成品。'
         if direct_motion:
             task='实际动作素材会直接送入动画引擎，本次不分析其中的动作。只整理用户的主体替换、外观、画风和明确修改要求；动作顺序、节奏、方向和镜头服从实际动作参考。不要猜测动作名称、肢体阶段、时间点或动作素材背景，timeline必须为空。正反提示词都必须生成并保留用户要求。'
+        elif selected_kind=='animation':
+            task='没有参考动画。本次按用户文字创作动画：参考图只提供选定的外观或画风；正向提示词必须写全用户要求的动作、反复、先后顺序、转换与表情变化，不可只写在summary里。不要沿用图片的静止姿态，不要写跟随实际动作参考、替换视频人物，不编造秒数或动作表。timeline为空。只添加质量异常反词，不擅自限制正面、固定机位、全身或禁止重复动作；用户明确要求优先。'
         messages = [{'role': 'system', 'content': SYSTEM},
                     {'role': 'user', 'content': [{'type': 'text', 'text': json.dumps(details, ensure_ascii=False)}, *content,
                                                  {'type': 'text', 'text': task}]}]
@@ -230,12 +232,16 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
             plan = parse_plan(output, {a['id'] for a in evidence['assets']}, evidence['duration'])
             if motion:
                 from dataclasses import replace
-                from .motion_prompt import generated_constraints
+                from .motion_prompt import generated_constraints,DIRECT_MOTION_GUIDE
                 from .prompt_timeline import remove_generated_summary
                 text=remove_generated_summary(plan.positive_prompt,plan.timeline)
                 text,exclusions=generated_constraints(text,brief+'\n'+reference_usage,negative)
-                guide='动作顺序、节奏、运动方向、表情和镜头以实际动作参考为准；用目标主体替换参考主体，保留目标外观与配色，仅执行用户明确要求的改变。'
-                plan=replace(plan,timeline=[],positive_prompt=(text+'\n'+guide).strip(),negative_prompt=exclusions)
+                plan=replace(plan,timeline=[],positive_prompt=(text+'\n'+DIRECT_MOTION_GUIDE).strip(),negative_prompt=exclusions)
+            elif selected_kind=='animation':
+                from dataclasses import replace
+                from .motion_prompt import text_animation_prompt
+                text,exclusions=text_animation_prompt(plan.positive_prompt,brief,negative,reference_usage)
+                plan=replace(plan,timeline=[],positive_prompt=text,negative_prompt=exclusions)
             if plan.timeline:
                 from dataclasses import replace
                 plan=replace(plan,timeline=[])
@@ -269,6 +275,7 @@ def analyze(config: dict, brief: str, negative: str, reference: Path | None, mot
                     negative_prompt=plan.negative_prompt),folder,negative=negative)
             selected_route = None if plan.questions else route(plan, reference=bool(reference), motion=bool(motion))
             result = dict(schema_version=1, plan=plan.to_dict(), english=english, route=selected_route, evidence=evidence,
+                prompt_policy=('reference_first_manual_v2' if motion else 'text_actions_v1') if selected_kind=='animation' else 'image',
                 timeline_clock='output',
                 request=dict(brief=brief, negative=negative, selected_kind=selected_kind, reference_role=role,reference_usage=reference_usage),
                 resolved_reference_role=observations.get('appearance',{}).get('reference_use') if reference else None,

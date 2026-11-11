@@ -59,7 +59,7 @@ class Window(QMainWindow):
         self.character_loading = False
         self.reference_modes={'image':'redraw','walk':'preserve'}
         self.reference_mode='image'
-        self.cache_store=ResultCache(); self.cache_busy=False
+        self.cache_store=ResultCache(DATA); self.cache_busy=False
         from .api_controller import ApiController
         self.api_controller = ApiController(self, DATA)
         from .studio_layout import build_studio
@@ -688,12 +688,14 @@ class Window(QMainWindow):
 
     def enqueue(self):
         try:
+            if hasattr(self,'generation_intent') and self.generation_intent.intercept():return
             if hasattr(self,'audio_controller') and self.workbench.category=='audio':self.audio_controller.enqueue();return
             if hasattr(self,'reference_chat'):
-                if self.generation_type.currentData()=='walk' and self.reference_chat.extra and not (self.workbench.category=='long_video' and self.video_controller.motion.path):
+                if self.generation_type.currentData()=='walk' and self.reference_chat.extra and not self.video_controller.motion.path:
                     raise ValueError('多图参考组合用于单张图片。动画目前支持一张角色图与动作素材，请先移除图2–图4。')
                 if self.intent_controller.running:return
             from .prompt_language import ensure_for_generation
+            if not hasattr(self,'generation_intent'):self.intent_controller.validate_generation()
             if ensure_for_generation(self):return
             if hasattr(self,'reference_chat') and self.reference_chat.intercept():return
             if self.intent_controller.intercept():return
@@ -815,6 +817,7 @@ class Window(QMainWindow):
             self.add_chat('软件', '提交失败：' + str(exc))
 
     def queue_graph(self, graph, params, editor_workflow=None):
+        if hasattr(self,'generation_intent'):self.generation_intent.record(params)
         if not self.connected: raise ValueError('请先连接 ComfyUI')
         from .lora_policy import plain_workflow
         graph = plain_workflow(graph)
@@ -975,18 +978,24 @@ class Window(QMainWindow):
 
     def clear_result_cache(self,kind,all_cached=False):
         if self.cache_busy: return
-        listing=self.gallery if kind=='image' else self.assets_dialog.videos if kind=='video' else self.assets_dialog.animations
+        listing=self.gallery if kind=='image' else self.assets_dialog.videos if kind=='video' else self.audio_controller.history if kind=='audio' else self.assets_dialog.animations
         folders=self.cache_store.entries(kind) if all_cached else [item.data(Qt.ItemDataRole.UserRole+1) for item in listing.selectedItems()]
         if not folders:
             self.assets_dialog.cache_status.setText('暂无可清理缓存。' if all_cached else '请先选中要清除的记录。'); return
         protected=[entry[2] for entry in self.pending]
+        protected.extend(Path(entry[1]['continue_from']).parent for entry in self.pending if entry[1].get('continue_from'))
         if self.current: protected.append(self.current['folder'])
+        if self.current and self.current.get('params',{}).get('continue_from'):protected.append(Path(self.current['params']['continue_from']).parent)
         if getattr(self,'importing_folder',None): protected.append(self.importing_folder)
         if getattr(self,'importing_source',None):protected.append(Path(self.importing_source).parent)
         picker=getattr(self,'frame_selection_dialog',None)
-        if picker:protected.append(picker.manifest.parent)
+        from shiboken6 import isValid
+        if picker and isValid(picker) and picker.isVisible():protected.append(picker.manifest.parent)
+        elif picker:self.frame_selection_dialog=None
         player=getattr(getattr(self,'video_controller',None),'player',None)
         if player and player.manifest and within_any(player.manifest,folders):player.stop()
+        audio=getattr(self,'audio_controller',None)
+        if audio and within_any(audio.manifest,folders):audio.stop()
         self.cache_busy=True; self.assets_dialog.set_cache_busy(True)
         self.assets_dialog.cache_status.setText('正在清理本地缓存…')
         # Pause a cached sequence before the worker removes its frame files.
@@ -995,10 +1004,16 @@ class Window(QMainWindow):
         def done(event,data):
             if event not in ('result','error'): return
             self.cache_busy=False; self.assets_dialog.set_cache_busy(False)
-            if event=='error': self.assets_dialog.cache_status.setText('清理失败：'+str(data)); return
+            if event=='error':
+                self.assets_dialog.cache_status.setText('清理失败：'+str(data))
+                QMessageBox.warning(self.assets_dialog,'清理失败',str(data));return
             removed=data['deleted']
             if self.image_viewer and within_any(self.image_viewer.source_path,removed): self.image_viewer.close()
             if player and within_any(player.manifest,removed):player.reset()
+            if hasattr(self,'short_video') and within_any(self.short_video.continuation_source,removed):self.short_video.start_new()
+            if audio and within_any(audio.manifest,removed):
+                audio.manifest=None;audio.wave.values=None;audio.wave.update();audio.title.setText('独立音频')
+                for control in (audio.play,audio.slider,audio.export):control.setEnabled(False)
             if within_any(self.output,removed) or within_any(self.preview_path,removed) or within_any(self.animation_player.manifest,removed):
                 self.animation_player.reset(); self.sequence_preview.clear_sequence()
                 self.output=None; self.pixmap=QPixmap(); self.preview.clear(); self.preview.setText('缓存已清除，可继续生成或打开已保存文件。')
@@ -1011,8 +1026,11 @@ class Window(QMainWindow):
             self.chat.clear()
             for message in self.chat_messages: self.render_message(message)
             self.load_gallery()
+            if audio:audio.load_history()
             text=f'已清除 {len(removed)} 个任务缓存；跳过 {len(data["skipped"])} 个正在运行或排队的任务。已另存文件保留。'
-            if data['errors']: text+=f' {len(data["errors"])} 项清理失败，详见日志。'; self.log.append('\n'.join(data['errors']))
+            if data['errors']:
+                text+=f' {len(data["errors"])} 项清理失败，详见日志。'; self.log.append('\n'.join(data['errors']))
+                QMessageBox.warning(self.assets_dialog,'部分缓存未能清除','\n'.join(data['errors']))
             self.assets_dialog.cache_status.setText(text); self.add_chat('软件',text)
         store=self.cache_store
         self.launch(lambda _:store.clear(folders,protected),done)

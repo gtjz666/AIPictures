@@ -28,6 +28,7 @@ class IntentController:
         self.generated_negative = None
         self.generated_positive = None
         self.original_brief = ''
+        self.applied_input=None;self.unapplied_result=False;self.last_attempt=None
         panel = QWidget(); layout = QVBoxLayout(panel); layout.setContentsMargins(0, 0, 0, 0)
         top = QHBoxLayout()
         self.enabled = QCheckBox('本地创作助手'); self.enabled.setChecked(bool(self.config)); top.addWidget(self.enabled)
@@ -63,7 +64,7 @@ class IntentController:
             b=self.window.workbench;b.prompt_note.setText(text);b.prompt_note.setVisible(bool(text))
             if b.prompts_dialog.isVisible():return
         if text and hasattr(self.window,'workbench'):
-            workbench=self.window.workbench;workbench.right_tabs.setCurrentWidget(workbench.reference_items)
+            workbench=self.window.workbench;workbench.right_tabs.setCurrentWidget(workbench.animation)
             if hasattr(workbench.reference_items,'ensureWidgetVisible'):
                 workbench.reference_items.ensureWidgetVisible(self.note)
 
@@ -88,11 +89,23 @@ class IntentController:
         # Analysis is an explicit action. Generation uses the visible prompts.
         return self.running
 
+    def validate_generation(self):
+        w=self.window
+        if hasattr(w,'short_video') and w.short_video.active():return
+        from .motion_prompt import DIRECT_MOTION_GUIDE
+        visible=w.positive.toPlainText().strip()
+        if w.generation_type.currentData()=='walk' and not w.video_controller.motion.path and DIRECT_MOTION_GUIDE in visible:
+            raise ValueError('参考动画已移除，当前仍是旧的参考动作提示词。请按新的文字要求重新生成提示词，或直接修改正向提示词。')
+        from .prompt_timeline import remove_owned_timeline
+        unchanged=remove_owned_timeline(visible).strip()==(self.generated_positive or '').strip() and w.negative.toPlainText()==self.generated_negative
+        if self.generated_positive and unchanged and (self.applied_input is not None and self.input.toPlainText().strip()!=self.applied_input.strip() or self.unapplied_result):
+            raise ValueError('创作要求已修改，但当前仍是旧自动稿。请重新生成提示词，或直接修改可见正反提示词后再生成。')
+
     def start(self, generate: bool, *, frame_only=False, motion_detail=False):
         w = self.window
         if hasattr(w,'short_video') and w.short_video.active():
             w.short_video.prepare();return
-        if hasattr(w,'reference_chat') and w.reference_chat.extra and w.generation_type.currentData()=='walk':
+        if hasattr(w,'reference_chat') and w.reference_chat.extra and w.generation_type.currentData()=='walk' and not w.video_controller.motion.path:
             self.notify('多图组合目前用于单张图片。可先生成角色替换后的图片，再将成品用于动画；动画入口仍只支持一张角色图与动作素材。');return
         if frame_only or motion_detail:
             self.notify('动画内容分析已停用，请在动画页手动填写动作时段。');return
@@ -105,7 +118,7 @@ class IntentController:
         if w.custom_graph is not None:
             self.notify('请先将后台预设恢复为自动选择。'); return
         manual_timeline=[]
-        if hasattr(w,'workbench') and w.generation_type.currentData()=='walk':
+        if hasattr(w,'workbench') and w.generation_type.currentData()=='walk' and not getattr(w.workbench,'reference_skinning',False):
             try:manual_timeline=w.workbench.timeline.effective_rows()
             except ValueError as exc:self.notify(str(exc));return
         manual=w.positive.toPlainText()
@@ -116,6 +129,8 @@ class IntentController:
         if manual==self.generated_positive:manual=self.original_brief
         chat=self.input.toPlainText().strip()
         brief = chat if chat and chat!=self.original_brief else manual or chat
+        if hasattr(w,'workbench') and getattr(w.workbench,'reference_skinning',False) and w.generation_type.currentData()=='image':
+            brief=manual
         if not brief and (w.reference_path or w.video_controller.motion.path):
             brief = '依据已提供素材制作动画，外观与动作各按其参考用途。' if w.generation_type.currentData()=='walk' else '依据参考图整理主体外观、画风与构图，生成单张图片。'
         if not brief:
@@ -137,11 +152,11 @@ class IntentController:
             negative = self.original_negative
         initial = self.fingerprint()
         multi=hasattr(w,'reference_chat') and w.reference_chat.active()
-        references=w.reference_chat.references() if multi else {}
+        references=w.reference_chat.references() if hasattr(w,'reference_chat') else {1:reference} if reference else {}
         # The reference requirement is a single current instruction, not a
         # hidden conversation whose earlier requests could change its meaning.
         history=[]
-        self.applied = self.applied_context = None;self.current_record = folder
+        self.last_attempt=folder
         self.running = w.preparing = True; self.cancel_event.clear()
         w.generate_button.setEnabled(False)
         for button in self.prompt_actions:button.setEnabled(False)
@@ -149,26 +164,23 @@ class IntentController:
         self.notify(''); w.status.setText('正在识别生成需求…')
         if hasattr(w,'reference_chat'):w.reference_chat.append('你',brief)
         def run(emit):
-            if multi:
-                from .motion_native_backend import release_shared
-                records=release_shared({'url':w.client.url if w.connected else None},cancel=self.cancel_event)
-                from .multi_reference import analyze as analyze_many
-                result=analyze_many(self.config,brief,negative,references,folder,self.cancel_event,emit,history=history)
-                write_json(folder/'shared-release.json',dict(backends=records))
-                return result
             if w.connected:
                 queue = w.client.request('/queue')
                 if queue.get('queue_running') or queue.get('queue_pending'):
                     raise ValueError('ComfyUI仍有生成任务，请等队列完成再识别。')
                 from .engine_service import release_idle_models
                 release_idle_models(w.client)
-            return analyze(self.config, brief, negative, reference, motion_path, folder, self.cancel_event, emit, **kwargs)
+            from .professional_prompt import organize
+            return organize(self.config,brief,negative,references,motion_path,folder,self.cancel_event,emit,**kwargs)
         def finish(kind, data):
             if kind == 'intent_stage':
                 w.status.setText(data['message']); return
             if kind not in ('result', 'error', 'cancelled'):
                 return
             unchanged = self.fingerprint() == initial
+            applied=kind=='result' and unchanged and not self.cancel_event.is_set() and not data['plan']['questions']
+            write_json(folder/'application.json',dict(status='applied' if applied else 'stale' if kind=='result' and not unchanged else kind,
+                input_unchanged=unchanged,cancelled=self.cancel_event.is_set(),initial_fingerprint=initial,current_fingerprint=self.fingerprint()))
             self.running = w.preparing = False
             for button in self.prompt_actions:button.setEnabled(True)
             w.progress.setRange(0, 100); w.progress.setValue(100 if kind=='result' else 0)
@@ -181,6 +193,7 @@ class IntentController:
             elif self.cancel_event.is_set():
                 self.notify('已取消；识别结果未应用。')
             elif not unchanged:
+                self.unapplied_result=True
                 self.notify('输入已修改，请重新整理。')
             elif data['plan']['questions']:
                 self.notify('需要补充：'+'；'.join(data['plan']['questions']))
@@ -189,6 +202,7 @@ class IntentController:
             else:
                 self.original_negative = negative
                 self.original_brief = brief
+                self.current_record=folder
                 self.apply(data,manual_timeline=manual_timeline)
                 self.notify('')
                 w.add_chat('你', brief, str(reference) if reference else None)
@@ -214,6 +228,7 @@ class IntentController:
         w.positive.setPlainText(plan['positive_prompt']); w.negative.setPlainText(plan['negative_prompt'])
         self.generated_positive = plan['positive_prompt'].strip()
         self.generated_negative = plan['negative_prompt']
+        self.applied_input=self.input.toPlainText();self.unapplied_result=False
         from .prompt_language import clear_pair,set_pair
         english=result.get('english') or {}
         if english.get('positive') and english.get('negative'):

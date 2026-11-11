@@ -52,6 +52,22 @@ def test_missing_image_number_is_rejected(tmp_path):
                          tmp_path/'missing', ids=(1, 2)) == {}
 
 
+def test_dropped_reference_number_is_not_submitted(tmp_path):
+    session=Session({'positive_prompt':'Keep Image 1.','negative_prompt':''})
+    assert complete_pair(session,{'positive_prompt':'图1人物采用图2风格','negative_prompt':''},tmp_path/'dropped',ids=(1,2))=={}
+
+
+def test_partially_translated_description_is_not_used(tmp_path):
+    session=Session({'positive_prompt':"Keep the character's外形",'negative_prompt':''})
+    assert complete_pair(session,{'positive_prompt':'保留人物外形','negative_prompt':''},tmp_path/'partial')=={}
+
+
+def test_requested_literal_chinese_text_can_survive_translation(tmp_path):
+    session=Session({'positive_prompt':'Draw a sign reading “欢迎”.','negative_prompt':''})
+    result=complete_pair(session,{'positive_prompt':'绘制写着“欢迎”的招牌','negative_prompt':''},tmp_path/'literal')
+    assert '欢迎' in result['positive']
+
+
 def test_submission_uses_pair_only_while_visible_text_is_unchanged():
     w = Window('图1人物，图2姿势', '不要文字')
     assert texts(w) == ('图1人物，图2姿势', '不要文字')

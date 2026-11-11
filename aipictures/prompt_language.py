@@ -34,9 +34,24 @@ def valid_pair(pair, positive, negative):
     return bool(pair and pair.get('positive') == positive and pair.get('negative') == negative)
 
 
+def visible_texts(window):
+    positive,negative=window.positive.toPlainText(),window.negative.toPlainText()
+    c=getattr(window,'intent_controller',None)
+    if (c and hasattr(window,'generation_type') and hasattr(window,'model_family') and window.generation_type.currentData()=='image' and window.model_family.currentData() in ('auto','flux_klein','zimage')
+            and getattr(c,'generated_negative',None) is not None and negative==c.generated_negative):
+        negative=c.original_negative
+    return positive,negative
+
+
 def texts(window):
     """Actual request text: matching English pair when present, else the visible text."""
-    positive, negative = window.positive.toPlainText(), window.negative.toPlainText()
+    if hasattr(window,'generation_intent'):
+        prepared=window.generation_intent.current()
+        if prepared:
+            english=prepared.get('english')
+            if isinstance(english,dict) and english.get('positive'):return english['positive'],english.get('negative','')
+            return window.generation_intent.prompts()
+    positive,negative=visible_texts(window)
     pair = getattr(getattr(window, 'intent_controller', None), 'generation_pair', None)
     if valid_pair(pair, positive, negative):
         return pair['positive_en'], pair['negative_en']
@@ -71,11 +86,18 @@ def _request(session, positive, negative, *, ids=()):
     # to be English prose rather than an untranslated Chinese sentence.
     if not re.search(r'[A-Za-z]{3}', positive_en) or (negative_en and not re.search(r'[A-Za-z]{2}', negative_en)):
         raise ValueError('英文生成词缺少英文内容。')
+    # Quoted on-image text may stay literal; untranslated descriptive fragments
+    # such as "character's外形" must not pass as an English instruction.
+    literal=re.findall(r'[“「『"]([^”」』"]+)[”」』"]',positive+'\n'+negative)
+    prose=positive_en+'\n'+negative_en
+    for value in literal:prose=prose.replace(value,'')
+    if has_chinese(prose):raise ValueError('英文生成词仍含未翻译的描述，保留完整中文要求。')
     if ids:
         from .multi_reference import image_ids
         missing = image_ids(positive_en) - set(ids)
         if missing:
             raise ValueError('英文生成词引用了未添加的图' + '、'.join(str(n) for n in sorted(missing)) + '。')
+        if image_ids(positive_en)!=image_ids(positive):raise ValueError('英文生成词遗漏参考图编号，保留完整中文要求。')
     return dict(positive=positive_en, negative=negative_en), stats
 
 
@@ -105,7 +127,7 @@ def complete_pair(session, plan, folder, *, negative='', ids=(), multi=False):
 
 def translate(config, positive, negative, folder, cancel, emit, *, session_factory=None):
     """Text-only English conversion for manually edited visible Chinese prompts."""
-    from .local_intent import LocalSession
+    from .audio_prompt import TextSession as LocalSession
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=False)
     write_json(folder/'request.json', dict(positive=positive, negative=negative, images_read=False))
@@ -119,6 +141,7 @@ def translate(config, positive, negative, folder, cancel, emit, *, session_facto
 def ensure_for_generation(window):
     """Window.enqueue gate. Manual edits get one text-only pass before submission."""
     w = window
+    if hasattr(w,'generation_intent'):return False
     c = getattr(w, 'intent_controller', None)
     if c is None or w.api_controller.cloud:
         return False
@@ -128,7 +151,7 @@ def ensure_for_generation(window):
         return False
     if not w.connected:
         return False
-    positive, negative = w.positive.toPlainText(), w.negative.toPlainText()
+    positive,negative=visible_texts(w)
     if valid_pair(getattr(c, 'generation_pair', None), positive, negative):
         return False
     if not positive.strip() or not (has_chinese(positive) or has_chinese(negative)):
@@ -162,7 +185,7 @@ def ensure_for_generation(window):
         w.task_display.finish('completed' if kind == 'result' else 'cancelled' if c.cancel_event.is_set() else 'failed')
         w.generation_type_changed()
         if kind == 'result' and not c.cancel_event.is_set():
-            if (positive, negative) != (w.positive.toPlainText(), w.negative.toPlainText()):
+            if (positive,negative)!=visible_texts(w):
                 c.notify('提示词已修改，旧的英文转换结果未应用。'); return
             set_pair(c, positive, negative, data['positive'], data['negative'], folder/'result.json')
             QTimer.singleShot(0, w.enqueue)

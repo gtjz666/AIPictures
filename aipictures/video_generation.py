@@ -39,7 +39,9 @@ def generate(client, folder: Path, params: dict, cancel, emit) -> dict:
             from .video_script import validate
             validate(params.get('short_script'),params['seconds'])
         if params['engine']=='h3':
-            if params.get('creation_kind')=='long_video_edit':
+            if params.get('manual_segments'):
+                from .manual_video import generate as h3_generate
+            elif params.get('creation_kind')=='long_video_edit':
                 from .video_edit_chain import generate as h3_generate
             elif params.get('creation_kind')=='long_video' and params['seconds']>8:
                 from .native_long_video import generate as h3_generate
@@ -74,21 +76,26 @@ def generate(client, folder: Path, params: dict, cancel, emit) -> dict:
             raise ValueError('旧 Wan 动画工作流已停用；请使用 MiniMax H3。历史动画仍可预览与选帧导出。')
         count=len(paths) or manifest.get('frame_count',0)
         if params.get('defer_exports'):
-            requested=math.ceil(params['seconds']*fps)
+            requested=result.get('frame_count',math.ceil(params['seconds']*fps)) if params.get('manual_segments') else math.ceil(params['seconds']*fps)
             kept=min(count,requested)
             manifest.update(model_frame_count=count,alignment_tail_frames=count-kept,video_export_pending=True)
             paths=paths[:kept];count=kept
             if 'native_frame_sha256' in manifest:manifest['native_frame_sha256']=manifest['native_frame_sha256'][:kept]
         if params.get('creation_kind') in ('short_video','long_video','long_video_edit'):
             from .video_io import encode_native_rgb
-            emit('video_stage',dict(message='画面已完成，正在制作配乐并合成音画…'))
+            emit('video_stage',dict(message='正在保存游戏CG画面…' if params.get('audio_mode')=='none' else '画面已完成，正在制作配乐并合成音画…'))
             silent=folder/'video_silent.mp4'
-            if result.get('native_rgb'):encode_native_rgb(Path(result['native_rgb']),silent,round(fps),cancel,emit,frame_count=count)
+            already_saved=bool(result.get('manual_session') and source and source.resolve()==silent.resolve() and source.is_file())
+            if already_saved:pass
+            elif result.get('native_rgb'):encode_native_rgb(Path(result['native_rgb']),silent,round(fps),cancel,emit,frame_count=count)
             else:encode_pngs(paths,silent,round(fps),cancel)
             from .video_audio import package
-            tracks=package(folder,source,count/fps,params,cancel);source=Path(tracks['video'])
-            manifest.update(**{k:v for k,v in tracks.items() if k!='video'},video_export_pending=False,
-                            short_script=params.get('short_script'),title='长视频' if params.get('creation_kind') in ('long_video','long_video_edit') else '短视频（含配乐）')
+            if params.get('audio_mode')=='none':
+                source=silent;manifest.update(silent_video=str(silent.resolve()),video_export_pending=False,title='游戏CG',audio=None)
+            else:
+                tracks=package(folder,source,count/fps,dict(params,music_file=None) if params.get('manual_segments') else params,cancel);source=Path(tracks['video'])
+                manifest.update(**{k:v for k,v in tracks.items() if k!='video'},video_export_pending=False,
+                                short_script=params.get('short_script'),title='长视频' if params.get('creation_kind') in ('long_video','long_video_edit') else '短视频（含配乐）')
         manifest.update(status='completed',source_video=str(source.resolve()) if source else None,source_sha256=digest(source) if source else None,
             frames=[{'image':str(p.resolve().relative_to(folder.resolve()))} for p in paths],fps=fps,
             frame_count=count,duration_seconds=count/fps,elapsed_seconds=round(time.monotonic()-started,2),

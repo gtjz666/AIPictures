@@ -118,14 +118,14 @@ def prepare(path: Path, folder: Path, seconds: float, start: float,
             encode_video: bool=True, save_frames: bool=False, allow_tail_hold: bool=False) -> dict:
     """Stream a bounded, silent 24fps nearest-time guide; no optical flow or frame mixing."""
     meta = inspect(path,cancel)
-    if not all(math.isfinite(v) for v in (start, seconds)) or start < 0 or not 1 <= seconds <= 15:
-        raise ValueError('动作起点应为非负数，片段时长应为1–15秒。')
+    if not all(math.isfinite(v) for v in (start, seconds)) or start < 0 or not .08 <= seconds <= 15:
+        raise ValueError('动作起点应为非负数，片段时长应为0.08–15秒。')
     used = seconds if repeat else min(seconds, meta['duration'] - start)
     if start>=meta['duration'] and not allow_tail_hold:raise ValueError('动作起点超出片段，请重新选择起点。')
     if allow_tail_hold and not repeat:used=max(1/24,used)
     if not encode_video and not save_frames:raise ValueError('至少需要输出PNG帧或参考视频。')
     if not allow_tail_hold and used < (.08 if meta['duration']<.95 else .95): raise ValueError('所选动作区间不足，请提前起点或换一个片段。')
-    source_count = math.floor(used * 24 + 1e-6)
+    source_count = max(1,math.floor(used * 24 + 1e-6))
     count = max(22,source_count + (5-source_count)%17) if align_h3 else source_count
     if align_h3 and allow_tail_hold:
         # H3 still receives the complete requested guide when a non-looping

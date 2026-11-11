@@ -89,7 +89,7 @@ class VideoController:
         if hasattr(w,'short_video'):
             editing=w.short_video.active() and w.short_video.kind.currentData()=='long_video' and bool(self.motion.path)
             w.short_video.edit_hint.setVisible(editing)
-            w.short_video.brief.setPlaceholderText('例如：将源视频人物替换为图1的人物和服装，图2只提供画风，保留原动作顺序、背景与镜头。' if editing else '描述画面、情节、镜头与声音，例如：清晨湖面的小船缓慢前行，镜头轻推，配舒缓旋律。')
+            w.short_video.brief.setPlaceholderText('例如：将源视频人物替换为图1的人物和服装，图2只提供画风，保留原动作顺序、背景与镜头。' if editing else '描述本段游戏CG的画面、情节与镜头；完成后填写下一段要求即可接续。')
         if hasattr(w,'workbench') and w.workbench.category=='audio':
             w.generate_button.setText('生成音频');w.generate_button.setEnabled(bool(w.audio_controller.config) and not w.preparing);return
         self.sync_prompt_mode(walking and free)
@@ -124,13 +124,13 @@ class VideoController:
             w.context_label.setText('动画创作');w.generate_button.setText('生成动画')
             if hasattr(w,'short_video') and w.short_video.active():w.generate_button.setText('生成短视频')
             if hasattr(w,'short_video') and w.short_video.kind.currentData()=='long_video':
-                w.generate_button.setText('生成长视频');w.generate_button.setEnabled(bool(self.h3) and self.long_ready and not w.preparing)
+                w.generate_button.setText('接续生成' if w.short_video.continuation_source else '生成本段');w.generate_button.setEnabled(bool(self.h3) and self.long_ready and not w.preparing)
             w.intent_hint.setText('正向提示词描述画面与动作 → 完整动画预览 → 自主选帧导出' if self.h3 else 'MiniMax H3 尚未安装并验证；请先完成独立引擎设置。')
             if self.motion.path:
                 w.generate_button.setEnabled(not w.preparing and bool(self.motion_settings))
                 w.intent_hint.setText('动作跟随参考动画或PNG帧；图片与文字指定角色和画风。' if self.motion_settings else '动作素材已就绪；专用参考引擎尚未完成本机验证，暂不能生成。移除动作参考可继续普通动画。')
             if hasattr(w,'short_video') and w.short_video.kind.currentData()=='long_video':
-                w.generate_button.setText('生成编辑视频' if self.motion.path else '生成长视频')
+                w.generate_button.setText('生成编辑视频' if self.motion.path else '接续生成' if w.short_video.continuation_source else '生成本段')
                 w.generate_button.setEnabled(not w.preparing and bool(self.h3) and (bool(self.motion_settings) and self.edit_ready and self.seconds.value()<=8 if self.motion.path else self.long_ready))
             w.creation_summary.setText('自由动画\nMiniMax H3\n先预览完整片段，再导出素材')
         w.animation_style.hide();w.style_link.hide()
@@ -138,15 +138,16 @@ class VideoController:
     def intercept(self):
         w=self.window
         if w.generation_type.currentData()!='walk':return False
+        if hasattr(w,'intent_controller') and not hasattr(w,'generation_intent'):w.intent_controller.validate_generation()
         if not self.free():raise ValueError('旧骨骼与 Wan 动画路线已停用，请选择 MiniMax H3。')
         if w.api_controller.cloud:return False
         if w.preparing:return True
         long=hasattr(w,'short_video') and w.short_video.kind.currentData()=='long_video'
         if long and not self.long_ready:raise ValueError('本机长视频还在完整验收，尚不能提交。')
-        editing=long and bool(self.motion.path)
-        if editing and not self.edit_ready:raise ValueError('参考视频编辑还在完整验收，尚不能提交。')
-        if editing and not self.h3:raise ValueError('视频编辑的原生音轨组件尚未就绪，未启动生成。')
-        if editing and self.seconds.value()>8:raise ValueError('参考视频编辑当前试用2–8秒；长片续接仍有场景跳变，暂不开放。普通长视频可继续生成30秒。')
+        editing=bool(self.motion.path)
+        if editing and long and not self.edit_ready:raise ValueError('参考视频编辑还在完整验收，尚不能提交。')
+        if editing and long and not self.h3:raise ValueError('视频编辑的原生音轨组件尚未就绪，未启动生成。')
+        if editing and self.seconds.value()>8:raise ValueError('本机参考套用单次最多8秒；当前已保留参考原时长，请选择8秒内的片段再生成。')
         engine='h3'
         if not self.motion.path and not self.h3:raise ValueError('MiniMax H3 尚未安装并验证，不能生成动画；不会切回已停用的 Wan。')
         if self.motion.path and not self.motion_settings:raise ValueError('专用动作参考引擎尚未完成本机验证，请先移除动作参考以使用普通动画。')
@@ -154,6 +155,7 @@ class VideoController:
         short=hasattr(w,'short_video') and w.short_video.active()
         reference=w.reference_path if w.animation_source.currentData()=='reference' else None
         prompt=w.positive.toPlainText().strip()
+        if hasattr(w,'generation_intent'):prompt,_=w.generation_intent.prompts()
         if short and not prompt:prompt=w.short_video.brief.toPlainText().strip()
         if not prompt and self.motion.path and reference:prompt='按动作参考生成动画，保留角色参考图的主体、衣着、配色与画风。'
         if not prompt:raise ValueError('请在正向提示词中描述画面与动作。')
@@ -161,25 +163,31 @@ class VideoController:
             raise ValueError('描述过长，请将画面提示词控制在16000字、动作及反向描述各8000字以内。')
         if w.animation_source.currentData()=='reference' and not reference and not short:raise ValueError('请添加参考图，或选择仅文字描述。')
         if not reference and not prompt:raise ValueError('无参考图时，请填写画面或角色描述。')
-        script=w.short_video.snapshot() if short else None
-        if short and w.short_video.script is None:
+        script=w.short_video.snapshot() if short and not hasattr(w,'generation_intent') else None
+        if short and hasattr(w,'generation_intent'):
+            from .video_script import simple
+            script=simple(prompt,self.seconds.value(),w.short_video.music.currentData(),'')
+        elif short and w.short_video.script is None:
             from .video_script import prompt as script_prompt
             prompt=script_prompt(script)
-        refs=w.reference_chat.references() if editing else {}
+        available_refs=w.reference_chat.references()
+        if not editing and len(available_refs)>1:raise ValueError('没有参考动画时，当前视频引擎只支持一张起始参考图；请保留一张，或先在单张模式合成需要的画面。')
+        refs=available_refs if editing else {}
         if editing:
             from .multi_reference import bind_text,image_ids
-            bind_text(prompt,refs);bind_text(w.negative.toPlainText(),refs)
-            mentioned=image_ids(prompt+'\n'+w.negative.toPlainText())
+            negative=w.generation_intent.prompts()[1] if hasattr(w,'generation_intent') else w.negative.toPlainText()
+            bind_text(prompt,refs);bind_text(negative,refs)
+            mentioned=image_ids(prompt+'\n'+negative)
             if len(refs)>1 and not mentioned:raise ValueError('请用图1、图2等编号说明各图提供人物、画风或其他用途。')
             if mentioned:refs={n:p for n,p in refs.items() if n in mentioned}
             if not self.motion.repeat.isChecked() and self.motion.start.value()+self.seconds.value()>self.motion.meta['duration']+.05:
                 raise ValueError('源视频不足本次时长；请选择更长视频，或明确开启循环。不会自动用长时间定格补齐。')
-        timeline=w.workbench.timeline.effective_rows() if hasattr(w,'workbench') and not short else []
-        if self.motion.path and hasattr(w,'workbench') and not short:
+        timeline=w.workbench.timeline.effective_rows() if hasattr(w,'workbench') and not short and not getattr(w.workbench,'reference_skinning',False) else []
+        if self.motion.path and hasattr(w,'workbench') and not short and not getattr(w.workbench,'reference_skinning',False):
             prompt,timeline=w.workbench.timeline.generation_input()
             if not prompt:prompt='按动作参考生成动画，保留文字和参考图指定的目标外观。'
         intent=getattr(w,'intent_controller',None)
-        reference_role=intent.role.currentData() if intent else 'appearance'
+        reference_role=intent.role.currentData() if intent and not hasattr(w,'generation_intent') else 'appearance'
         reference_usage=intent.role_note.text().strip() if intent and reference_role=='custom' else ''
         if self.motion.path and reference and reference_role=='custom' and not reference_usage:
             raise ValueError('请填写参考图的自定义用法。')
@@ -189,18 +197,27 @@ class VideoController:
         if reference:
             frozen=folder/('reference'+Path(reference).suffix);shutil.copyfile(reference,frozen);reference=str(frozen)
         params={'mode':'video','engine':engine,'backend':'standalone',
-            'prompt':prompt,'negative':w.negative.toPlainText(),'action_description':description,'prompt_layout':'unified',
+            'prompt':prompt,'negative':w.generation_intent.prompts()[1] if hasattr(w,'generation_intent') else w.negative.toPlainText(),'action_description':description,'prompt_layout':'unified',
             'seed_mode':w.seed_mode.currentData(),'defer_exports':True,
             'reference':reference,'seed':seed,'seconds':self.seconds.value(),'steps':w.animation_steps.value(),
             'checkpoint':w.model.currentText(),'url':w.client.url if w.connected else None,'lora':''}
+        params['user_prompt']=w.positive.toPlainText()
+        params['source_brief']=w.generation_intent.editor().toPlainText() if hasattr(w,'generation_intent') else w.short_video.brief.toPlainText() if short else w.intent_controller.input.toPlainText()
         params['h3_settings']=self.h3.copy();params['motion_timeline']=timeline
         if short:
             from .video_script import write_script
-            music_file=w.short_video.music_file
+            music_file=None if hasattr(w,'generation_intent') else w.short_video.music_file
             if music_file:
                 target=folder/('music_input'+Path(music_file).suffix.lower());shutil.copyfile(music_file,target);music_file=str(target.resolve())
             params.update(creation_kind='long_video' if long else 'short_video',audio_mode='h3_native',short_script=script,music_style=w.short_video.music.currentData(),music_file=music_file)
+            if hasattr(w,'generation_intent'):
+                params.update(audio_mode='none',music_file=None);script['shots']=[dict(row,sound='无声CG') for row in script['shots']]
             write_script(folder,script)
+            if long and not editing:
+                from .workflow_library import digest
+                previous=w.short_video.continuation_source
+                params.update(manual_segments=True,continue_from=str(previous) if previous else None,
+                    continue_manifest_sha256=digest(previous) if previous else None)
         if editing:
             from .workflow_library import digest
             from .video_edit import FORMAT
@@ -208,7 +225,7 @@ class VideoController:
             for order,(number,path) in enumerate(refs.items(),1):
                 target=folder/'references'/f'{number}{path.suffix.lower()}';target.parent.mkdir(exist_ok=True);shutil.copyfile(path,target)
                 frozen_refs.append(dict(number=number,model_input=order,path=str(target.resolve()),sha256=digest(target)))
-            params.update(creation_kind='long_video_edit',video_edit_refs=frozen_refs,motion_prompt_format=FORMAT)
+            params.update(creation_kind='long_video_edit' if long else 'sprite_reference_edit',video_edit_refs=frozen_refs,motion_prompt_format=FORMAT)
         params['motion_timeline_clock']=w.workbench.timeline.clock if hasattr(w,'workbench') else 'output'
         if self.motion.path:
             params['motion_native_settings']=self.motion_settings.copy()
@@ -246,6 +263,7 @@ class VideoController:
         return folder
 
     def enqueue(self,params,folder):
+        if hasattr(self.window,'generation_intent'):self.window.generation_intent.record(params)
         if hasattr(self.window,'intent_controller') and not params.get('resume_chain'):self.window.intent_controller.record(folder,params)
         w=self.window;write_json(folder/'job.json',{'schema_version':1,'kind':'video','status':'queued','params':params})
         from .task_display import task_name
@@ -307,7 +325,7 @@ class VideoController:
             path=folder/'video.json'
             try:data=json.loads(path.read_text('utf-8'))
             except (OSError,ValueError):continue
-            title=data.get('params',{}).get('prompt','').strip() or data.get('params',{}).get('action_description','').strip() or data.get('title','完整动画')
+            title=data.get('params',{}).get('source_brief','').strip() or data.get('params',{}).get('prompt','').strip() or data.get('params',{}).get('action_description','').strip() or data.get('title','完整动画')
             title=title[:24]+('…' if len(title)>24 else '')
             status={'completed':'完成','failed':'失败','cancelled':'已取消','preparing':'处理中'}.get(data['status'],data['status'])
             item=QListWidgetItem(title+' · '+status)

@@ -6,6 +6,7 @@ FORMAT='source_video_edit_v1'
 # Quality defects only. Do not prohibit legitimate source pauses, repeats,
 # camera changes, framing, expressions or motion blur.
 QUALITY_NEGATIVE='主体身份无故变化，肢体结构破损，服装穿插，非预期文字水印'
+DIRECT_MOTION_GUIDE='动作顺序、节奏、运动方向、表情和镜头以实际动作参考为准；用目标主体替换参考主体，保留目标外观与配色，仅执行用户明确要求的改变。'
 FACE=r'表情|神情|笑容|微笑|大笑|哭泣|闭眼|睁眼|expression|smil|crying'
 CAMERA=r'镜头|机位|构图|视角|朝向|近景|远景|全身|正面|侧面|camera|framing|shot|view'
 POSE=r'站姿|站立|坐姿|双臂.*垂|双手.*垂|静止姿态|standing|seated|arms.*sides'
@@ -32,6 +33,21 @@ def generated_constraints(positive:str,brief:str,negative:str)->tuple[str,str]:
     cleaned=''.join(kept).strip('，,；;。\n ')
     exclusions=QUALITY_NEGATIVE+('\n'+negative if negative.strip() else '')
     return cleaned,exclusions
+
+
+def text_animation_prompt(positive:str,brief:str,negative:str,usage='')->tuple[str,str]:
+    """A still image defines appearance; explicit user actions define the clip.
+
+    Do not treat disabling video analysis as disabling user-written movement.
+    Keep the original sequence authoritative even if a planner summarizes it.
+    """
+    text,exclusions=generated_constraints(positive,brief+'\n'+usage,negative)
+    text=text.replace(DIRECT_MOTION_GUIDE,'')
+    clauses=re.split(r'(?<=[，,；;。\n])',text)
+    text=''.join(c for c in clauses if not re.search(r'实际动作参考|跟随参考(?:动画|视频)|源视频|<Video\s*\d',c,re.I)).strip('，,；;。\n ')
+    if brief.strip() and brief.strip() not in text:
+        text+='\n用户动作与改动要求（按原意和先后顺序执行）：\n'+brief.strip()
+    return text.strip(),exclusions
 
 
 def compile_prompt(text:str,has_image:bool,*,reference_role='appearance',reference_usage='')->str:

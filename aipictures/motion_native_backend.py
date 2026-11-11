@@ -15,7 +15,7 @@ from .storage import write_json
 
 
 def output_frames(seconds:float)->int:
-    if not math.isfinite(seconds) or not 2<=seconds<=15:raise ValueError('单段参考动画应为2–15秒；较长动画请使用分段生成。')
+    if not math.isfinite(seconds) or not .08<=seconds<=15:raise ValueError('单段参考动画应为0.08–15秒。')
     requested=math.ceil(seconds*24)
     return max(22,requested+(5-requested)%17)
 

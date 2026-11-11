@@ -9,6 +9,9 @@ def main():
     value=json.loads(Path(sys.argv[1]).read_text('utf-8'))
     if sys.stdin.readline().strip()!='go':raise SystemExit('Audio worker was not admitted')
     os.environ['FREEVIDEO_HOME']=value['engine_root'];sys.path.insert(0,value['source'])
+    if value.get('clarity_policy'):
+        from audio_clarity import install
+        install(Path(value['out']).parent)
     from freevideo_engine.locking import runtime_lock
     from freevideo_engine.music.worker import main as generate
     with runtime_lock(Path(value['engine_root'])/'engine.lock',inherit=False,wait_seconds=0):

@@ -24,7 +24,7 @@ def main():
                 app.processEvents();QTest.qWait(10)
                 assert time.monotonic()<deadline
         assert not panel.isVisible() and not panel.path
-        w.generation_type.setCurrentIndex(1);w.workbench.right_tabs.setCurrentIndex(1);assert w.workbench.motion_selection.isVisible()
+        w.generation_type.setCurrentIndex(1);w.workbench.right_tabs.setCurrentIndex(1);assert not w.workbench.motion_selection.isVisible()
         source=gif(root/'walk.gif');before=source.read_bytes();panel.set_file(source);wait()
         assert panel.path and panel.meta['name']=='walk.gif' and w.animation_action.currentData()=='custom'
         assert 'walk.gif' in panel.summary.text()
@@ -48,7 +48,7 @@ def main():
         with patch('aipictures.motion_reference_ui.QFileDialog.getOpenFileNames',return_value=(pngs,'PNG')),\
              patch('aipictures.motion_reference_ui.QInputDialog.getInt',return_value=(12,True)):
             QTest.mouseClick(panel.add_frames,Qt.MouseButton.LeftButton);wait()
-        assert panel.path.suffix=='.json' and panel.meta['frame_count']==3 and panel.repeat.isChecked()
+        assert panel.path.suffix=='.json' and panel.meta['frame_count']==3 and not panel.repeat.isChecked()
         w.positive.setPlainText('黄色小怪物按照动作帧移动')
         with patch.object(w,'start_next'):
             QTest.mouseClick(w.generate_button,Qt.MouseButton.LeftButton)
@@ -57,10 +57,10 @@ def main():
         from aipictures.motion_guide import sequence
         data,frames=sequence(frozen)
         assert data['fps']==12 and len(frames)==3 and Image.open(frames[0]).getpixel((0,0))==(255,0,0)
-        assert w.pending[0][1]['motion_repeat']
+        assert not w.pending[0][1]['motion_repeat']
         w.clear_pending();w.generation_type.setCurrentIndex(0)
         w.workbench.right_tabs.setCurrentIndex(1)
-        assert w.workbench.motion_selection.isVisible() and not panel.path and not w.reference_path
+        assert not w.workbench.motion_selection.isVisible() and not panel.path and not w.reference_path
         w.close();app.processEvents()
     print('Motion/character separation, GIF + PNG buttons/FPS, preview, frozen queues, clear: PASS')
 

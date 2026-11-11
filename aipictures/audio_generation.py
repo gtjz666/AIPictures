@@ -20,6 +20,9 @@ def settings(data):
 
 
 def generate(folder,params,cancel,emit):
+    if params.get('audio_kind')=='sfx':
+        from .woosh_generation import generate as sound_effect
+        return sound_effect(folder,params,cancel,emit)
     from .motion_native_backend import release_shared
     from .owned_process import OwnedProcessJob
     from .video_audio import save_wav
@@ -45,7 +48,7 @@ def generate(folder,params,cancel,emit):
         from .audio_duration import render_seconds,finish
         work_seconds=render_seconds(params['seconds'])
         generation_caption=caption+f'\nMaintain a complete musical performance across the full {work_seconds} seconds, with a brief natural closing cadence at the very end. Keep instrumentation audible throughout; no premature fade, extended silence or silent padding.'
-        request=dict(config,out=str((folder/'audio-master.wav').resolve()),caption=generation_caption,seconds=work_seconds,seed=params['seed'],deliver_seconds=params['seconds'])
+        request=dict(config,out=str((folder/'audio-master.wav').resolve()),caption=generation_caption,seconds=work_seconds,seed=params['seed'],deliver_seconds=params['seconds'],clarity_policy=True)
         write_json(folder/'request.json',request)
         command=[config['python'],'-u',str(Path(__file__).with_name('audio_worker.py').resolve()),str((folder/'request.json').resolve())]
         emit('audio_stage',dict(message='正在生成独立器乐配乐…'))
@@ -73,7 +76,8 @@ def generate(folder,params,cancel,emit):
         save_wav(folder/'audio.wav',audio)
         manifest.update(status='completed',audio=str((folder/'audio.wav').resolve()),sample_rate=48000,
             duration_seconds=params['seconds'],rms=rms,elapsed_seconds=round(time.monotonic()-started,2),engine='ACE-Step 1.5 XL turbo',worker=detail,caption=caption,
-            generation_caption=generation_caption,render_duration_seconds=work_seconds,duration_integrity=integrity)
+            generation_caption=generation_caption,render_duration_seconds=work_seconds,duration_integrity=integrity,
+            clarity_policy=json.loads((folder/'clarity-policy.json').read_text('utf-8')) if (folder/'clarity-policy.json').exists() else None)
         write_json(folder/'audio.json',manifest);return dict(manifest=str(folder/'audio.json'))
     except BaseException as exc:
         manifest.update(status='cancelled' if isinstance(exc,Cancelled) else 'failed',error=str(exc));write_json(folder/'audio.json',manifest);raise

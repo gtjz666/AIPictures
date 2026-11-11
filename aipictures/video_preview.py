@@ -46,6 +46,7 @@ class VideoPreview(QWidget):
         playable=self.audio_source if self.audio_source and self.audio_source.is_file() else self.source
         self.sound.setSource(QUrl.fromLocalFile(str(playable)) if self.has_audio else QUrl())
         self.fps=float(data['fps']);self.index=0
+        if hasattr(self.window,'short_video'):self.window.short_video.continue_video(self.manifest)
         from .seed_controls import from_folder
         from_folder(self.window,self.manifest.parent)
         self.window.animation_player.stop();self.window.sequence_preview.clear_sequence()

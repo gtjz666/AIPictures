@@ -12,10 +12,13 @@ class ShortVideoPanel(QWidget):
     def __init__(self,window,kind):
         super().__init__();self.window=window;self.kind=kind;self.script=None;self.music_file=None
         self.script_brief=None;self.generated_negative=None;self.manual_negative=''
+        self.continuation_source=None
         layout=QVBoxLayout(self);layout.setContentsMargins(0,0,0,0)
-        layout.addWidget(QLabel('视频要求'))
+        self.continuation_note=QLabel('每次生成一段，完成后可填写新的需求接续。');self.continuation_note.setWordWrap(True);layout.addWidget(self.continuation_note)
+        self.new_video=QPushButton('新建视频');self.new_video.clicked.connect(self.start_new);layout.addWidget(self.new_video)
+        layout.addWidget(QLabel('用户需求'))
         self.brief=QPlainTextEdit();self.brief.setMaximumHeight(100)
-        self.brief.setPlaceholderText('描述画面、情节、镜头与声音，例如：清晨湖面的小船缓慢前行，镜头轻推，配舒缓旋律。')
+        self.brief.setPlaceholderText('描述游戏CG中的画面、情节和镜头，例如：古堡大门缓缓开启，镜头向前推进。')
         layout.addWidget(self.brief)
         row=QHBoxLayout();self.music=QComboBox()
         for key,title in video_script.STYLES.items():self.music.addItem('H3配乐 · '+title,key)
@@ -33,6 +36,20 @@ class ShortVideoPanel(QWidget):
         self.send_shortcut=QShortcut(QKeySequence('Ctrl+Return'),self.brief);self.send_shortcut.activated.connect(self.prepare)
 
     def active(self):return self.kind.currentData() in ('short_video','long_video') and self.window.generation_type.currentData()=='walk'
+
+    def start_new(self):
+        self.continuation_source=None;self.script=None;self.script_brief=None
+        self.window.video_controller.seconds.setRange(2,8)
+        self.continuation_note.setText('新作品：本次只生成一段，之后可填写新需求接续。')
+
+    def continue_video(self,path):
+        value=json.loads(Path(path).read_text('utf-8'))
+        if value.get('params',{}).get('creation_kind')!='long_video' or not value.get('native_rgb_source'):return
+        self.continuation_source=Path(path);self.script=None;self.script_brief=None
+        self.window.video_controller.seconds.setRange(2,7)
+        self.continuation_note.setText(f'已生成{value["duration_seconds"]:g}秒。填写下一段需求，点击生成即可接续；每段最多7秒。')
+        if self.brief.toPlainText().strip()==value.get('params',{}).get('source_brief','').strip():self.brief.clear()
+        self.brief.setPlaceholderText('描述下一段发生什么；主体与场景参考前文接续。')
 
     def reset_music(self):
         self.music_file=None;self.audio_note.setText('由H3同步生成原声与配乐；导出可分离音频和画面。')

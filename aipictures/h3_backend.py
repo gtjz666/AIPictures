@@ -54,6 +54,7 @@ def generate(folder: Path, params: dict, cancel: threading.Event, emit) -> dict:
         if not params.get('h3_two_pass') or digest(previous)!=params['h3_continue_sha256']:raise ValueError('续接画面已变化或未启用原生续接流程。')
         command+=['--continue-from',str(previous),'--first-frame-reference']
     reuse=params.get('h3_reuse_conditioning')
+    if reuse and params.get('h3_continue_video'):raise ValueError('原生视频续接不接受预编码文字入口，请使用本段当前文字重新编码。')
     if reuse:
         from .workflow_library import digest
         if digest(Path(reuse['path']))!=reuse['sha256'] or digest(folder/'prompt.txt')!=reuse['prompt_sha256']:

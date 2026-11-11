@@ -1,5 +1,7 @@
 import tempfile
 import unittest
+import os
+import stat
 from pathlib import Path
 
 from aipictures.result_cache import ResultCache
@@ -7,6 +9,22 @@ from aipictures.storage import write_json
 
 
 class ResultCacheTests(unittest.TestCase):
+    @unittest.skipUnless(os.name=='nt','Windows read-only link behavior')
+    def test_readonly_cache_hardlink_is_deleted_without_unlocking_original(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data=Path(directory);cache=ResultCache(data);folder=data/'videos'/'completed'
+            write_json(folder/'video.json',dict(status='completed'))
+            original=data/'installed-model.bin';original.write_bytes(b'unchanged installed data')
+            os.link(original,folder/'readonly-cache-link.bin');original.chmod(stat.S_IREAD)
+            before=original.stat().st_file_attributes
+            try:
+                report=cache.clear([folder])
+                self.assertFalse(report['errors']);self.assertFalse(folder.exists())
+                self.assertEqual(original.read_bytes(),b'unchanged installed data')
+                self.assertEqual(original.stat().st_file_attributes,before)
+                self.assertTrue(original.stat().st_file_attributes&stat.FILE_ATTRIBUTE_READONLY)
+            finally:original.chmod(stat.S_IWRITE)
+
     def test_selected_cleanup_preserves_exports_active_tasks_and_reference_data(self):
         with tempfile.TemporaryDirectory() as directory:
             data=Path(directory); cache=ResultCache(data)

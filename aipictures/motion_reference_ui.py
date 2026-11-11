@@ -166,8 +166,10 @@ class MotionReferencePanel(QWidget):
                     self.poster.show()
                     self.start.setMaximum(max(0.,self.meta['duration']-1/self.preview_fps));self.start.setValue(0.)
                     long=getattr(getattr(w,'workbench',None),'category','')=='long_video'
-                    if not long:self.seconds.setValue(max(2.,math.floor(self.meta['duration']*1000)/1000))
-                    self.repeat.setChecked(self.meta['duration']<2. and not long)
+                    if not long:
+                        self.seconds.setRange(.08,max(8.,self.meta['duration']));self.seconds.setDecimals(3)
+                        self.seconds.setValue(self.meta['duration'])
+                    self.repeat.setChecked(False)
                     self.play.setEnabled(True);self.remove.setEnabled(True);self.update_range();self.changed.emit()
                     if frame_folder and hasattr(w,'workbench'):w.workbench.show_motion_reference(play=True)
                     w.status.setText('动作参考已就绪')
@@ -182,6 +184,7 @@ class MotionReferencePanel(QWidget):
         if self.preview_dialog:self.preview_dialog.close();self.preview_dialog=None
         self.range_dialog.close()
         self.path=None;self.meta=None;self.preview_paths=[];self.poster.clear()
+        self.seconds.setMinimum(2.)
         self.preview_fps=24.;self.preview_offset=0.
         self.poster.hide()
         self.repeat.setChecked(False)

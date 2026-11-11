@@ -56,20 +56,21 @@ class AssetsDialog(QDialog):
         self.saved_files=QListWidget(); saved_layout.addWidget(self.saved_files,1)
         self.saved_files.itemDoubleClicked.connect(lambda item:QDesktopServices.openUrl(QUrl.fromLocalFile(item.data(Qt.ItemDataRole.UserRole))))
         location=QPushButton('打开保存位置'); location.clicked.connect(self.open_saved_location); saved_layout.addWidget(location)
-        tabs.addTab(saved,'已保存文件')
+        saved.setParent(self);saved.hide()
         files = QWidget(); fv = QVBoxLayout(files)
         for title, path in [('参考图与素材', DATA / 'references'), ('角色基准与骨骼', DATA / 'characters'),
                             ('本地工作流', DATA / 'workflows'), ('全部项目数据', DATA)]:
             button = QPushButton(title)
             button.clicked.connect(lambda _=False, path=path: self.open_folder(path)); fv.addWidget(button)
-        fv.addStretch(); tabs.addTab(files, '素材文件夹')
-        self.cache_status=QLabel('清理缓存会跳过正在运行和排队的任务，已另存的文件保留。'); self.cache_status.setWordWrap(True); layout.addWidget(self.cache_status)
+        fv.addStretch();files.setParent(self);files.hide()
+        self.cache_status=QLabel(); self.cache_status.setWordWrap(True); self.cache_status.hide()
+        self.cache_status.setParent(self)
         video_import=QPushButton('导入完整动画预览…')
         def import_video():
             self.hide();parent.video_controller.import_file()
-        video_import.clicked.connect(import_video);layout.addWidget(video_import)
+        video_import.clicked.connect(import_video);video_import.hide()
         self.videos.itemDoubleClicked.connect(parent.video_controller.open_history if hasattr(parent,'video_controller') else lambda item:parent.video_controller.open_history(item))
-        close = QPushButton('返回创作'); close.clicked.connect(self.close); layout.addWidget(close)
+        close = QPushButton('返回创作',self); close.clicked.connect(self.close); close.hide()
 
     def set_cache_busy(self,busy):
         for button in self.cache_buttons: button.setEnabled(not busy)

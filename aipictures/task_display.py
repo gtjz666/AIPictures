@@ -7,7 +7,7 @@ from PySide6.QtCore import Signal
 
 
 def task_name(params):
-    if params.get('mode')=='audio':return '器乐配乐'
+    if params.get('mode')=='audio':return '游戏音效' if params.get('audio_kind')=='sfx' else '背景配乐'
     if params.get('mode')=='video' and params.get('creation_kind') in ('long_video','long_video_edit'):
         return '参考视频编辑' if params['creation_kind']=='long_video_edit' else '长视频'
     if params.get('mode')=='video':return '完整动画 · '+('H3' if params.get('engine')=='h3' else 'Wan2.2')
@@ -39,7 +39,7 @@ class TaskLabel(QLabel):
             elif '断开' in text: value+=' · 引擎断开'
         else:
             value=super().text()
-            for words,name in ((('导出','选帧','精灵图'),'导出素材'),(('识别','需求'),'需求识别'),
+            for words,name in ((('导出','选帧','精灵图'),'导出素材'),(('识别','需求'),'需求整理'),
                 (('云端',),'云端图片生成'),(('动画',),'动画生成'),(('图片','生图'),'图片生成'),
                 (('参考','上传','准备素材'),'准备素材'),(('连接','断开'),'引擎连接')):
                 if any(word in text for word in words):value=name;break
@@ -86,6 +86,7 @@ class TaskDisplay(QWidget):
 
     def finish(self,status='completed'):
         self.finished_seconds=self.seconds(); self.started=None; self.clock.stop()
+        self.progress.setRange(0,100);self.progress.setValue(100 if status=='completed' else 0)
         self.stage={'completed':'完成','failed':'失败','cancelled':'已取消'}.get(status,status); self.update_elapsed()
 
     def record_stage(self,text):

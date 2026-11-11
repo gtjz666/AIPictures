@@ -99,6 +99,8 @@ class Workbench:
         w.positive.setMaximumHeight(16777215);w.negative.setMaximumHeight(16777215)
         w.intent_controller.panel.setParent(self.hidden)
         w.video_controller.motion.changed.connect(self.motion_changed)
+        from .generation_workspace import install
+        install(self)
         self.refresh_reference();QTimer.singleShot(0,self.restore_layout)
 
     @staticmethod
@@ -182,7 +184,7 @@ class Workbench:
     def make_prompts(self,w):
         c=w.intent_controller;content=QWidget();layout=QVBoxLayout(content);layout.setContentsMargins(8,6,8,6)
         positive_layout=w.positive.parentWidget().layout()
-        title=positive_layout.takeAt(0).widget();heading=QHBoxLayout();heading.addWidget(title);heading.addStretch();heading.addWidget(c.role)
+        title=positive_layout.takeAt(0).widget();self.positive_title=title;heading=QHBoxLayout();heading.addWidget(title);heading.addStretch();heading.addWidget(c.role)
         c.organize.setToolTip('分析参考图并按对话要求整理提示词；不会自动开始图片或动画生成。')
         positive_layout.insertLayout(0,heading);c.role.show()
         positive_layout.insertWidget(1,c.role_note)
@@ -201,7 +203,7 @@ class Workbench:
         popup.addLayout(actions)
 
     def open_prompts(self):
-        self.prompts_dialog.show();self.prompts_dialog.raise_();self.prompts_dialog.activateWindow()
+        self.right_tabs.setCurrentWidget(self.animation)
 
     def make_animation(self,w):
         content=QWidget();layout=QVBoxLayout(content);layout.setContentsMargins(8,6,8,6)
@@ -249,8 +251,8 @@ class Workbench:
     def make_toolbar(self,w):
         bar=QToolBar('创作');bar.setObjectName('creationToolbar');bar.setMovable(False);w.addToolBar(bar)
         self.group=QButtonGroup(w);self.group.setExclusive(True);self.modes=[]
-        self.category='sprite';self._category_change=False;self.category_keys=('long_video','sprite','audio');self.long_duration=30;self.sprite_duration=4
-        for index,title in enumerate(('长视频','精灵图','音频')):
+        self.category='sprite';self._category_change=False;self.category_keys=('long_video','sprite','audio');self.long_duration=6;self.sprite_duration=4
+        for index,title in enumerate(('游戏CG','精灵图','音频')):
             b=QPushButton(title);b.setCheckable(True);b.setObjectName('modeCard');self.group.addButton(b,index);self.modes.append(b);bar.addWidget(b)
         self.group.idClicked.connect(lambda index:self.select_category(self.category_keys[index]))
         self.sprite_mode=QComboBox();self.sprite_mode.addItem('单张','image');self.sprite_mode.addItem('动画帧','walk');self.sprite_action=bar.addWidget(self.sprite_mode)
@@ -258,7 +260,7 @@ class Workbench:
         w.generation_type.currentIndexChanged.connect(self.sync_category)
         self.modes[1].setChecked(True);bar.addSeparator()
         from .audio_workspace import AudioWorkspace
-        w.audio_controller=AudioWorkspace(w);w.tabs.addTab(w.audio_controller.page,'音频')
+        w.audio_controller=AudioWorkspace(w);w.tabs.addTab(w.audio_controller.page,'音频');w.tabs.tabBar().hide()
         self.creation_kind.hide();self.creation_kind_label.hide()
         self.settings_button=QPushButton('创作设置',self.hidden);self.settings_button.clicked.connect(lambda:self.open_settings('image'))
         spacer=QWidget();spacer.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Preferred);bar.addWidget(spacer)
@@ -295,13 +297,15 @@ class Workbench:
         self.right_tabs.setTabText(1,'视频要求' if long else '动画帧')
         self.sprite_action.setVisible(key=='sprite');self.creation_kind.hide()
         if audio:
+            w.audio_controller.page.addWidget(self.right_tabs)
             w.tabs.setCurrentWidget(w.audio_controller.page);w.audio_controller.left.layout().addWidget(self.task)
             w.generate_button.setText('生成音频');w.generate_button.setEnabled(bool(w.audio_controller.config) and not w.preparing)
         else:
+            self.workspace.addWidget(self.right_tabs)
             self.canvas.layout().addWidget(self.task);w.tabs.setCurrentWidget(self.workspace)
             w.generation_type.setCurrentIndex(1 if long else self.sprite_mode.currentIndex())
             self.creation_kind.setCurrentIndex(self.creation_kind.findData('long_video' if long else 'sprite'))
-            w.video_controller.seconds.setRange(2,45) if long else w.video_controller.seconds.setRange(2,8)
+            w.video_controller.seconds.setRange(2,7 if getattr(w.short_video,'continuation_source',None) else 8) if long else w.video_controller.seconds.setRange(.08 if w.video_controller.motion.path else 2,max(8,w.video_controller.motion.meta['duration']) if w.video_controller.motion.path else 8)
             w.video_controller.seconds.setDecimals(0 if long else 3)
             w.video_controller.seconds.setValue(self.long_duration if long else self.sprite_duration)
             if long:self.right_tabs.setCurrentWidget(self.animation)
@@ -309,6 +313,7 @@ class Workbench:
             if w.generation_type.currentData()=='walk' and w.video_controller.player.manifest and w.preview_role=='video':
                 w.video_controller.player.show();w.image_save.hide();w.image_reuse.hide()
         self._category_change=False
+        if hasattr(self,'update_generation_page'):self.update_generation_page()
 
     def reset_layout(self,checked=False,*,save=True):
         self._restored=False
@@ -384,7 +389,7 @@ class Workbench:
     def show_motion_reference(self,*,play=False,position=0):
         panel=self.window.video_controller.motion
         if not panel.path or not panel.preview_paths:return
-        self.right_tabs.setCurrentWidget(self.animation)
+        self.right_tabs.setCurrentWidget(self.reference_items)
         self.reference_player.load(panel.preview_paths,panel.preview_fps)
         self.reference_player.slider.setValue(min(position,len(panel.preview_paths)-1))
         if play:self.reference_player.toggle()
@@ -410,7 +415,7 @@ class Workbench:
         panel=self.window.video_controller.motion
         self.refresh_motion_asset()
         if panel.path and panel.preview_paths:
-            self.right_tabs.setCurrentWidget(self.animation)
+            self.right_tabs.setCurrentWidget(self.reference_items)
             self.show_motion_reference()
         else:
             self.reference_player.clear()
