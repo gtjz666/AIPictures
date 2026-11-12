@@ -14,6 +14,8 @@ class FrameSelectionDialog(QDialog):
     def __init__(self,window,manifest):
         super().__init__(window);self.window=window;self.manifest=Path(manifest).resolve()
         self.data,self.paths=read_source(self.manifest);self.index=0;self.busy=False;self.closed=False
+        self.source_manifest=Path(self.data.get('source_manifest',self.manifest))
+        _,self.original_paths=read_source(self.manifest,original=True)
         self.prepared={};self.prepared_key=None
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose);self.setWindowModality(Qt.WindowModality.WindowModal)
         self.setWindowTitle('选帧与导出');self.resize(1080,780)
@@ -58,6 +60,11 @@ class FrameSelectionDialog(QDialog):
         self.thumbnails=QTimer(self);self.thumbnails.setInterval(15);self.thumb_index=0
         self.thumbnails.timeout.connect(self.load_thumbnails);self.thumbnails.start()
         self.pixmap=QPixmap();self.seek(0);self.selection_changed()
+        self.transparent.toggled.connect(self.background_changed)
+
+    def background_changed(self,enabled):
+        self.paths=read_source(self.manifest)[1] if enabled else self.original_paths
+        self.timer.stop();self.thumb_index=0;self.thumbnails.start();self.seek(self.index)
 
     def selected(self):return [i for i in range(self.grid.count()) if self.grid.item(i).checkState()==Qt.CheckState.Checked]
 
@@ -156,11 +163,29 @@ class FrameSelectionDialog(QDialog):
         super().closeEvent(event)
 
 
-def open_selection(window,manifest):
+def open_selection(window,manifest,*,prepared=False):
     if window.current or window.preparing or window.cache_busy:
         window.status.setText('请等当前任务结束后再选帧。');return
     existing=getattr(window,'frame_selection_dialog',None)
     if existing:existing.raise_();return
+    if not prepared:
+        from .export_background import prepare
+        manifest=Path(manifest).resolve();window.preparing=True
+        window.importing_folder=manifest.parent;window.importing_source=str(manifest)
+        window.prepare_cancel.clear();window.task_display.start();window.progress.setRange(0,0)
+        window.status.setText('正在准备透明动画帧…')
+        def event(kind,data):
+            if kind=='video_stage':window.status.setText(data['message'])
+            elif kind=='video_export_progress':window.progress.setRange(0,100);window.progress.setValue(round(95*data['value']/data['max']))
+            elif kind in ('result','error','cancelled'):
+                window.preparing=False;window.importing_folder=None;window.importing_source=None
+                window.task_display.finish({'result':'completed','error':'failed','cancelled':'cancelled'}[kind])
+                window.progress.setRange(0,100);window.progress.setValue(100 if kind=='result' else 0)
+                if kind=='result':open_selection(window,data,prepared=True)
+                else:window.status.setText('导出准备未完成，原动画保留：'+str(data))
+                QTimer.singleShot(0,window.start_next)
+        window.launch(lambda emit:prepare(manifest,window.prepare_cancel,emit),event)
+        return
     try:
         dialog=FrameSelectionDialog(window,manifest);window.frame_selection_dialog=dialog;dialog.show()
     except (OSError,ValueError,KeyError) as exc:window.add_chat('软件','无法打开选帧窗口：'+str(exc))

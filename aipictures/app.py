@@ -991,7 +991,7 @@ class Window(QMainWindow):
         if getattr(self,'importing_source',None):protected.append(Path(self.importing_source).parent)
         picker=getattr(self,'frame_selection_dialog',None)
         from shiboken6 import isValid
-        if picker and isValid(picker) and picker.isVisible():protected.append(picker.manifest.parent)
+        if picker and isValid(picker) and picker.isVisible():protected.append(getattr(picker,'source_manifest',picker.manifest).parent)
         elif picker:self.frame_selection_dialog=None
         player=getattr(getattr(self,'video_controller',None),'player',None)
         if player and player.manifest and within_any(player.manifest,folders):player.stop()

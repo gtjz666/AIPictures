@@ -43,7 +43,10 @@ def main():
         manifest=fixture(root/'source');w.video_controller.player.load(manifest)
         player=w.video_controller.player;player.timer.stop();player.slider.setValue(8);player.advance()
         assert player.index==0 and player.loop.isChecked() and w.actual_seed.text()=='987654321'
-        open_selection(w,manifest);picker=w.frame_selection_dialog;QTest.qWait(30)
+        open_selection(w,manifest)
+        deadline=time.monotonic()+10
+        while w.preparing and time.monotonic()<deadline:app.processEvents();QTest.qWait(10)
+        picker=w.frame_selection_dialog;QTest.qWait(30)
         picker.copy_seed.click();assert app.clipboard().text()=='987654321'
         assert picker.selected()==[] and not picker.sheet_button.isEnabled()
         picker.seek(4);assert '第 5 / 9 帧' in picker.frame_label.text();picker.pick_current()

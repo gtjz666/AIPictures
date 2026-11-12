@@ -11,10 +11,11 @@ from .storage import write_json
 from .workflow_library import digest
 
 
-def read_source(manifest: Path) -> tuple[dict,list[Path]]:
+def read_source(manifest: Path,*,original=False) -> tuple[dict,list[Path]]:
     manifest=Path(manifest).resolve();data=json.loads(manifest.read_text('utf-8'))
     if data.get('status')!='completed':raise ValueError('请先等待完整动画生成完成。')
-    paths=[(manifest.parent/f['image']).resolve() for f in data.get('frames',[])]
+    entries=data.get('original_frames',data.get('frames',[])) if original else data.get('frames',[])
+    paths=[(manifest.parent/f['image']).resolve() for f in entries]
     if not paths or len(paths)>7200*120 or any(not p.is_file() for p in paths):raise ValueError('源帧缺失或超过2小时预览范围，请重新打开完整动画。')
     if not 0<float(data.get('fps',0))<=120:raise ValueError('源动画帧率无效。')
     return data,paths
@@ -23,7 +24,7 @@ def read_source(manifest: Path) -> tuple[dict,list[Path]]:
 def export_selection(manifest: Path,indices: list[int],folder: Path,target: Path,kind: str,
                      fps: int,columns: int,transparent: bool,loop: bool,cancel: threading.Event,emit,*,prepared=None) -> dict:
     manifest,folder,target=Path(manifest).resolve(),Path(folder).resolve(),Path(target).resolve()
-    data,paths=read_source(manifest)
+    data,paths=read_source(manifest,original=not transparent)
     indices=sorted(set(indices))
     if not indices or any(type(i) is not int or not 0<=i<len(paths) for i in indices):raise ValueError('请至少选取一帧有效图片。')
     if kind not in ('sheet','pngs') or not 1<=fps<=60 or not 1<=columns<=16:raise ValueError('导出类型、帧率或列数无效。')

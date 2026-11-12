@@ -31,7 +31,10 @@ def main():
         w.video_controller.player.slider.setValue(len(data['frames'])-1);w.video_controller.player.advance()
         assert w.video_controller.player.index==0
         w.grab().save(str(root/'unified-loop-seed.png'))
-        open_selection(w,source);picker=w.frame_selection_dialog
+        open_selection(w,source,prepared=a.opaque)
+        deadline=time.monotonic()+3600
+        while w.preparing and time.monotonic()<deadline:app.processEvents();QTest.qWait(30)
+        picker=w.frame_selection_dialog
         picker.transparent.setChecked(not a.opaque)
         assert picker.selected()==[]
         for index in indices:picker.grid.item(index).setCheckState(Qt.CheckState.Checked)
@@ -51,7 +54,10 @@ def main():
                     assert asset.text['Seed']==str(meta['seed']) and asset.getchannel('A').getextrema()==((255,255) if a.opaque else (0,255))
                     r=row['rect'];assert assembled.crop((r['x'],r['y'],r['x']+r['w'],r['y']+r['h'])).tobytes()==asset.tobytes()
         picker.close();app.processEvents()
-        w.animation_player.select_frames();subset=w.frame_selection_dialog
+        w.animation_player.select_frames()
+        deadline=time.monotonic()+60
+        while w.preparing and time.monotonic()<deadline:app.processEvents();QTest.qWait(20)
+        subset=w.frame_selection_dialog
         subset.transparent.setChecked(not a.opaque)
         for index in (0,2):subset.grid.item(index).setCheckState(Qt.CheckState.Checked)
         with patch.object(QFileDialog,'getExistingDirectory',return_value=str(root)):subset.export('pngs')
