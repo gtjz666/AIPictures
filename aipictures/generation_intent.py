@@ -41,13 +41,15 @@ class GenerationIntent:
         w=self.window;category=w.workbench.category;motion=w.video_controller.motion
         kind='audio' if category=='audio' else 'video' if category=='long_video' else 'animation' if w.generation_type.currentData()=='walk' else 'image'
         refs=w.reference_chat.references() if kind!='audio' else {}
+        from .image_family import effective_family
+        family=effective_family(w) if kind=='image' else None
         from .structure_control import resolve
         choice=w.workbench.structure_choice.currentData()
         error=''
-        try:structural=resolve(self.editor().toPlainText().strip(),refs,choice) if kind=='image' else None
+        try:structural=resolve(self.editor().toPlainText().strip(),refs,choice) if kind=='image' and family!='h3_image' else None
         except ValueError as exc:structural=None;error=str(exc)
-        return dict(kind=kind,requirement=self.editor().toPlainText().strip(),
-            structure_binding=structural,structure_choice=choice if kind=='image' else None,structure_error=error,
+        return dict(kind=kind,image_family=family,requirement=self.editor().toPlainText().strip(),
+            structure_binding=structural,structure_choice=choice if kind=='image' and family!='h3_image' else None,structure_error=error,
             subject_only=bool(structural and structural['structure']!=structural['identity'] and w.workbench.subject_only.isChecked()),
             seconds=w.audio_controller.seconds.value() if kind=='audio' else w.video_controller.seconds.value() if kind!='image' else None,
             references=[dict(number=n,path=str(p),size=p.stat().st_size,mtime=p.stat().st_mtime_ns) for n,p in refs.items()],
@@ -131,6 +133,9 @@ class GenerationIntent:
             if translate_only:
                 from .prompt_language import translate
                 return translate(config,initial_output,'',folder,c.cancel_event,emit)
+            if source.get('image_family')=='h3_image':
+                from .h3_image_prompt import organize
+                return organize(config,brief,refs,folder,c.cancel_event,emit)
             if source['kind']=='audio':
                 if source['audio_kind']=='sfx':
                     from .sfx_prompt import organize

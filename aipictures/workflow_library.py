@@ -18,7 +18,10 @@ MODEL_WIDGETS = {
 
 
 def digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    # Model files may exceed 15 GB. Hash in bounded memory, including callers
+    # outside inference; reading the whole file needlessly doubles the working set.
+    with Path(path).open('rb') as source:
+        return hashlib.file_digest(source,'sha256').hexdigest()
 
 
 def list_workflows():

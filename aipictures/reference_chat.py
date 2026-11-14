@@ -37,6 +37,8 @@ class ReferenceChat:
     def structural_binding(self,strict=False):
         w=self.window
         if w.generation_type.currentData()=='walk':return None
+        from .image_family import effective_family
+        if effective_family(w)=='h3_image':return None
         from .structure_control import resolve
         choice=w.workbench.structure_choice.currentData() if hasattr(w,'workbench') and hasattr(w.workbench,'structure_choice') else 'auto'
         try:return resolve(w.positive.toPlainText(),self.references(),choice)
@@ -69,9 +71,10 @@ class ReferenceChat:
         try:
             if w.preparing:raise ValueError('请等待素材准备或识别结束后更换参考图。')
             refs = self.references()
-            if number is not None and number not in range(1,5):raise ValueError('参考图编号须为1–4。')
-            slots = [number] if number else [i for i in range(1, 5) if i not in refs]
-            if not paths or len(paths) > len(slots):raise ValueError('最多添加4张参考图；可拖到已有图片上替换。')
+            limit=self.limit()
+            if number is not None and number not in range(1,limit+1):raise ValueError(f'当前引擎参考图编号须为1–{limit}。')
+            slots = [number] if number else [i for i in range(1,limit+1) if i not in refs]
+            if not paths or len(paths) > len(slots):raise ValueError(f'当前引擎最多添加{limit}张参考图；可拖到已有图片上替换。')
             for path in paths:self.validate(path)
             for slot, source in zip(slots, paths):
                 if slot == 1:w.set_reference(str(source))
@@ -83,6 +86,11 @@ class ReferenceChat:
             w.generation_type_changed(); w.workbench.refresh_reference()
         except (OSError, ValueError) as exc:
             self.append('软件', str(exc)); w.intent_controller.notify(str(exc)); w.status.setText(str(exc))
+
+    def limit(self):
+        from .h3_image import settings
+        w=self.window
+        return 16 if (w.model_family.currentData()=='h3_image' or w.model_family.currentData()=='auto' and settings(self.data)) and w.generation_type.currentData()!='walk' and not w.api_controller.cloud else 4
 
     def remove(self, number):
         if self.window.preparing:return

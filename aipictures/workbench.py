@@ -141,10 +141,10 @@ class Workbench:
             if controls:self.motion_reference_page=page
         # Independent numbered slots. Removing an image never renumbers the rest.
         first=self.reference_items.widget(0);form=first.layout()
-        form.itemAt(0).widget().setText('参考图 · 最多4张')
+        self.gallery_title=form.itemAt(0).widget();self.gallery_title.setText('参考图 · 最多4张')
         form.removeWidget(self.reference_item);self.reference_note.hide()
-        grid=QGridLayout();self.reference_cards={1:self.reference_item}
-        for number in range(1,5):
+        grid=QGridLayout();self.reference_cards={1:self.reference_item};self.reference_cells={}
+        for number in range(1,17):
             card=self.reference_item if number==1 else ReferenceAsset(f'图{number} · 拖入参考图',large=True)
             if number==1:
                 card.setAccessibleName('图1 · 拖入参考图')
@@ -158,6 +158,7 @@ class Workbench:
             cell=QWidget();stack=QVBoxLayout(cell);stack.setContentsMargins(0,0,0,0);stack.setSpacing(2)
             stack.addWidget(QLabel(f'图{number}'));stack.addWidget(card,1)
             grid.addWidget(cell,(number-1)//2,(number-1)%2)
+            self.reference_cells[number]=cell
         form.insertLayout(1,grid,1)
         dialog=QWidget();self.image_requirements=dialog;chat=QVBoxLayout(dialog);chat.setContentsMargins(8,4,8,4)
         chat.addWidget(QLabel('参考要求'))
@@ -185,7 +186,7 @@ class Workbench:
         c=w.intent_controller;content=QWidget();layout=QVBoxLayout(content);layout.setContentsMargins(8,6,8,6)
         positive_layout=w.positive.parentWidget().layout()
         title=positive_layout.takeAt(0).widget();self.positive_title=title;heading=QHBoxLayout();heading.addWidget(title);heading.addStretch();heading.addWidget(c.role)
-        c.organize.setToolTip('分析参考图并按对话要求整理提示词；不会自动开始图片或动画生成。')
+        c.organize.setToolTip('整理或翻译用户要求；H3图片直接接收参考图，不另行解释图片关系。')
         positive_layout.insertLayout(0,heading);c.role.show()
         positive_layout.insertWidget(1,c.role_note)
         note=QLabel('这里显示中文正反提示词，可直接修改；提交生成时使用与之对应的英文。');note.setObjectName('muted');note.setWordWrap(True)
@@ -359,10 +360,13 @@ class Workbench:
         self.reference_item.set_source(str(w.reference_path) if present else '')
         if hasattr(self,'reference_cards'):
             refs=w.reference_chat.references()
+            limit=w.reference_chat.limit();shown=min(limit,max(4,((max(refs,default=0)//4)+1)*4))
+            self.gallery_title.setText(f'参考图 · 最多{limit}张'+(' · 首图为编辑基础' if limit==16 else ''))
             multi=bool(w.reference_chat.extra)
             w.intent_controller.role.setVisible(not multi)
             w.intent_controller.role_note.setVisible(not multi and w.intent_controller.role.currentData()=='custom')
             for n,card in self.reference_cards.items():
+                self.reference_cells[n].setVisible(n<=shown or n in refs)
                 card.set_source(str(refs[n]) if n in refs else '')
                 card.setToolTip(f'图{n}'+(' · '+refs[n].name if n in refs else ' · 拖入图片或点击添加'))
         self.reference_note.set_hint((w.reference_display_name or Path(w.reference_path).name) if present else '')

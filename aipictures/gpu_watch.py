@@ -26,6 +26,24 @@ def interpreter() -> str:
     return getattr(sys,'_base_executable',None) or sys.executable
 
 
+def host_memory() -> dict:
+    """System RAM and commit counters, independent of the GPU driver's response."""
+    if os.name!='nt':return dict(status='unsupported')
+    try:
+        import ctypes as c
+        from ctypes import wintypes as w
+        class Performance(c.Structure):
+            _fields_=[('cb',w.DWORD)]+[(n,c.c_size_t) for n in ('commit','limit','peak','physical','available','cache','kernel','paged','nonpaged','page_size')]+[(n,w.DWORD) for n in ('handles','processes','threads')]
+        value=Performance();value.cb=c.sizeof(value)
+        query=c.WinDLL('psapi',use_last_error=True).GetPerformanceInfo
+        query.argtypes=[c.POINTER(Performance),w.DWORD];query.restype=w.BOOL
+        if not query(c.byref(value),value.cb):raise c.WinError(c.get_last_error())
+        return dict(status='ok',physical_total_bytes=value.physical*value.page_size,
+            physical_available_bytes=value.available*value.page_size,commit_total_bytes=value.commit*value.page_size,
+            commit_limit_bytes=value.limit*value.page_size,commit_peak_bytes=value.peak*value.page_size)
+    except OSError as exc:return dict(status='query_error',error=str(exc)[:200])
+
+
 def process_alive(pid: int) -> bool | None:
     """Read process state only. Never terminate a generation process."""
     if type(pid) is not int or pid<=0:return None
@@ -189,8 +207,8 @@ class TaskEvidence:
         info={k:context[k] for k in ('pid','state','stage','progress','maximum','queued_count','updated_at') if k in context}
         if self.folder: info['folder']=str(self.folder)
         if self.folder:
-            for phase in ('native_encode','native_sample'):
-                path=self.folder/phase/'native_result/monitor.json'
+            for phase,result in (('native_encode','native_result'),('native_sample','native_result'),('encode','result'),('sample','result'),('decode','result')):
+                path=self.folder/phase/result/'monitor.json'
                 monitor=read_json(path)
                 if monitor:
                     progress=monitor.get('last_progress') or {}
@@ -198,7 +216,8 @@ class TaskEvidence:
                     info[phase]['progress']={k:progress[k] for k in ('value','max') if k in progress}
             processes=[]
             for phase,name in (('encoding','native_encode/native-process.json'),
-                               ('sampling','native_sample/native-process.json'),('plain_h3','h3-process.json')):
+                               ('sampling','native_sample/native-process.json'),('plain_h3','h3-process.json'),
+                               ('image_encoding','encode/process.json'),('image_sampling','sample/process.json'),('image_decoding','decode/process.json')):
                 record=read_json(self.folder/name)
                 if type(record.get('pid')) is int:
                     entry=dict(phase=phase,pid=record['pid'],recorded_status=record.get('status'),folder=str(self.folder))
@@ -224,7 +243,8 @@ class TaskEvidence:
         hits=[]
         for name in ('job.json','video.json','failure.json','native_encode/native.log','native_sample/native.log',
                      'native_encode/native_result/monitor.json','native_sample/native_result/monitor.json',
-                     'animation.engine.log','animation.encoding.log','h3.log'):
+                     'animation.engine.log','animation.encoding.log','h3.log','encode/backend.log','sample/backend.log','decode/backend.log',
+                     'encode/result/monitor.json','sample/result/monitor.json','decode/result/monitor.json'):
             path=self.folder/name
             try:
                 stat=path.stat()
@@ -276,6 +296,7 @@ def serve(data: Path, *, interval: float = 1., timeout: float = 1.5,
             stable={k:v for k,v in context.items() if k not in ('updated_at','context_age_seconds')}
             if stable!=last_context:journal.write('task_context',context=context);last_context=stable
             sample=probe.sample(timeout)
+            sample['host_memory']=host_memory()
             if sample.get('status')=='ok':
                 summary['samples']+=1
                 for device in sample['devices']:

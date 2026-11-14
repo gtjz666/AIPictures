@@ -185,3 +185,25 @@ def test_actual_qt_optional_startup_and_task_context():
     result=subprocess.run([sys.executable,'-m','tools.verify_gpu_watch_ui'],cwd=Path(__file__).parents[1],
         env=dict(os.environ,QT_QPA_PLATFORM='offscreen',PYTHONIOENCODING='utf-8'),capture_output=True,timeout=40)
     assert result.returncode==0,(result.stdout+result.stderr).decode('utf-8','replace')
+
+
+def test_native_image_stages_are_recorded_and_oom_is_not_missed(tmp_path):
+    task=tmp_path/'jobs/new';(task/'encode').mkdir(parents=True)
+    write_json(tmp_path/'gpu-watch-context.json',dict(folder=str(task),state='running'))
+    write_json(task/'encode/process.json',dict(pid=42,status='starting'))
+    evidence=TaskEvidence(tmp_path)
+    from unittest.mock import patch
+    with patch('aipictures.gpu_watch.process_alive',return_value=True):
+        context=evidence.task()
+    assert context['backend_processes'][0]['phase']=='image_encoding'
+    (task/'encode/backend.log').write_text('torch.OutOfMemoryError: CUDA out of memory')
+    assert evidence.errors()[0]['kind']=='allocation_oom_reported'
+
+
+@pytest.mark.skipif(os.name!='nt',reason='Windows system counters')
+def test_host_commit_and_ram_are_read_without_loading_cuda():
+    from aipictures.gpu_watch import host_memory
+    value=host_memory()
+    assert value['status']=='ok'
+    assert 0<value['physical_available_bytes']<=value['physical_total_bytes']
+    assert 0<value['commit_total_bytes']<=value['commit_limit_bytes']

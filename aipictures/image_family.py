@@ -12,6 +12,9 @@ def effective_family(window, reference=None):
     """Automatic routing is explicit in the engine choice and frozen per job."""
     family = window.model_family.currentData()
     if family == 'auto':
+        from .h3_image import settings
+        data=getattr(getattr(window,'api_controller',None),'data',None)
+        if data and ((window.reference_path if reference is None else reference) or getattr(getattr(window,'reference_chat',None),'extra',{})) and settings(data):return 'h3_image'
         if hasattr(window,'reference_chat') and window.reference_chat.extra:
             return 'flux_klein'
         return 'flux_klein' if (window.reference_path if reference is None else reference) else 'zimage'
@@ -30,7 +33,7 @@ def restore(window):
         try:
             saved = json.loads(path.read_text('utf-8'))
             choice = saved.get('family')
-            if saved.get('routing_version') == 2 and choice in ('auto', 'zimage', 'flux_klein'):
+            if saved.get('routing_version') == 2 and choice in ('auto', 'zimage', 'flux_klein','h3_image'):
                 preferred = choice
         except (OSError, ValueError): pass
     window.model_family.setCurrentIndex(window.model_family.findData(preferred))
@@ -42,20 +45,31 @@ def apply_ui(window):
     info = getattr(window, 'info', {}).get('object_info', {})
     native = effective_family(window) == 'zimage'
     flux = effective_family(window) == 'flux_klein'
+    from .h3_image import settings,canvas
+    h3_ready=bool(settings(window.api_controller.data));h3=effective_family(window)=='h3_image'
     referenced = bool(window.reference_path or getattr(getattr(window,'reference_chat',None),'extra',{}))
     for choice, ready in (
-        ('auto', flux_klein.enabled(info, window.api_controller.data) if referenced else zimage.available(info)),
+        ('auto', h3_ready or flux_klein.enabled(info, window.api_controller.data) if referenced else zimage.available(info)),
         ('zimage', (zimage.reference_available if referenced else zimage.available)(info)),
-        ('flux_klein', flux_klein.enabled(info, window.api_controller.data))):
-        window.model_family.model().item(window.model_family.findData(choice)).setEnabled(ready)
+        ('flux_klein', flux_klein.enabled(info, window.api_controller.data)),('h3_image',h3_ready)):
+        index=window.model_family.findData(choice)
+        if index>=0:window.model_family.model().item(index).setEnabled(ready)
     previous = getattr(window, 'active_image_family', None)
     current = effective_family(window)
     if current != previous:
-        window.steps.setValue(9 if native else 4)
+        window.steps.setValue(6 if h3 else 9 if native else 4)
         window.cfg.setValue(1.)
         window.sampler.setCurrentText('euler'); window.scheduler.setCurrentText('simple')
         if native: window.denoise.setValue(getattr(window, 'zimage_denoise', .45))
         window.active_image_family = current
+        for control in (window.width,window.height):control.setMaximum(8192 if h3 else 2048);control.setSingleStep(32 if h3 else 64)
+        if h3:
+            refs=window.reference_chat.references() if hasattr(window,'reference_chat') else {}
+            from PIL import Image,ImageOps
+            if refs:
+                with Image.open(next(iter(refs.values()))) as im:width,height=ImageOps.exif_transpose(im).size
+            else:width,height=1,1
+            width,height=canvas(width,height);window.width.setValue(width);window.height.setValue(height)
     window.model.hide(); window.model_label.hide()
     for name in ('lora', 'lora_category', 'strength', 'steps', 'cfg', 'sampler', 'scheduler',
                  'reference_strength', 'denoise', 'quality_mode'):
@@ -65,7 +79,11 @@ def apply_ui(window):
     window.denoise.setEnabled(native and referenced)
     window.translate_prompt.hide(); window.reference_policy.hide(); window.reference_policy_label.hide()
     window.workflow_selector.setEnabled(window.connected and not window.preparing)
-    if flux:
+    if h3:
+        window.context_label.setText('H3 · 原生参考编辑' if referenced else 'H3 · 文字生图')
+        window.reference_note.setText('编号最小的参考图作为编辑基础；用图号指定其他图片的用途。原生图片条件，不经过全图外观转写。')
+        window.model_note.setText('MiniMax H3 Image · 6步 · 最多16图。约400万像素起，保留基础图比例；手指、遮挡与身份细节仍需检查。')
+    elif flux:
         window.context_label.setText('FLUX · 参考编辑' if referenced else 'FLUX · 图片创作')
         window.reference_note.setText('参考图提供角色与布局，提示词描述目标画风和改动。未要求改变的细节尽量保留；仍需检查输出。')
         window.model_note.setText('当前使用 FLUX.2 Klein · 4步 · 独立参考条件，重新生成目标画面。')
@@ -80,10 +98,13 @@ def apply_ui(window):
     window.denoise.setToolTip(tip('只影响Z-Image小幅重绘：低值接近原图，高值容易改变角色。换风格优先使用自动路线。'))
     window.style_status.setText('反向内容为软性排除要求；不是独立负向引导。')
     if window.generation_type.currentData() != 'walk':
-        ready = (zimage.reference_available(info) if referenced else zimage.available(info)) if native else flux_klein.enabled(info, window.api_controller.data)
-        window.generate_button.setEnabled(window.connected and ready and not window.preparing)
+        ready = h3_ready if h3 else (zimage.reference_available(info) if referenced else zimage.available(info)) if native else flux_klein.enabled(info, window.api_controller.data)
+        window.generate_button.setEnabled((h3 or window.connected) and ready and not window.preparing)
         if window.connected and not ready:
             window.model_note.setText('当前路线的模型或验证记录缺失，请连接已配置的后端或手动选择可用引擎；不会切回SDXL。')
+    if hasattr(window,'workbench'):
+        window.workbench.refresh_reference()
+        if hasattr(window.workbench,'update_generation_page'):window.workbench.update_generation_page()
 
 
 def snapshot(window, reference_name=''):

@@ -71,14 +71,16 @@ def install(b):
     b.prompt_button.hide();b.animation_prompt_button.hide();w.short_video.edit.setText('镜头脚本…')
     def update():
         long=b.category=='long_video';sound=b.category=='audio';walking=w.generation_type.currentData()=='walk'
+        from .image_family import effective_family
+        h3=effective_family(w)=='h3_image'
         b.right_tabs.setTabText(0,'参考');b.right_tabs.setTabText(1,'生成')
         b.image_requirements.hide();b.timeline_region.hide();b.animation_header.hide()
         b.requirement_title.setText('用户需求');b.requirement_title.setVisible(sound);c.input.hide();c.organize.hide()
         b.positive_title.setText('用户需求');w.negative.parentWidget().hide();b.extra_constraints.hide();c.role.hide();c.role_note.hide()
         b.prompts.setVisible(not long and not sound)
-        b.structure_row.setVisible(not walking and not sound and not long)
-        b.subject_only.setVisible(not walking and not sound and not long)
-        b.structure_note.setVisible(not walking and not sound and not long);structure_note()
+        b.structure_row.setVisible(not walking and not sound and not long and not h3)
+        b.subject_only.setVisible(not walking and not sound and not long and not h3)
+        b.structure_note.setVisible(not walking and not sound and not long and not h3);structure_note()
         b.prepare_prompt.setEnabled(bool(c.config) and not w.preparing)
         if not walking and not sound:w.generate_button.setText('生成图片')
         if hasattr(w,'generation_intent'):w.generation_intent.sync_mode()

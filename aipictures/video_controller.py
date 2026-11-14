@@ -101,7 +101,7 @@ class VideoController:
         w.animation_action_label.setText('动作模板' if free else '动作')
         w.update_lora_state()
         w.settings_buttons['image'].setVisible(not walking or not free)
-        fixed=w.model_family.currentData() in ('auto','zimage','flux_klein','qwen_edit')
+        fixed=w.model_family.currentData() in ('auto','zimage','flux_klein','qwen_edit','h3_image')
         for field in (w.steps,w.sampler,w.scheduler):w.sampling_form.setRowVisible(field,not walking and not fixed)
         w.sampling_form.setRowVisible(w.cfg,not walking and w.model_family.currentData()=='sdxl')
         w.walk_form.setRowVisible(w.animation_steps,False)

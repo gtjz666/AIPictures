@@ -7,6 +7,7 @@ from PySide6.QtCore import Signal
 
 
 def task_name(params):
+    if params.get('mode')=='h3_image':return 'H3图片生成'
     if params.get('mode')=='audio':return '游戏音效' if params.get('audio_kind')=='sfx' else '背景配乐'
     if params.get('mode')=='video' and params.get('creation_kind') in ('long_video','long_video_edit'):
         return '参考视频编辑' if params['creation_kind']=='long_video_edit' else '长视频'

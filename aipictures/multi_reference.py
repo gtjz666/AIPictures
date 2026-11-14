@@ -9,7 +9,8 @@ from .workflow_library import digest
 
 MAX_IMAGES = 4
 NUMBERS = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10}
-LABEL = re.compile(r'(?:参考图|图片|图)\s*([一二三四五六七八九十]|\d+)|(?<![A-Za-z])image\s*(\d+)(?!\d)', re.I)
+NUMBERS.update({'十'+k:10+v for k,v in list(NUMBERS.items()) if v<10})
+LABEL = re.compile(r'(?:参考图|图片|图)\s*(\d+|[一二三四五六七八九十]{1,3})|(?<![A-Za-z])<?(?:image|picture)\s*(\d+)>?(?!\d)', re.I)
 
 
 def clean_generated_prompt(text):
@@ -24,7 +25,7 @@ def image_ids(text):
             for m in LABEL.findall(text)}
 
 
-def bind_text(text, ids):
+def bind_text(text, ids, *, label='Image'):
     """UI labels survive removal; latent order is remapped once at submission."""
     missing = image_ids(text) - set(ids)
     if missing:
@@ -33,7 +34,7 @@ def bind_text(text, ids):
     def replace(match):
         value = match.group(1) or match.group(2)
         number = NUMBERS[value] if value in NUMBERS else int(value)
-        return f'Image {mapping[number]}'
+        return f'<Picture {mapping[number]}>' if label=='Picture' else f'Image {mapping[number]}'
     return LABEL.sub(replace, text)
 
 

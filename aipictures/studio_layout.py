@@ -107,9 +107,10 @@ def build_studio(w):
     for entry in list_workflows(): w.workflow_selector.addItem(entry['title'], entry)
     w.workflow_selector.currentIndexChanged.connect(w.select_chat_workflow)
     bf.addRow('后台预设', w.workflow_selector)
-    w.model_family=QComboBox();w.model_family.addItem('自动 · 文字用 Z-Image / 参考用 FLUX','auto')
+    w.model_family=QComboBox();w.model_family.addItem('自动 · 文字用 Z-Image / 参考用 H3','auto')
     w.model_family.addItem('Z-Image Turbo · 文字 / 小幅重绘','zimage')
     w.model_family.addItem('FLUX.2 Klein · 参考编辑 / 快速生图','flux_klein')
+    w.model_family.addItem('MiniMax H3 Image · 多参考图编辑','h3_image')
     w.model_family.model().item(1).setEnabled(False);w.model_family.model().item(2).setEnabled(False)
     bf.addRow('图片引擎',w.model_family)
     w.model = QComboBox();w.model_label=QLabel('基础模型'); bf.addRow(w.model_label, w.model)
@@ -293,6 +294,8 @@ def build_studio(w):
     w.intent_controller=IntentController(w)
     from .reference_chat import ReferenceChat
     w.reference_chat=ReferenceChat(w)
+    from .h3_image_controller import H3ImageController
+    w.h3_image_controller=H3ImageController(w)
     from .workbench import Workbench
     w.workbench=Workbench(w)
     w.update_intent_hint()

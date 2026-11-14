@@ -64,6 +64,7 @@ class Window(QMainWindow):
         self.api_controller = ApiController(self, DATA)
         from .studio_layout import build_studio
         build_studio(self)
+        self.h3_image_controller.restore_choice()
         config = DATA / 'settings.json'
         if config.exists():
             try: self.url.setText(json.loads(config.read_text('utf-8'))['url'])
@@ -73,6 +74,8 @@ class Window(QMainWindow):
         self.load_gallery()
         self.restore_chat()
         self.api_controller.apply_mode()
+        from .gpu_watch_ui import attach
+        attach(self)
         QTimer.singleShot(200, self.auto_connect_engine)
 
     def auto_connect_engine(self):
@@ -583,6 +586,10 @@ class Window(QMainWindow):
             grid=16 if self.model_family.currentData() in ('auto','flux_klein','qwen_edit','zimage') else 8
             self.width.setValue(max(256 if grid==16 else 64, round(size.width() * scale / grid) * grid))
             self.height.setValue(max(256 if grid==16 else 64, round(size.height() * scale / grid) * grid))
+            from .image_family import effective_family
+            if effective_family(self)=='h3_image':
+                from .h3_image import canvas
+                width,height=canvas(size.width(),size.height());self.width.setValue(width);self.height.setValue(height)
         self.reference_label.setText('已添加参考图：' + source.name + ' · 后续发送会使用此图，可随时移除。')
         self.show_image(str(target),role='reference')
         if hasattr(self,'intent_controller'):self.intent_controller.source_changed()
@@ -625,6 +632,7 @@ class Window(QMainWindow):
                 self.editor.sync_inputs(graph)
 
     def graph_snapshot(self, reference_name=''):
+        if self.h3_image_controller.active():raise ValueError('H3图片在独立引擎分三阶段运行；生成后可从任务目录查看实际工作流。')
         if hasattr(self,'reference_chat') and self.reference_chat.active():
             return self.reference_chat.snapshot()
         from .image_family import effective_family
@@ -641,6 +649,8 @@ class Window(QMainWindow):
         raise ValueError('请选择自动、Z-Image或FLUX；SDXL普通生成已退役。')
 
     def load_draft_in_editor(self):
+        if self.h3_image_controller.active():
+            self.status.setText('H3图片使用独立引擎；生成后的编码、采样、解码工作流保存在本次记录。');return
         if hasattr(self,'reference_chat') and self.reference_chat.active():
             self.add_chat('软件','多图参考请生成后从记录查看本次完整工作流。');return
         if self.preparing:
@@ -698,6 +708,7 @@ class Window(QMainWindow):
             from .prompt_language import ensure_for_generation
             if not hasattr(self,'generation_intent'):self.intent_controller.validate_generation()
             if ensure_for_generation(self):return
+            if self.h3_image_controller.intercept():return
             if hasattr(self,'reference_chat') and self.reference_chat.intercept():return
             if self.intent_controller.intercept():return
             if self.video_controller.intercept():return
@@ -838,11 +849,12 @@ class Window(QMainWindow):
         if self.current or self.preparing or not self.pending: return
         index = next((i for i,job in enumerate(self.pending) if self.connected or
             (job[1].get('mode')=='smart_image' and job[1].get('backend')=='api') or
-            (job[1].get('mode') in ('video','audio') and job[1].get('backend')=='standalone')),None)
+            (job[1].get('mode') in ('video','audio','h3_image') and job[1].get('backend')=='standalone')),None)
         if index is None: return
         graph, params, folder, item = self.pending.pop(index)
         from .seed_controls import show_seed
         show_seed(self,params.get('seed'))
+        if params.get('mode')=='h3_image':self.h3_image_controller.start(params,folder,item);return
         if params.get('mode')=='audio':self.audio_controller.start(params,folder,item);return
         if params.get('mode')=='video':
             self.video_controller.start(params,folder,item);return
@@ -915,6 +927,7 @@ class Window(QMainWindow):
                 'duration_seconds':round(self.task_display.seconds(),2)})
 
     def cancel_current(self):
+        if hasattr(self,'h3_image_controller') and self.h3_image_controller.cancel():return
         if self.intent_controller.cancel():return
         if self.api_controller.cancel(): return
         ticket=self.current
@@ -1156,8 +1169,6 @@ def create_application(args=None):
 def main():
     app = create_application()
     window = Window(); window.show()
-    from .gpu_watch_ui import attach
-    attach(window)
     code=app.exec()
     # Some native segmentation libraries keep their own thread pools alive at
     # interpreter shutdown. The user's close ends this GUI process; cancellation
