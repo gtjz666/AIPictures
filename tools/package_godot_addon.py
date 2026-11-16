@@ -9,10 +9,16 @@ from aipictures.workflow_library import digest
 def package(output):
     output=Path(output).resolve();output.parent.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:
-        for name in ('plugin.cfg','plugin.gd','asset_drag.gd','blueprint_model.gd','blueprint_window.gd','custom_module_template.gd'):
-            archive.write(ADDON/'addons/ali_assets'/name,'addons/ali_assets/'+name)
+        for path in sorted((ADDON/'addons/ali_assets').iterdir()):
+            if path.is_file() and path.suffix in ('.gd','.cfg'):
+                archive.write(path,'addons/ali_assets/'+path.name)
         archive.write(ADDON.parent/'docs/GODOT_ASSETS.md','README.md')
         archive.write(ADDON.parent/'docs/GODOT_BLUEPRINTS.md','GODOT_BLUEPRINTS.md')
+        archive.write(ADDON.parent/'docs/GODOT_RUNNER_GUIDE.md','GODOT_RUNNER_GUIDE.md')
+        from .render_game_guide import render_guide
+        archive.writestr('使用步骤.html',render_guide(ADDON.parent/'docs/GODOT_RUNNER_GUIDE.md'))
+        for path in sorted((ADDON.parent/'docs/images').glob('runner-*.png')):
+            archive.write(path,'images/'+path.name)
     return dict(path=str(output),bytes=output.stat().st_size,sha256=digest(output))
 
 

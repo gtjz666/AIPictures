@@ -3,6 +3,7 @@ extends EditorPlugin
 
 const DragAsset: GDScript = preload("asset_drag.gd")
 const BlueprintWindow: GDScript = preload("blueprint_window.gd")
+const GameWindow: GDScript = preload("game_window.gd")
 var dock: VBoxContainer
 var application: LineEdit
 var kind: OptionButton
@@ -13,6 +14,7 @@ var chooser: FileDialog
 var known_catalog: PackedStringArray = []
 var catalog_initialized: bool = false
 var blueprint: Window
+var game_window: Window
 
 
 
@@ -56,6 +58,10 @@ func _enter_tree() -> void:
 	edit_character.text = "角色蓝图工作台…"
 	edit_character.pressed.connect(open_blueprint)
 	dock.add_child(edit_character)
+	var edit_game: Button = Button.new()
+	edit_game.text = "游戏蓝图／创建小游戏…"
+	edit_game.pressed.connect(open_game_window)
+	dock.add_child(edit_game)
 	set_process_input(true)
 	status = Label.new()
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -132,6 +138,8 @@ func refresh_assets() -> void:
 
 
 func _exit_tree() -> void:
+	if is_instance_valid(game_window):
+		game_window.queue_free()
 	if is_instance_valid(blueprint):
 		blueprint.queue_free()
 	refresh_timer.stop()
@@ -163,4 +171,22 @@ func apply_blueprint(data: Dictionary) -> void:
 	for property: String in values:
 		undo.add_do_property(character, property, values[property])
 		undo.add_undo_property(character, property, character.get(property))
+	undo.commit_action()
+
+
+func open_game_window() -> void:
+	if not is_instance_valid(game_window):
+		game_window = GameWindow.new()
+		dock.add_child(game_window)
+		game_window.connect("game_applied", apply_game)
+	game_window.popup_centered(Vector2i(1500, 900))
+
+
+func apply_game(target: Node, data: Dictionary) -> void:
+	if not is_instance_valid(target):
+		return
+	var undo: EditorUndoRedoManager = get_undo_redo()
+	undo.create_action("AlI应用游戏蓝图", UndoRedo.MERGE_DISABLE, target)
+	undo.add_do_property(target, "game_blueprint", data.duplicate(true))
+	undo.add_undo_property(target, "game_blueprint", target.get("game_blueprint"))
 	undo.commit_action()

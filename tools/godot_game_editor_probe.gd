@@ -1,0 +1,90 @@
+@tool
+extends EditorPlugin
+const Model: GDScript = preload("res://addons/ali_assets/game_model.gd")
+const Assets: GDScript = preload("res://addons/ali_assets/game_assets.gd")
+
+
+func _enter_tree() -> void:
+	run.call_deferred()
+
+
+func run() -> void:
+	await get_tree().create_timer(0.5).timeout
+	var ali: Node = get_tree().get_first_node_in_group("ali_assets_editor")
+	assert(ali != null)
+	ali.call("open_game_window")
+	var window: Window = ali.get("game_window") as Window
+	assert(window.visible and window.force_native)
+	var graph: GraphEdit = window.get("graph") as GraphEdit
+	var navigator: OptionButton = window.get("navigator") as OptionButton
+	navigator.item_selected.emit(2)
+	assert(window.get("selected_id") == "runner")
+	assert((graph.get_node("runner") as GraphNode).selected)
+	assert(graph.is_node_connected(&"input", 0, &"runner", 1))
+	window.set("selected_id", "input")
+	window.call("parameter", "jump", KEY_K)
+	var history: UndoRedo = window.get("history") as UndoRedo
+	assert(int(Model.by_kind(window.get("data"), "input")["params"]["jump"]) == KEY_K)
+	history.undo()
+	assert(int(Model.by_kind(window.get("data"), "input")["params"]["jump"]) == KEY_SPACE)
+	history.redo()
+	graph.disconnection_request.emit(&"runner", 4, &"steps", 0)
+	assert(not graph.is_node_connected(&"runner", 4, &"steps", 0))
+	history.undo()
+	assert(graph.is_node_connected(&"runner", 4, &"steps", 0))
+	graph.connection_request.emit(&"mixer", 0, &"screen", 0)
+	assert(not graph.is_node_connected(&"mixer", 0, &"screen", 0))
+	assert(ResourceSaver.save(Assets.frames(), "res://fixtures/frames.tres") == OK)
+	var holder: Node2D = Node2D.new()
+	var animated: AnimatedSprite2D = AnimatedSprite2D.new()
+	animated.sprite_frames = Assets.frames()
+	holder.add_child(animated)
+	animated.owner = holder
+	var character_scene: PackedScene = PackedScene.new()
+	assert(character_scene.pack(holder) == OK and ResourceSaver.save(character_scene, "res://fixtures/character.tscn") == OK)
+	holder.free()
+	for entry: Array in [["runner","frames","res://fixtures/frames.tres"],["world","background","res://fixtures/sky.png"],["world","ground","res://fixtures/ground.png"],["hud","button","res://fixtures/button.png"],["music","path","res://fixtures/tone.wav"]]:
+		window.set("selected_id", str(entry[0]))
+		window.call("parameter", str(entry[1]), entry[2])
+	var data: Dictionary = window.get("data")
+	assert(Model.validate(data, true).is_empty(), Model.validate(data, true))
+	window.set("operation", "save")
+	window.call("file_selected", "res://saved_game_blueprint.json")
+	var json: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://saved_game_blueprint.json"))
+	assert(json == JSON.parse_string(JSON.stringify(data)))
+	window.set("operation", "scene")
+	(window.get("startup") as CheckBox).button_pressed = true
+	window.call("file_selected", "res://kit_from_editor.tscn")
+	assert(FileAccess.file_exists("res://kit_from_editor.tscn"))
+	assert(str(ProjectSettings.get_setting("application/run/main_scene")) == "res://kit_from_editor.tscn")
+	await get_tree().create_timer(0.5).timeout
+	var root: Node = EditorInterface.get_edited_scene_root()
+	assert(root != null and "game_blueprint" in root)
+	EditorInterface.get_selection().clear()
+	EditorInterface.get_selection().add_node(root)
+	window.call("bind_selection")
+	assert(window.get("target") == root)
+	window.set("selected_id", "session")
+	window.call("parameter", "points_per_second", 17.0)
+	window.call("apply_game")
+	assert(float(Model.by_kind(root.get("game_blueprint"), "session")["params"]["points_per_second"]) == 17.0)
+	var manager: EditorUndoRedoManager = ali.call("get_undo_redo")
+	var scene_history: UndoRedo = manager.get_history_undo_redo(manager.get_object_history_id(root))
+	scene_history.undo()
+	assert(float(Model.by_kind(root.get("game_blueprint"), "session")["params"]["points_per_second"]) == 10.0)
+	scene_history.redo()
+	window.set("target", null)
+	window.call("parameter", "points_per_second", 19.0)
+	window.call("bind_selection")
+	assert(window.get("target") == root)
+	assert(float(Model.by_kind(window.get("data"), "session")["params"]["points_per_second"]) == 19.0)
+	window.call("apply_game")
+	assert(float(Model.by_kind(root.get("game_blueprint"), "session")["params"]["points_per_second"]) == 19.0)
+	var packed: PackedScene = PackedScene.new()
+	assert(packed.pack(root) == OK and ResourceSaver.save(packed, "res://kit_from_editor.tscn") == OK)
+	window.hide()
+	var file: FileAccess = FileAccess.open("res://editor-proof.json", FileAccess.WRITE)
+	file.store_string(JSON.stringify({"native_game_window": true, "key_parameter_undo": true, "wiring_undo": true, "assets_assigned": true, "create_scene_and_main": true, "apply_undo_redo": true, "json_scene_persisted": true}))
+	file.close()
+	print("ALI_GAME_EDITOR_OK")
+	get_tree().quit.call_deferred(0)
