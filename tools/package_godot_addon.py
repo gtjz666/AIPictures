@@ -17,6 +17,14 @@ def package(output):
         archive.write(ADDON.parent/'docs/GODOT_RUNNER_GUIDE.md','GODOT_RUNNER_GUIDE.md')
         from .render_game_guide import render_guide
         archive.writestr('使用步骤.html',render_guide(ADDON.parent/'docs/GODOT_RUNNER_GUIDE.md'))
+        catalog=ADDON.parent/'docs/GODOT_BLUEPRINT_CATALOG.md'
+        technical=ADDON.parent/'docs/GODOT_BLUEPRINT_TECHNICAL.md'
+        archive.write(technical,'GODOT_BLUEPRINT_TECHNICAL.md')
+        archive.writestr('蓝图技术文档.html',render_guide(technical,title='AlI 蓝图技术文档',navigation_title='技术目录'))
+        archive.write(ADDON.parent/'docs/images/blueprint-programming.png','images/blueprint-programming.png')
+        archive.write(catalog,'GODOT_BLUEPRINT_CATALOG.md')
+        archive.writestr('蓝图模块手册.html',render_guide(catalog,title='AlI 蓝图模块手册',navigation_title='模块目录'))
+        archive.write(ADDON.parent/'docs/images/blueprint-character.png','images/blueprint-character.png')
         for path in sorted((ADDON.parent/'docs/images').glob('runner-*.png')):
             archive.write(path,'images/'+path.name)
     return dict(path=str(output),bytes=output.stat().st_size,sha256=digest(output))

@@ -1,11 +1,13 @@
 @tool
 extends RefCounted
+const Library: GDScript = preload("game_library.gd")
 const Model: GDScript = preload("game_model.gd")
-const RUNTIME_FILES: Array[String] = ["game_runtime.gd", "game_model.gd", "game_assets.gd", "game_actor.gd", "game_world.gd", "game_spawner.gd", "game_audio.gd", "game_hud.gd"]
+const RUNTIME_FILES: Array[String] = ["game_registry.gd", "game_library.gd", "game_program.gd", "game_runtime.gd", "game_model.gd", "game_assets.gd", "game_actor.gd", "game_world.gd", "game_spawner.gd", "game_audio.gd", "game_hud.gd"]
 
 
 static func create_scene(data: Dictionary, path: String) -> String:
-	var problem: String = Model.validate(data, true)
+	var compiled: Dictionary = Library.compile(data)
+	var problem: String = str(compiled.get("error", ""))
 	if not problem.is_empty():
 		return problem
 	if not path.begins_with("res://") or ".." in path or path.get_extension() != "tscn":
@@ -27,9 +29,11 @@ static func create_scene(data: Dictionary, path: String) -> String:
 		file.store_string(FileAccess.get_file_as_string(input))
 		file.close()
 	var root: Node2D = Node2D.new()
-	root.name = "RunnerGame"
+	root.name = "SceneGame" if data.get("template") == "scene2d" else "RunnerGame"
 	root.set_script(load(folder.path_join("game_runtime.gd")))
 	root.set("game_blueprint", data.duplicate(true))
+	root.set("compiled_blueprint", compiled["data"])
+	root.set("compiled_signature", compiled["signature"])
 	var scene: PackedScene = PackedScene.new()
 	var packed: Error = scene.pack(root)
 	root.free()

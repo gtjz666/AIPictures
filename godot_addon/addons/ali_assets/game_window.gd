@@ -2,6 +2,8 @@
 extends Window
 signal game_applied(target: Node, data: Dictionary)
 const Model: GDScript = preload("game_model.gd")
+const Library: GDScript = preload("game_library.gd")
+const Registry: GDScript = preload("game_registry.gd")
 const Builder: GDScript = preload("game_builder.gd")
 var data: Dictionary = Model.preset()
 var graph: GraphEdit
@@ -17,6 +19,13 @@ var pending_field: String = ""
 var capture_field: String = ""
 var dirty: bool = false
 var startup: CheckBox
+var palette: Window
+var search: LineEdit
+var results: ItemList
+var palette_source: String = ""
+var palette_port: int = 0
+var palette_position: Vector2 = Vector2.ZERO
+var module_draft: Dictionary = {}
 var navigator: OptionButton
 
 
@@ -42,17 +51,24 @@ func _ready() -> void:
 	var toolbar: HBoxContainer = HBoxContainer.new()
 	root.add_child(toolbar)
 	button(toolbar, "新建横版跳跃模板", func() -> void: change("新建模板", Model.preset()))
-	var add: MenuButton = MenuButton.new()
-	add.text = "+ 常用模块 ▾"
-	var kinds: Array = Model.TITLES.keys()
-	for kind: String in kinds:
-		add.get_popup().add_item(str(Model.TITLES[kind]))
-	add.get_popup().id_pressed.connect(func(index: int) -> void: add_module(str(kinds[index])))
-	toolbar.add_child(add)
+	button(toolbar, "新建通用2D模板", func() -> void: change("新建通用模板", Model.scene_preset()))
+	button(toolbar, "+ 搜索模块…", func() -> void: open_palette())
+	var combos: MenuButton = MenuButton.new()
+	combos.text = "+ 常用组合 ▾"
+	combos.get_popup().add_item("生命值／受伤／恢复／死亡（J／K）", 0)
+	combos.get_popup().add_item("状态机／攻击冷却示例（F）", 1)
+	combos.get_popup().id_pressed.connect(func(index: int) -> void: change("添加常用组合", Model.add_combo(data, "health" if index == 0 else "fsm")))
+	toolbar.add_child(combos)
 	button(toolbar, "撤销", func() -> void: history.undo())
 	button(toolbar, "重做", func() -> void: history.redo())
 	button(toolbar, "打开蓝图…", func() -> void: choose("load"))
 	button(toolbar, "保存蓝图…", func() -> void: choose("save"))
+	var tools: HBoxContainer = HBoxContainer.new()
+	root.add_child(tools)
+	toolbar = tools
+	button(toolbar, "编译检查", check_graph)
+	button(toolbar, "保存所选为子图…", save_module)
+	button(toolbar, "执行记录", show_debug)
 	button(toolbar, "创建游戏场景…", func() -> void: choose("scene"))
 	button(toolbar, "绑定当前游戏", bind_selection)
 	button(toolbar, "应用到游戏", apply_game)
@@ -77,7 +93,7 @@ func _ready() -> void:
 				(child as GraphNode).selected = str(child.name) == selected_id)
 	options.add_child(navigator)
 	var hint: Label = Label.new()
-	hint.text = "点击模块，在右侧改参数／选素材。白线执行，绿线条件。默认素材与声音为原创演示占位，可逐项替换。"
+	hint.text = "点击模块，在右侧改参数／选素材。白色执行／绿色布尔／蓝色数字／粉色文字。拖线到空白处可搜索兼容模块。默认素材与声音为原创演示占位，可逐项替换。"
 	root.add_child(hint)
 	var split: HSplitContainer = HSplitContainer.new()
 	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -89,6 +105,8 @@ func _ready() -> void:
 	graph.connection_request.connect(connect_modules)
 	graph.disconnection_request.connect(disconnect_modules)
 	graph.delete_nodes_request.connect(delete_modules)
+	graph.popup_request.connect(func(at: Vector2) -> void: open_palette("", 0, at))
+	graph.connection_to_empty.connect(func(source: StringName, port: int, at: Vector2) -> void: open_palette(str(source), port, at))
 	split.add_child(graph)
 	var scroll: ScrollContainer = ScrollContainer.new()
 	scroll.custom_minimum_size.x = 320
@@ -104,6 +122,7 @@ func _ready() -> void:
 	chooser.force_native = true
 	chooser.file_selected.connect(file_selected)
 	add_child(chooser)
+	setup_palette()
 	render()
 
 
@@ -115,7 +134,7 @@ func button(parent: Node, text: String, callback: Callable) -> Button:
 	return result
 
 
-func change(label: String, next: Dictionary) -> bool:
+func change(label: String, next: Dictionary, refresh: bool = true) -> bool:
 	var problem: String = Model.validate(next)
 	if not problem.is_empty():
 		message.text = problem
@@ -123,26 +142,27 @@ func change(label: String, next: Dictionary) -> bool:
 	history.create_action(label)
 	history.add_do_method(assign.bind(next.duplicate(true)))
 	history.add_undo_method(assign.bind(data.duplicate(true)))
-	history.commit_action()
+	history.commit_action(false)
+	assign(next, refresh)
 	return true
 
 
-func assign(next: Dictionary) -> void:
+func assign(next: Dictionary, refresh: bool = true) -> void:
 	data = next.duplicate(true)
 	dirty = true
 	capture_field = ""
-	render()
+	render(refresh)
 	message.text = "修改已记录；请应用到现有游戏并保存场景，或创建新场景。"
 
 
-func render() -> void:
+func render(refresh: bool = true) -> void:
 	if graph == null:
 		return
 	graph.clear_connections()
 	navigator.clear()
 	for node: Dictionary in data["nodes"]:
 		var index: int = navigator.item_count
-		navigator.add_item(str(Model.TITLES[node["kind"]]) + (" · " + str(node["id"]) if node["kind"] == "audio" else ""))
+		navigator.add_item(str(Model.TITLES[node["kind"]]) + (" · " + Model.summary(node) if not Model.summary(node).is_empty() else ""))
 		navigator.set_item_metadata(index, str(node["id"]))
 		if str(node["id"]) == selected_id:
 			navigator.select(index)
@@ -155,7 +175,8 @@ func render() -> void:
 		var id: String = str(node["id"])
 		var kind: String = str(node["kind"])
 		widget.name = id
-		widget.title = str(Model.TITLES[kind]) + (" · " + str(node["params"]["demo"]) if kind == "audio" else "")
+		widget.title = str(Model.TITLES[kind]) + (" · " + Model.summary(node) if not Model.summary(node).is_empty() else "")
+		widget.tooltip_text = "模块编号：" + id
 		widget.custom_minimum_size.x = 260
 		widget.position_offset = Vector2(float(node["position"][0]), float(node["position"][1]))
 		var style: StyleBoxFlat = StyleBoxFlat.new()
@@ -183,12 +204,15 @@ func render() -> void:
 			right.text = str(outs[index]) if index < outs.size() else ""
 			row.add_child(right)
 			widget.add_child(row)
-			widget.set_slot(index, index < ins.size(), 6 if kind == "branch" and index == 1 else 0, Color.MEDIUM_SEA_GREEN if kind == "branch" and index == 1 else Color.WHITE, index < outs.size(), 6 if kind == "boolean" else 0, Color.MEDIUM_SEA_GREEN if kind == "boolean" else Color.WHITE)
+			var left_type: int = Registry.port_type(kind, node["params"], index, false)
+			var right_type: int = Registry.port_type(kind, node["params"], index, true)
+			widget.set_slot(index, index < ins.size(), left_type, Model.color_for(left_type), index < outs.size(), right_type, Model.color_for(right_type))
 		if ins.is_empty() and outs.is_empty():
 			(widget.get_child(0).get_child(0) as Label).text = "选择此模块配置参数"
 	for edge: Dictionary in data["edges"]:
 		graph.connect_node(str(edge["from"]), int(edge.get("from_port", 0)), str(edge["to"]), int(edge.get("to_port", 0)))
-	show_inspector()
+	if refresh:
+		show_inspector()
 
 
 func show_inspector() -> void:
@@ -204,6 +228,8 @@ func show_inspector() -> void:
 	title.add_theme_font_size_override("font_size", 20)
 	inspector.add_child(title)
 	for field: Array in Model.fields(kind):
+		if kind in ["blackboard", "set_variable"] and field[0] in ["bool", "number", "text"] and field[0] != node["params"]["value_type"]:
+			continue
 		var name: String = str(field[0])
 		var type: String = str(field[2])
 		var value: Variant = node["params"][name]
@@ -237,7 +263,7 @@ func show_inspector() -> void:
 				var row: HBoxContainer = HBoxContainer.new()
 				var pick: Button = button(row, "选择…" if str(value).is_empty() else str(value).get_file(), func() -> void:
 					pending_field = name
-					choose(str(field[4])))
+					choose("scene_asset" if field[4] == "scene" else str(field[4])))
 				pick.tooltip_text = str(value)
 				button(row, "清空", func() -> void: parameter(name, ""))
 				inspector.add_child(row)
@@ -273,9 +299,12 @@ func show_inspector() -> void:
 
 
 func parameter(field: String, value: Variant) -> void:
+	if Model.find(data, selected_id)["params"].get(field) == value:
+		return
 	var next: Dictionary = data.duplicate(true)
 	Model.find(next, selected_id)["params"][field] = value
-	change("修改参数", next)
+	if not change("修改参数", next, field == "value_type"):
+		show_inspector()
 
 
 func on_input(event: InputEvent) -> void:
@@ -294,7 +323,7 @@ func add_module(kind: String) -> void:
 	var next: Dictionary = data.duplicate(true)
 	var id: String = "module_" + str(Time.get_ticks_usec())
 	var node: Dictionary = Model.module(id, kind, graph.scroll_offset.x + 100, graph.scroll_offset.y + 100)
-	if kind == "boolean":
+	if kind in ["boolean", "blackboard", "fsm"]:
 		node["params"]["name"] = id
 	next["nodes"].append(node)
 	if change("添加模块", next):
@@ -350,7 +379,11 @@ func apply_game() -> void:
 	if not is_instance_valid(target):
 		message.text = "请先绑定游戏根节点，或创建新场景。"
 		return
-	var problem: String = Model.validate(data, true)
+	if not "compiled_blueprint" in target:
+		message.text = "此场景使用旧运行模块。草稿已保留，请创建新名称的游戏场景升级；旧场景不会覆盖。"
+		return
+	var prepared: Dictionary = Library.compile(data)
+	var problem: String = str(prepared.get("error", ""))
 	if not problem.is_empty():
 		message.text = problem
 		return
@@ -361,10 +394,10 @@ func apply_game() -> void:
 
 func choose(kind: String) -> void:
 	operation = kind
-	chooser.file_mode = FileDialog.FILE_MODE_SAVE_FILE if kind in ["save", "scene", "new_script"] else FileDialog.FILE_MODE_OPEN_FILE
-	chooser.filters = PackedStringArray(["*.tscn ; 游戏场景"]) if kind == "scene" else PackedStringArray(["*.json ; 游戏蓝图"]) if kind in ["save", "load"] else PackedStringArray(["*.gd ; 自定义模块"]) if kind in ["script", "new_script"] else PackedStringArray(["*.tscn,*.tres ; 角色动画资源"]) if kind == "frames" else PackedStringArray(["*.wav,*.ogg,*.mp3 ; 音频"]) if kind == "audio" else PackedStringArray(["*.png,*.jpg,*.webp ; 图片"])
-	if kind in ["scene", "save", "new_script"]:
-		chooser.current_file = "runner_game.tscn" if kind == "scene" else "runner_blueprint.json" if kind == "save" else "game_module.gd"
+	chooser.file_mode = FileDialog.FILE_MODE_SAVE_FILE if kind in ["save", "scene", "new_script", "save_module"] else FileDialog.FILE_MODE_OPEN_FILE
+	chooser.filters = PackedStringArray(["*.tscn ; 游戏场景"]) if kind in ["scene", "scene_asset"] else PackedStringArray(["*.json ; 蓝图／子图"]) if kind in ["save", "load", "module", "save_module"] else PackedStringArray(["*.gd ; 自定义模块"]) if kind in ["script", "new_script"] else PackedStringArray(["*.tscn,*.tres ; 角色动画资源"]) if kind == "frames" else PackedStringArray(["*.wav,*.ogg,*.mp3 ; 音频"]) if kind == "audio" else PackedStringArray(["*.png,*.jpg,*.webp ; 图片"])
+	if kind in ["scene", "save", "new_script", "save_module"]:
+		chooser.current_file = "runner_game.tscn" if kind == "scene" else "runner_blueprint.json" if kind == "save" else "flow_module.json" if kind == "save_module" else "game_module.gd"
 	chooser.popup_centered(Vector2i(850, 560))
 
 
@@ -386,6 +419,15 @@ func file_selected(path: String) -> void:
 		EditorInterface.get_resource_filesystem().scan()
 		EditorInterface.open_scene_from_path(path)
 		message.text = "已创建完整游戏；选中游戏根节点绑定后继续修改，按F6运行。"
+	elif operation == "save_module":
+		if FileAccess.file_exists(path):
+			message.text = "子图已存在，请使用新名称。"
+			return
+		var file: FileAccess = FileAccess.open(path, FileAccess.WRITE)
+		if file != null:
+			file.store_string(JSON.stringify(module_draft, "\t"))
+			file.close()
+			message.text = "子图已保存；搜索“可复用子图”并选择此文件即可调用。"
 	elif operation == "save":
 		var file: FileAccess = FileAccess.open(path, FileAccess.WRITE)
 		if file != null:
@@ -413,3 +455,122 @@ func file_selected(path: String) -> void:
 			file.store_string(FileAccess.get_file_as_string(get_script().resource_path.get_base_dir().path_join("custom_module_template.gd")))
 			file.close()
 		parameter(pending_field, path)
+
+
+func setup_palette() -> void:
+	palette = Window.new()
+	palette.visible = false
+	palette.force_native = true
+	palette.title = "搜索模块 · 可输入名称或类别"
+	palette.close_requested.connect(palette.hide)
+	var box: VBoxContainer = VBoxContainer.new()
+	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	palette.add_child(box)
+	search = LineEdit.new()
+	search.placeholder_text = "例如：状态、生命、事件、场景、变量"
+	search.text_changed.connect(func(_text: String) -> void: filter_palette())
+	search.text_submitted.connect(func(_text: String) -> void:
+		if results.item_count > 0:
+			add_palette_item(0))
+	box.add_child(search)
+	results = ItemList.new()
+	results.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	results.item_activated.connect(add_palette_item)
+	box.add_child(results)
+	button(box, "添加所选模块", func() -> void:
+		var selected: PackedInt32Array = results.get_selected_items()
+		if not selected.is_empty():
+			add_palette_item(selected[0]))
+	add_child(palette)
+
+
+func open_palette(source: String = "", port: int = 0, at: Vector2 = Vector2.ZERO) -> void:
+	palette_source = source
+	palette_port = port
+	palette_position = (graph.scroll_offset + (at if at != Vector2.ZERO else Vector2(120, 120))) / graph.zoom
+	search.text = ""
+	filter_palette()
+	palette.popup_centered(Vector2i(540, 580))
+	search.grab_focus()
+
+
+func filter_palette() -> void:
+	results.clear()
+	var term: String = search.text.strip_edges().to_lower()
+	for kind: String in Model.TITLES:
+		var label: String = Registry.category(kind) + " · " + str(Model.TITLES[kind])
+		if not term.is_empty() and not term in label.to_lower() and not term in kind:
+			continue
+		if kind in Model.SINGLETONS and not Model.by_kind(data, kind).is_empty():
+			continue
+		if not palette_source.is_empty():
+			var compatible: bool = false
+			for port: int in range(Model.INPUTS[kind].size()):
+				if Registry.port_type(kind, Model.params(kind), port, false) == Model.port_type(data, palette_source, palette_port, true):
+					compatible = true
+			if not compatible:
+				continue
+		var index: int = results.add_item(label)
+		results.set_item_metadata(index, kind)
+
+
+func add_palette_item(index: int) -> void:
+	var kind: String = str(results.get_item_metadata(index))
+	var next: Dictionary = data.duplicate(true)
+	var id: String = "module_" + str(Time.get_ticks_usec())
+	var node: Dictionary = Model.module(id, kind, palette_position.x, palette_position.y)
+	if kind in ["boolean", "blackboard", "fsm"]:
+		node["params"]["name"] = id
+	next["nodes"].append(node)
+	if not palette_source.is_empty():
+		for port: int in range(Model.INPUTS[kind].size()):
+			if Registry.port_type(kind, node["params"], port, false) == Model.port_type(data, palette_source, palette_port, true):
+				next["edges"].append({"from": palette_source, "from_port": palette_port, "to": id, "to_port": port})
+				break
+	if change("添加并连接模块", next):
+		selected_id = id
+		show_inspector()
+		palette.hide()
+
+
+func check_graph() -> void:
+	var prepared: Dictionary = Library.compile(data)
+	if prepared.has("error"):
+		message.text = "编译未通过：" + str(prepared["error"])
+		var id: String = str(prepared["error"]).get_slice("：", 0)
+		if not Model.find(data, id).is_empty():
+			selected_id = id
+			show_inspector()
+	else:
+		message.text = "编译通过 · 展开后%d个模块、%d条连线。应用到游戏后保存场景；修改子图文件后需重新应用。" % [prepared["data"]["nodes"].size(), prepared["data"]["edges"].size()]
+
+
+func save_module() -> void:
+	var selected: Array[String] = []
+	for child: Node in graph.get_children():
+		if child is GraphNode and (child as GraphNode).selected:
+			selected.append(str(child.name))
+	var result: Dictionary = Library.extract(data, selected)
+	if result.has("error"):
+		message.text = str(result["error"])
+		return
+	module_draft = result["data"]
+	choose("save_module")
+
+
+func show_debug() -> void:
+	var path: String = "user://ali_blueprint_" + str(Model.by_kind(data, "session")["params"]["save_key"]) + ".json"
+	if not FileAccess.file_exists(path):
+		message.text = "尚无执行记录。运行并退出此游戏场景后再打开；发行版不写调试记录。"
+		return
+	var dialog: AcceptDialog = AcceptDialog.new()
+	dialog.title = "最近一次执行 · 变量／状态／生命值／最多256条事件"
+	var text: TextEdit = TextEdit.new()
+	text.editable = false
+	text.custom_minimum_size = Vector2(850, 550)
+	text.text = FileAccess.get_file_as_string(path)
+	dialog.add_child(text)
+	add_child(dialog)
+	dialog.confirmed.connect(dialog.queue_free)
+	dialog.canceled.connect(dialog.queue_free)
+	dialog.popup_centered()

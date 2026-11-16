@@ -1,5 +1,8 @@
 extends Node2D
 ## A self-contained game assembled from editable modules, with no autoloads.
+const API_VERSION: int = 4
+const Library: GDScript = preload("game_library.gd")
+const Program: GDScript = preload("game_program.gd")
 const Model: GDScript = preload("game_model.gd")
 const Assets: GDScript = preload("game_assets.gd")
 const Actor: GDScript = preload("game_actor.gd")
@@ -8,6 +11,10 @@ const Spawner: GDScript = preload("game_spawner.gd")
 const Audio: GDScript = preload("game_audio.gd")
 const Hud: GDScript = preload("game_hud.gd")
 @export var game_blueprint: Dictionary = {}
+@export var compiled_blueprint: Dictionary = {}
+@export var compiled_signature: String = ""
+var program: RefCounted
+var debug_path: String = ""
 var state: String = "waiting"
 var score: int = 0
 var best: int = 0
@@ -28,6 +35,7 @@ var timers: Dictionary = {}
 var delayed: Array[Dictionary] = []
 var queue: Array[Dictionary] = []
 var routing: bool = false
+var generation: int = 0
 var profile: ConfigFile = ConfigFile.new()
 var profile_path: String
 var save_countdown: float = -1.0
@@ -44,7 +52,11 @@ func settings(kind: String) -> Dictionary:
 func _ready() -> void:
 	if Engine.is_editor_hint():
 		return
-	var problem: String = Model.validate(game_blueprint, true)
+	var prepared: Dictionary = {"data": compiled_blueprint} if not compiled_blueprint.is_empty() and compiled_signature == Library.signature(game_blueprint) else Library.compile(game_blueprint)
+	var problem: String = str(prepared.get("error", ""))
+	if problem.is_empty():
+		game_blueprint = prepared["data"].duplicate(true)
+		problem = Model.validate(game_blueprint, true)
 	if not problem.is_empty():
 		push_error("游戏蓝图：" + problem)
 		set_process(false)
@@ -64,20 +76,21 @@ func _ready() -> void:
 		profile.load(profile_path)
 	best = maxi(0, int(profile.get_value("score", "best", 0)))
 	setup_buses()
-	world = World.new()
-	world.name = "World"
-	add_child(world)
-	world.call("setup", self, settings("world"), base_size.x, base_size.y)
-	ground_y = float(world.get("ground_y"))
-	var frames: SpriteFrames = Assets.frames() if str(settings("runner")["frames"]).is_empty() else Model.frames_at(str(settings("runner")["frames"]))
-	actor = Actor.new()
-	actor.name = "Runner"
-	actor.call("setup", self, settings("runner"), frames, Vector2(base_size.x * 0.17, ground_y))
-	add_child(actor)
-	spawner = Spawner.new()
-	spawner.name = "ObstacleSpawner"
-	add_child(spawner)
-	spawner.call("setup", self, settings("spawner"), actor)
+	if not Model.by_kind(game_blueprint, "runner").is_empty() and not Model.by_kind(game_blueprint, "world").is_empty():
+		world = World.new()
+		world.name = "World"
+		add_child(world)
+		world.call("setup", self, settings("world"), base_size.x, base_size.y)
+		ground_y = float(world.get("ground_y"))
+		var frames: SpriteFrames = Assets.frames() if str(settings("runner")["frames"]).is_empty() else Model.frames_at(str(settings("runner")["frames"]))
+		actor = Actor.new()
+		actor.name = "Runner"
+		actor.call("setup", self, settings("runner"), frames, Vector2(base_size.x * 0.17, ground_y))
+		add_child(actor)
+		spawner = Spawner.new()
+		spawner.name = "ObstacleSpawner"
+		add_child(spawner)
+		spawner.call("setup", self, settings("spawner"), actor)
 	for node: Dictionary in game_blueprint["nodes"]:
 		var kind: String = str(node["kind"])
 		var id: String = str(node["id"])
@@ -98,7 +111,12 @@ func _ready() -> void:
 	hud.name = "GameUI"
 	add_child(hud)
 	hud.call("setup", self, settings("hud"))
+	program = Program.new()
+	program.call("setup", self)
+	debug_path = "user://ali_blueprint_" + str(settings("session")["save_key"]) + ".json"
+	hud.call("refresh_health")
 	initialized = true
+	queue_redraw()
 	set_process_unhandled_key_input(true)
 
 
@@ -128,9 +146,18 @@ func set_volume(channel: String, value: float, persist: bool = true) -> void:
 
 
 func _unhandled_key_input(event_input: InputEvent) -> void:
-	if not initialized or not event_input is InputEventKey or not event_input.pressed or event_input.echo:
+	if not initialized or not event_input is InputEventKey or event_input.echo:
 		return
 	var key: int = event_input.physical_keycode if event_input.physical_keycode != 0 else event_input.keycode
+	var handled: bool = false
+	for node: Dictionary in game_blueprint["nodes"]:
+		if node["kind"] == "key_event" and int(node["params"]["key"]) == key and (not node["params"]["running_only"] or state == "running"):
+			emit_port(str(node["id"]), 0 if event_input.pressed else 1)
+			handled = true
+	if not event_input.pressed:
+		if handled:
+			get_viewport().set_input_as_handled()
+		return
 	var input: Dictionary = settings("input")
 	if key == int(input["pause"]):
 		event("input", 3)
@@ -139,7 +166,8 @@ func _unhandled_key_input(event_input: InputEvent) -> void:
 	elif key == int(input["jump"]):
 		event("input", 1 if state == "waiting" else 2 if state == "dead" else 0)
 	else:
-		return
+		if not handled:
+			return
 	get_viewport().set_input_as_handled()
 
 
@@ -152,9 +180,12 @@ func _process(delta: float) -> void:
 			profile.save(profile_path)
 	if state == "paused":
 		return
+	program.call("tick", delta)
 	var due: Array[Dictionary] = delayed
 	delayed = []
 	for entry: Dictionary in due:
+		if int(entry.get("generation", generation)) != generation:
+			continue
 		entry["remaining"] = float(entry["remaining"]) - delta
 		if float(entry["remaining"]) <= 0:
 			emit_port(str(entry["id"]), 0)
@@ -167,9 +198,12 @@ func _process(delta: float) -> void:
 	score += int(floor(elapsed * float(settings("session")["points_per_second"]))) - int(floor((elapsed - delta) * float(settings("session")["points_per_second"])))
 	if score != previous_score:
 		event("session", 5)
-	current_speed = minf(float(settings("spawner")["max_speed"]), float(settings("spawner")["speed"]) + elapsed * float(settings("spawner")["acceleration"]))
-	world.call("tick", delta, current_speed)
-	spawner.call("tick", delta, current_speed)
+	if is_instance_valid(spawner):
+		current_speed = minf(float(settings("spawner")["max_speed"]), float(settings("spawner")["speed"]) + elapsed * float(settings("spawner")["acceleration"]))
+	if is_instance_valid(world):
+		world.call("tick", delta, current_speed)
+	if is_instance_valid(spawner):
+		spawner.call("tick", delta, current_speed)
 	for id: String in timers:
 		var timer: Dictionary = timers[id]
 		if timer["active"]:
@@ -191,20 +225,35 @@ func emit_port(source: String, port: int) -> void:
 	for edge: Dictionary in game_blueprint["edges"]:
 		if edge["from"] != source or int(edge.get("from_port", 0)) != port:
 			continue
-		if Model.find(game_blueprint, str(edge["to"]))["kind"] == "branch" and int(edge.get("to_port", 0)) == 1:
+		if Model.port_type(game_blueprint, source, port, true) != 0:
 			continue
-		queue.append({"id": edge["to"], "port": int(edge.get("to_port", 0))})
+		queue.append({"id": edge["to"], "port": int(edge.get("to_port", 0)), "messages": program.get("messages").duplicate() if program != null else {}})
+	drain()
+
+
+func queue_event(id: String, payload: String) -> void:
+	queue.append({"event": true, "id": id, "payload": payload})
+	drain()
+
+
+func drain() -> void:
 	if routing:
 		return
 	routing = true
 	var budget: int = 512
 	while not queue.is_empty() and budget > 0:
 		var request: Dictionary = queue.pop_front()
-		deliver(str(request["id"]), int(request["port"]))
+		if request.get("event", false):
+			program.get("messages")[request["id"]] = request["payload"]
+			emit_port(str(request["id"]), 0)
+		else:
+			program.set("messages", request.get("messages", {}))
+			deliver(str(request["id"]), int(request["port"]))
 		budget -= 1
 	if not queue.is_empty():
 		queue.clear()
-		push_warning("游戏蓝图执行超过单次预算，请检查即时循环。")
+		program.call("fault", "", "游戏蓝图执行超过512次预算，已停止本次事件链。")
+		write_debug()
 	routing = false
 
 
@@ -212,6 +261,8 @@ func deliver(id: String, port: int) -> void:
 	var node: Dictionary = Model.find(game_blueprint, id)
 	if node.is_empty():
 		return
+	program.get("cache").clear()
+	program.call("record", id, "执行输入 " + str(port))
 	var p: Dictionary = node["params"]
 	match str(node["kind"]):
 		"session": session_command(port)
@@ -227,21 +278,24 @@ func deliver(id: String, port: int) -> void:
 				timers[id]["elapsed"] = 0.0
 		"delay":
 			if delayed.size() < 128:
-				delayed.append({"id": id, "remaining": float(p["seconds"])})
+				delayed.append({"id": id, "remaining": float(p["seconds"]), "generation": generation})
+			else:
+				program.call("fault", id, "延迟待办已达到128项，本次等待未加入。")
 		"sequence":
 			emit_port(id, 0)
 			emit_port(id, 1)
 		"branch":
-			var condition: bool = state == "running" if p["condition"] == "running" else actor.is_on_floor() if p["condition"] == "grounded" else state == "dead" if p["condition"] == "dead" else state == "paused" if p["condition"] == "paused" else score >= float(p["threshold"])
+			var condition: bool = state == "running" if p["condition"] == "running" else (is_instance_valid(actor) and actor.is_on_floor()) if p["condition"] == "grounded" else state == "dead" if p["condition"] == "dead" else state == "paused" if p["condition"] == "paused" else score >= float(p["threshold"])
 			for edge: Dictionary in game_blueprint["edges"]:
 				if edge["to"] == id and int(edge.get("to_port", 0)) == 1:
-					condition = bool(variables.get(Model.find(game_blueprint, str(edge["from"]))["params"]["name"], false))
+					condition = bool(program.call("input_value", id, 1, false))
 			emit_port(id, 0 if condition else 1)
 		"custom":
 			if modules.has(id) and (modules[id] as RefCounted).has_method("execute"):
 				var result: Variant = (modules[id] as RefCounted).call("execute", {"game": self, "actor": actor, "variables": variables, "score": score, "delta": get_process_delta_time()})
 				if result is Dictionary:
 					emit_port(id, clampi(int(result.get("output", 0)), 0, 1))
+		_: program.call("execute", node, port)
 
 
 func session_command(port: int) -> void:
@@ -252,10 +306,15 @@ func session_command(port: int) -> void:
 			state = "running"
 			score = 0
 			elapsed = 0
+			generation += 1
+			queue.clear()
 			delayed.clear()
 			for timer: Dictionary in timers.values():
 				timer["active"] = false
 				timer["elapsed"] = 0.0
+			program.call("pause", false)
+			program.call("reset")
+			hud.call("refresh_health")
 			event("session", 0)
 			event("session", 5)
 		1:
@@ -265,19 +324,23 @@ func session_command(port: int) -> void:
 			best = maxi(best, score)
 			profile.set_value("score", "best", best)
 			profile.save(profile_path)
+			program.call("pause", true)
 			event("session", 1)
 		2:
 			state = "waiting"
 			for sound: Node in audio.values():
 				sound.call("command", 1)
-			actor.get("sprite").set("speed_scale", 1.0)
+			if is_instance_valid(actor):
+				actor.get("sprite").set("speed_scale", 1.0)
 			event("session", 2)
 			session_command(0)
 		3:
 			if state not in ["running", "paused"]:
 				return
 			state = "paused" if state == "running" else "running"
-			actor.get("sprite").set("speed_scale", 0.0 if state == "paused" else 1.0)
+			program.call("pause", state == "paused")
+			if is_instance_valid(actor):
+				actor.get("sprite").set("speed_scale", 0.0 if state == "paused" else 1.0)
 			for sound: Node in audio.values():
 				if sound.get("params")["channel"] != "UI":
 					sound.call("pause", state == "paused")
@@ -292,9 +355,19 @@ func add_points(amount: int) -> void:
 		event("session", 5)
 
 
+func write_debug() -> void:
+	if OS.is_debug_build() and program != null and not debug_path.is_empty():
+		var file: FileAccess = FileAccess.open(debug_path, FileAccess.WRITE)
+		if file != null:
+			file.store_string(JSON.stringify(program.call("report"), "\t"))
+			file.close()
+
+
 func _exit_tree() -> void:
 	if not initialized:
 		return
+	write_debug()
+	program.call("dispose")
 	for sound: Node in audio.values():
 		if is_instance_valid(sound):
 			sound.call("command", 1)
@@ -311,3 +384,8 @@ func _exit_tree() -> void:
 		window.content_scale_size = previous_scale
 		window.content_scale_mode = previous_mode
 		window.content_scale_aspect = previous_aspect
+
+
+func _draw() -> void:
+	if initialized and not is_instance_valid(world):
+		draw_rect(Rect2(Vector2.ZERO, Vector2(base_size)), Color("dceef0"))

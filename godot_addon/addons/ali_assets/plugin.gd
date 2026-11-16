@@ -185,8 +185,16 @@ func open_game_window() -> void:
 func apply_game(target: Node, data: Dictionary) -> void:
 	if not is_instance_valid(target):
 		return
+	var prepared: Dictionary = preload("game_library.gd").compile(data)
+	if prepared.has("error"):
+		push_warning(str(prepared["error"]))
+		return
 	var undo: EditorUndoRedoManager = get_undo_redo()
 	undo.create_action("AlI应用游戏蓝图", UndoRedo.MERGE_DISABLE, target)
 	undo.add_do_property(target, "game_blueprint", data.duplicate(true))
 	undo.add_undo_property(target, "game_blueprint", target.get("game_blueprint"))
+	if "compiled_blueprint" in target:
+		for property: String in ["compiled_blueprint", "compiled_signature"]:
+			undo.add_do_property(target, property, prepared["data"] if property == "compiled_blueprint" else prepared["signature"])
+			undo.add_undo_property(target, property, target.get(property))
 	undo.commit_action()

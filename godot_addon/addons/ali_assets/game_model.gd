@@ -1,9 +1,13 @@
 @tool
 extends RefCounted
 ## Declarative module catalog shared by the editor, builder and shipped game.
-const TITLES: Dictionary = {"session": "游戏状态／计分", "input": "游戏按键", "runner": "自动奔跑角色", "world": "背景／地面滚动", "spawner": "障碍生成／碰撞", "hud": "菜单／分数／设置UI", "mixer": "音频总线混音", "screen": "画面比例", "audio": "播放声音", "timer": "计时器", "branch": "条件分支", "sequence": "顺序执行", "delay": "延迟", "boolean": "布尔变量", "custom": "自定义模块"}
-const INPUTS: Dictionary = {"session": ["开始", "游戏结束", "重新开始", "暂停／继续", "加分"], "input": [], "runner": ["开始／重置", "跳跃", "死亡", "停止"], "world": ["开始／重置", "停止"], "spawner": ["开始／清空", "停止"], "hud": ["游戏画面", "结束菜单", "开始菜单", "暂停菜单", "更新分数", "开关设置"], "mixer": [], "screen": [], "audio": ["播放", "停止", "暂停", "继续"], "timer": ["启动", "停止", "重置"], "branch": ["判断", "布尔条件"], "sequence": ["执行"], "delay": ["执行"], "boolean": [], "custom": ["执行"]}
-const OUTPUTS: Dictionary = {"session": ["开始时", "结束时", "重开时", "暂停时", "继续时", "分数变化"], "input": ["跳跃键", "开始键", "重开键", "暂停键"], "runner": ["起跳时", "落地时", "死亡时", "死亡动画结束", "地面脚步"], "world": [], "spawner": ["碰到角色", "越过障碍"], "hud": ["开始按钮", "重开按钮", "暂停按钮", "跳跃按钮", "按钮音效"], "mixer": [], "screen": [], "audio": ["播放结束"], "timer": ["到时"], "branch": ["成立", "不成立"], "sequence": ["先执行1", "再执行2"], "delay": ["等待后"], "boolean": ["布尔值"], "custom": ["完成", "备用"]}
+const BASE_TITLES: Dictionary = {"session": "游戏状态／计分", "input": "游戏按键", "runner": "自动奔跑角色", "world": "背景／地面滚动", "spawner": "障碍生成／碰撞", "hud": "菜单／分数／设置UI", "mixer": "音频总线混音", "screen": "画面比例", "audio": "播放声音", "timer": "计时器", "branch": "条件分支", "sequence": "顺序执行", "delay": "延迟", "boolean": "布尔变量", "custom": "自定义模块"}
+const BASE_INPUTS: Dictionary = {"session": ["开始", "游戏结束", "重新开始", "暂停／继续", "加分"], "input": [], "runner": ["开始／重置", "跳跃", "死亡", "停止"], "world": ["开始／重置", "停止"], "spawner": ["开始／清空", "停止"], "hud": ["游戏画面", "结束菜单", "开始菜单", "暂停菜单", "更新分数", "开关设置"], "mixer": [], "screen": [], "audio": ["播放", "停止", "暂停", "继续"], "timer": ["启动", "停止", "重置"], "branch": ["判断", "布尔条件"], "sequence": ["执行"], "delay": ["执行"], "boolean": [], "custom": ["执行"]}
+const BASE_OUTPUTS: Dictionary = {"session": ["开始时", "结束时", "重开时", "暂停时", "继续时", "分数变化"], "input": ["跳跃键", "开始键", "重开键", "暂停键"], "runner": ["起跳时", "落地时", "死亡时", "死亡动画结束", "地面脚步"], "world": [], "spawner": ["碰到角色", "越过障碍"], "hud": ["开始按钮", "重开按钮", "暂停按钮", "跳跃按钮", "按钮音效"], "mixer": [], "screen": [], "audio": ["播放结束"], "timer": ["到时"], "branch": ["成立", "不成立"], "sequence": ["先执行1", "再执行2"], "delay": ["等待后"], "boolean": ["布尔值"], "custom": ["完成", "备用"]}
+const Registry: GDScript = preload("game_registry.gd")
+static var TITLES: Dictionary = joined(BASE_TITLES, Registry.TITLES)
+static var INPUTS: Dictionary = joined(BASE_INPUTS, Registry.INPUTS)
+static var OUTPUTS: Dictionary = joined(BASE_OUTPUTS, Registry.OUTPUTS)
 const SINGLETONS: Array[String] = ["session", "input", "runner", "world", "spawner", "hud", "mixer", "screen"]
 const HUD_TEXT: Array = [["start_text", "开始按钮文字", "text", "START"], ["retry_text", "重开按钮文字", "text", "RETRY"], ["pause_text", "暂停按钮文字", "text", "PAUSE"], ["resume_text", "继续按钮文字", "text", "RESUME"], ["over_text", "结束标题", "text", "GAME OVER"], ["jump_text", "跳跃按钮文字", "text", "JUMP"], ["audio_text", "声音设置文字", "text", "AUDIO"], ["close_text", "关闭按钮文字", "text", "CLOSE"], ["score_text", "分数标签", "text", "SCORE"], ["best_text", "最高分标签", "text", "BEST"], ["subtitle", "标题说明", "text", "Jump. Avoid. Try again."]]
 # field, Chinese label, type, default, minimum/options/filter, maximum.
@@ -24,6 +28,46 @@ const FIELDS: Dictionary = {
 	"custom": [["script", "模块脚本", "asset", "", "script"]]}
 
 
+static func joined(first: Dictionary, second: Dictionary) -> Dictionary:
+	var result: Dictionary = first.duplicate(true)
+	result.merge(second, true)
+	return result
+
+
+static func port_type(data: Dictionary, id: String, port: int, output: bool) -> int:
+	var node: Dictionary = find(data, id)
+	return Registry.port_type(str(node["kind"]), node["params"], port, output)
+
+
+static func color_for(type: int) -> Color:
+	return Color.MEDIUM_SEA_GREEN if type == 6 else Color.SKY_BLUE if type == 7 else Color.HOT_PINK if type == 8 else Color.WHITE
+
+
+static func summary(node: Dictionary) -> String:
+	var p: Dictionary = node["params"]
+	match str(node["kind"]):
+		"key_event": return OS.get_keycode_string(int(p["key"]))
+		"blackboard", "set_variable", "boolean", "fsm", "event_emit", "event_listener": return str(p["name"]).left(22)
+		"set_state": return str(p["state"])
+		"health": return str(p["caption"])
+		"cooldown", "timer", "delay": return str(p["seconds"]) + "s"
+		"audio": return str(p["demo"]) if str(p["path"]).is_empty() else str(p["path"]).get_file().left(22)
+		"node_action", "signal_event": return str(p["target"]).left(22)
+		"module": return str(p["path"]).get_file().left(22)
+	return ""
+
+
+static func scene_preset() -> Dictionary:
+	var result: Dictionary = preset()
+	result["template"] = "scene2d"
+	result["nodes"] = result["nodes"].filter(func(node: Dictionary) -> bool: return node["kind"] in ["session", "input", "hud", "mixer", "screen"])
+	result["edges"] = result["edges"].filter(func(edge: Dictionary) -> bool: return not find(result, edge["from"]).is_empty() and not find(result, edge["to"]).is_empty())
+	result["edges"].append({"from": "session", "from_port": 1, "to": "hud", "to_port": 1})
+	by_kind(result, "session")["params"].merge({"points_per_second": 0.0, "save_key": "scene_game"}, true)
+	by_kind(result, "hud")["params"].merge({"title": "MY GAME", "subtitle": "Build. Play. Create.", "touch_jump": false}, true)
+	return result
+
+
 static func params(kind: String) -> Dictionary:
 	var result: Dictionary = {}
 	for field: Array in fields(kind):
@@ -32,7 +76,7 @@ static func params(kind: String) -> Dictionary:
 
 
 static func fields(kind: String) -> Array:
-	return FIELDS[kind] + HUD_TEXT if kind == "hud" else FIELDS[kind]
+	return FIELDS[kind] + HUD_TEXT if kind == "hud" else FIELDS[kind] if FIELDS.has(kind) else Registry.FIELDS[kind]
 
 
 static func module(id: String, kind: String, x: float, y: float) -> Dictionary:
@@ -92,11 +136,12 @@ static func frames_at(path: String) -> SpriteFrames:
 static func validate(data: Dictionary, resources: bool = false) -> String:
 	if data.get("version") != 1 or data.get("type") != "runner_game" or not data.get("nodes") is Array or not data.get("edges") is Array:
 		return "游戏蓝图格式不正确。"
-	if data["nodes"].size() > 100 or data["edges"].size() > 300:
-		return "最多100个模块／300条连线。"
+	if data["nodes"].size() > 256 or data["edges"].size() > 800:
+		return "最多256个模块／800条连线（含展开子图）。"
 	var ids: Dictionary = {}
 	var singles: Dictionary = {}
 	var variables: Dictionary = {}
+	var machines: Dictionary = {}
 	for raw: Variant in data["nodes"]:
 		if not raw is Dictionary:
 			return "模块格式无效。"
@@ -136,10 +181,14 @@ static func validate(data: Dictionary, resources: bool = false) -> String:
 				if not str(value).begins_with("res://") or ".." in str(value):
 					return "请选择当前项目内的资源。"
 				if resources:
+					if field[4] == "module":
+						if not FileAccess.file_exists(str(value)):
+							return "子图不存在：" + str(value)
+						continue
 					if not ResourceLoader.exists(str(value)):
 						return "资源不存在：" + str(value)
 					var resource: Resource = load(str(value))
-					if field[4] == "image" and not resource is Texture2D or field[4] == "audio" and not resource is AudioStream or field[4] == "frames" and frames_at(str(value)) == null:
+					if field[4] == "scene" and not resource is PackedScene or field[4] == "image" and not resource is Texture2D or field[4] == "audio" and not resource is AudioStream or field[4] == "frames" and frames_at(str(value)) == null:
 						return "资源类型不符：" + str(field[1])
 					if field[4] == "script" and (not resource is GDScript or not (resource as GDScript).can_instantiate() or (resource as GDScript).get_instance_base_type() != &"RefCounted"):
 						return "模块需为继承RefCounted的脚本。"
@@ -152,11 +201,33 @@ static func validate(data: Dictionary, resources: bool = false) -> String:
 								found = true
 						if not found:
 							return "模块需提供execute(context)方法。"
-		if kind in ["session", "boolean"]:
+		if kind in ["session", "boolean", "blackboard"]:
 			var name: String = str(p["save_key"] if kind == "session" else p["name"])
 			if not name.is_valid_identifier() or variables.has(name):
 				return "存档／变量名需有效且不重复。"
-			variables[name] = true
+			variables[name] = "bool" if kind == "boolean" else str(p.get("value_type", "save"))
+		if kind == "health" and float(p["initial"]) > float(p["max"]):
+			return id + "：初始生命不能超过上限。"
+		if kind in ["set_variable", "fsm", "set_state", "event_emit", "event_listener"] and not str(p["name"]).is_valid_identifier():
+			return id + "：名称需为有效标识符。"
+		if kind == "fsm":
+			var states: PackedStringArray = str(p["states"]).split(",", false)
+			var unique: Dictionary = {}
+			for state: String in states:
+				if not state.is_valid_identifier() or unique.has(state):
+					return id + "：状态需使用不重复的标识符，以逗号分隔。"
+				unique[state] = true
+			if states.is_empty() or not str(p["initial"]) in states or machines.has(p["name"]):
+				return id + "：初始状态无效或状态机重名。"
+			for transition: String in str(p["transitions"]).split(";", false):
+				var pair: PackedStringArray = transition.split(">")
+				if pair.size() != 2 or not pair[0] in states or not pair[1] in states:
+					return id + "：转换示例idle>move;move>idle，且状态必须存在。"
+			machines[p["name"]] = states
+		if kind in ["node_action", "signal_event"] and (str(p["target"]).is_empty() or str(p["target"]).begins_with("/") or ":" in str(p["target"]) or ".." in str(p["target"])):
+			return id + "：目标需为游戏根节点下的相对路径。"
+		if resources and kind in ["spawn_scene", "module"] and str(p["scene"] if kind == "spawn_scene" else p["path"]).is_empty():
+			return id + "：请选择资源。"
 		if kind == "spawner" and (float(p["interval_max"]) < float(p["interval_min"]) or float(p["max_speed"]) < float(p["speed"])):
 			return "最大间隔／速度不能小于最小值。"
 		if kind == "input" and (p["jump"] == p["pause"] or p["jump"] == p["restart"] or p["pause"] == p["restart"]):
@@ -170,9 +241,13 @@ static func validate(data: Dictionary, resources: bool = false) -> String:
 			return "未选择角色素材时，请保留演示动画名walk_right／jump_right／death_right。"
 		if resources and kind == "custom" and str(p["script"]).is_empty():
 			return "请先选择或编写自定义模块脚本。"
-	for kind: String in SINGLETONS:
+	for kind: String in (["session", "input", "hud", "mixer", "screen"] if data.get("template", "runner") == "scene2d" else SINGLETONS):
 		if not singles.has(kind):
 			return "请保留核心模块：" + TITLES[kind]
+	if resources:
+		var runner_count: int = int(singles.has("runner")) + int(singles.has("world")) + int(singles.has("spawner"))
+		if runner_count not in [0, 3]:
+			return "自动奔跑角色、背景地面和跑酷障碍需同时配置；其它玩法可直接使用通用2D模板。"
 	var seen: Dictionary = {}
 	var boolean_inputs: Dictionary = {}
 	for raw: Variant in data["edges"]:
@@ -190,16 +265,67 @@ static func validate(data: Dictionary, resources: bool = false) -> String:
 		var in_port: int = int(raw.get("to_port", 0))
 		if out_port < 0 or out_port >= OUTPUTS[ids[source]].size() or in_port < 0 or in_port >= INPUTS[ids[dest]].size():
 			return "连线端口无效。"
-		if (ids[source] == "boolean") != (ids[dest] == "branch" and in_port == 1):
-			return "绿色布尔输出只能连接绿色条件输入。"
-		if ids[source] == "boolean":
-			if boolean_inputs.has(dest):
-				return "每个条件输入只能接一个布尔变量。"
-			boolean_inputs[dest] = true
+		var type: int = port_type(data, source, out_port, true)
+		if type != port_type(data, dest, in_port, false):
+			return source + " → " + dest + "：端口类型不一致。"
+		if type != 0:
+			var input_key: String = dest + ":" + str(in_port)
+			if boolean_inputs.has(input_key):
+				return dest + "：每个数据输入只能连接一个来源。"
+			boolean_inputs[input_key] = true
 		if source == dest:
 			return "模块不能直接连接自身；重复执行请使用计时器。"
 		var key: String = source + ":" + str(out_port) + ":" + dest + ":" + str(in_port)
 		if seen.has(key):
 			return "连线重复。"
 		seen[key] = true
+	var visits: Dictionary = {}
+	for id: String in ids:
+		if data_cycle(data, id, visits):
+			return id + "：数据计算存在循环。"
+	if resources:
+		for node: Dictionary in data["nodes"]:
+			var p: Dictionary = node["params"]
+			if node["kind"] == "set_variable" and variables.get(p["name"], "") != p["value_type"]:
+				return str(node["id"]) + "：变量不存在或类型不符。"
+			if node["kind"] == "set_state" and (not machines.has(p["name"]) or not p["state"] in machines.get(p["name"], [])):
+				return str(node["id"]) + "：状态机或目标状态不存在。"
 	return ""
+
+
+static func data_cycle(data: Dictionary, id: String, visits: Dictionary) -> bool:
+	if visits.get(id, 0) == 1:
+		return true
+	if visits.get(id, 0) == 2:
+		return false
+	visits[id] = 1
+	for edge: Dictionary in data["edges"]:
+		if edge["to"] == id and port_type(data, str(edge["from"]), int(edge["from_port"]), true) != 0:
+			# Stateful outputs (health/FSM/variables) are storage, not recursive expressions.
+			if find(data, str(edge["from"]))["kind"] in ["math", "compare", "logic", "format_text"] and data_cycle(data, str(edge["from"]), visits):
+				return true
+	visits[id] = 2
+	return false
+
+
+static func add_combo(data: Dictionary, kind: String) -> Dictionary:
+	var result: Dictionary = data.duplicate(true)
+	var prefix: String = "combo_" + str(Time.get_ticks_usec()) + "_"
+	var definitions: Array = []
+	var wires: Array = []
+	if kind == "health":
+		definitions = [["damage", "key_event", {"key": KEY_J}], ["heal", "key_event", {"key": KEY_K}], ["cooldown", "cooldown", {}], ["hp", "health", {}], ["format", "format_text", {"template": "HP: {value}"}], ["notice", "ui_message", {}]]
+		wires = [["damage", 0, "cooldown", 0], ["cooldown", 0, "hp", 0], ["heal", 0, "hp", 1], ["hp", 0, "notice", 0], ["hp", 2, "format", 0], ["format", 0, "notice", 1]]
+	elif kind == "fsm":
+		definitions = [["attack_key", "key_event", {"key": KEY_F}], ["cooldown", "cooldown", {"seconds": 0.4}], ["fsm", "fsm", {"name": prefix + "states", "states": "idle,attack", "transitions": "idle>attack;attack>idle"}], ["attack", "set_state", {"name": prefix + "states", "state": "attack"}], ["wait", "delay", {"seconds": 0.4}], ["idle", "set_state", {"name": prefix + "states", "state": "idle"}], ["notice", "ui_message", {}]]
+		wires = [["attack_key", 0, "cooldown", 0], ["cooldown", 0, "attack", 0], ["attack", 0, "wait", 0], ["wait", 0, "idle", 0], ["fsm", 0, "notice", 0], ["fsm", 1, "notice", 1]]
+	for index: int in range(definitions.size()):
+		var item: Array = definitions[index]
+		var node: Dictionary = module(prefix + str(item[0]), str(item[1]), 400 + (index % 3) * 370, 1300 + floorf(float(index) / 3.0) * 320)
+		node["params"].merge(item[2], true)
+		result["nodes"].append(node)
+	for item: Array in wires:
+		result["edges"].append({"from": prefix + str(item[0]), "from_port": item[1], "to": prefix + str(item[2]), "to_port": item[3]})
+	if kind == "health":
+		result["edges"].append({"from": prefix + "hp", "from_port": 1, "to": by_kind(result, "session")["id"], "to_port": 1})
+	return result

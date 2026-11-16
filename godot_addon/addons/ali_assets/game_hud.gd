@@ -10,6 +10,9 @@ var subtitle: Label
 var primary: Button
 var settings_panel: PanelContainer
 var sliders: Dictionary = {}
+var health_rows: Dictionary = {}
+var notifications: Label
+var message_remaining: float = 0.0
 var display_mode: String = "title"
 
 
@@ -45,6 +48,26 @@ func setup(controller: Node2D, settings: Dictionary) -> void:
 	bar.add_child(score_label)
 	bar.add_child(button(str(params["pause_text"]), func() -> void: game.call("event", "hud", 2), Vector2(100, 40)))
 	bar.add_child(button(str(params["audio_text"]), func() -> void: settings_panel.visible = not settings_panel.visible, Vector2(100, 40)))
+	var health_box: VBoxContainer = VBoxContainer.new()
+	health_box.name = "HealthBars"
+	spine.add_child(health_box)
+	for node: Dictionary in game.get("game_blueprint")["nodes"]:
+		if node["kind"] == "health" and node["params"]["show"]:
+			var row: HBoxContainer = HBoxContainer.new()
+			var label: Label = Label.new()
+			label.text = str(node["params"]["caption"])
+			row.add_child(label)
+			var progress: ProgressBar = ProgressBar.new()
+			progress.max_value = float(node["params"]["max"])
+			progress.value = float(node["params"]["initial"])
+			progress.custom_minimum_size = Vector2(180, 22)
+			progress.show_percentage = false
+			row.add_child(progress)
+			health_box.add_child(row)
+			health_rows[node["id"]] = progress
+	notifications = Label.new()
+	notifications.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	spine.add_child(notifications)
 	var fill: Control = Control.new()
 	fill.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -54,6 +77,8 @@ func setup(controller: Node2D, settings: Dictionary) -> void:
 	var hint: Label = Label.new()
 	var bindings: Dictionary = game.call("settings", "input")
 	hint.text = "%s JUMP / %s PAUSE / %s RESTART" % [OS.get_keycode_string(int(bindings["jump"])), OS.get_keycode_string(int(bindings["pause"])), OS.get_keycode_string(int(bindings["restart"]))]
+	if game.get("game_blueprint").get("template") == "scene2d":
+		hint.text = hint.text.replace("JUMP", "START")
 	hint.visible = int(game.get("base_size").x) >= 700
 	hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hint.add_theme_font_size_override("font_size", 14)
@@ -203,3 +228,26 @@ func command(port: int) -> void:
 			overlay.show()
 		4: update_score()
 		5: settings_panel.visible = not settings_panel.visible
+
+
+func refresh_health() -> void:
+	var program: RefCounted = game.get("program")
+	if program == null:
+		return
+	for id: String in health_rows:
+		(health_rows[id] as ProgressBar).value = float(program.get("health")[id]["value"])
+
+
+func show_message(text: String, seconds: float) -> void:
+	notifications.text = text.left(1024)
+	message_remaining = seconds
+
+
+func _process(delta: float) -> void:
+	if game.get("state") == "paused":
+		return
+	refresh_health()
+	if message_remaining > 0:
+		message_remaining -= delta
+		if message_remaining <= 0:
+			notifications.text = ""
