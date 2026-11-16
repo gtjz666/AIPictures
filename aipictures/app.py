@@ -64,6 +64,8 @@ class Window(QMainWindow):
         self.api_controller = ApiController(self, DATA)
         from .studio_layout import build_studio
         build_studio(self)
+        from .godot_ui import GodotController
+        self.godot_controller=GodotController(self)
         self.h3_image_controller.restore_choice()
         config = DATA / 'settings.json'
         if config.exists():
@@ -639,14 +641,16 @@ class Window(QMainWindow):
         family=effective_family(self,bool(reference_name))
         if family=='flux_klein':
             from .image_family import flux_snapshot
-            return flux_snapshot(self,reference_name)
-        if family=='qwen_edit':
+            graph,params=flux_snapshot(self,reference_name)
+        elif family=='qwen_edit':
             from .image_family import reference_snapshot
-            return reference_snapshot(self,reference_name)
-        if family=='zimage':
+            graph,params=reference_snapshot(self,reference_name)
+        elif family=='zimage':
             from .image_family import snapshot
-            return snapshot(self,reference_name)
-        raise ValueError('请选择自动、Z-Image或FLUX；SDXL普通生成已退役。')
+            graph,params=snapshot(self,reference_name)
+        else:raise ValueError('请选择自动、Z-Image或FLUX；SDXL普通生成已退役。')
+        if hasattr(self,'generation_intent'):self.generation_intent.record(params)
+        return graph,params
 
     def load_draft_in_editor(self):
         if self.h3_image_controller.active():
@@ -1167,8 +1171,12 @@ def create_application(args=None):
 
 
 def main():
-    app = create_application()
+    import argparse
+    parser=argparse.ArgumentParser();parser.add_argument('--godot-project');parser.add_argument('--asset-kind',choices=['image','animation','sfx','music'],default='image')
+    args=parser.parse_args()
+    app = create_application([sys.argv[0]])
     window = Window(); window.show()
+    if args.godot_project:window.godot_controller.launch_context(args.godot_project,args.asset_kind)
     code=app.exec()
     # Some native segmentation libraries keep their own thread pools alive at
     # interpreter shutdown. The user's close ends this GUI process; cancellation

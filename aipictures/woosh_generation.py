@@ -12,7 +12,6 @@ from .storage import write_json
 
 def generate(folder,params,cancel,emit):
     from .motion_native_backend import release_shared
-    from .audio_prompt import fingerprint
     folder=Path(folder);config=params['audio_settings'];seconds=params['seconds'];start=time.monotonic()
     if (folder/'audio.json').exists() or (folder/'audio.wav').exists():raise ValueError('该音效目录已有任务，不重复生成或覆盖。')
     manifest=dict(kind='audio',status='running',params=params);write_json(folder/'audio.json',manifest)
@@ -21,10 +20,7 @@ def generate(folder,params,cancel,emit):
         if not isinstance(params.get('prompt'),str) or not params['prompt'].strip():raise ValueError('请填写音效需求。')
         if type(params.get('seed')) is not int or not 0<=params['seed']<2**64:raise ValueError('音效种子无效。')
         if cancel.is_set():raise Cancelled('音效任务已取消。')
-        caption=params.get('caption_english')
-        if not isinstance(caption,str) or not caption.strip() or params.get('caption_fingerprint')!=fingerprint(params['prompt'],params.get('negative','')):
-            if any('\u4e00'<=c<='\u9fff' for c in params['prompt']):raise ValueError('请先完成本次音效需求的文字整理。')
-            caption=params['prompt']
+        caption=params['prompt']
         release_shared(params,folder=folder,cancel=cancel)
         request=dict(config,caption=caption,seconds=seconds,seed=params['seed'],out=str((folder/'audio.wav').resolve()))
         write_json(folder/'request.json',request)

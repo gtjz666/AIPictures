@@ -25,7 +25,7 @@ def main():
         assert w.animation_action.currentData()=='custom'
         w.animation_action.setCurrentIndex(w.animation_action.findData('walk'))
         w.generation_type.setCurrentIndex(1);assert not w.custom_description.isVisible()
-        assert '紫发角色' in w.positive.toPlainText() and '交替' in w.positive.toPlainText()
+        assert not w.positive.toPlainText()  # Each mode starts with a manual prompt.
         w.positive.setPlainText('角色平躺后翻滚，保持参考配色')
         w.connected=True;w.client=ComfyClient();w.animation_source.setCurrentIndex(1)
         with patch.object(w,'start_next'),patch('aipictures.video_controller.secrets.randbelow',side_effect=[101,102]):

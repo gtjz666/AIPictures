@@ -54,6 +54,7 @@ class FrameSelectionDialog(QDialog):
         buttons=QHBoxLayout();self.sheet_button=QPushButton('导出精灵图…');self.png_button=QPushButton('导出所选 PNG…')
         self.sheet_button.clicked.connect(lambda:self.export('sheet'));self.png_button.clicked.connect(lambda:self.export('pngs'))
         buttons.addWidget(self.sheet_button);buttons.addWidget(self.png_button)
+        self.godot_button=QPushButton('导出Godot组件…');self.godot_button.clicked.connect(self.export_godot);buttons.addWidget(self.godot_button)
         close=QPushButton('关闭');close.clicked.connect(self.close);buttons.addWidget(close);layout.addLayout(buttons)
         self.timer=QTimer(self);self.timer.timeout.connect(self.advance);self.playback=[];self.play_position=0
         self.slider.sliderPressed.connect(self.timer.stop)
@@ -98,7 +99,10 @@ class FrameSelectionDialog(QDialog):
     def selection_changed(self,*_):
         count=len(self.selected())
         self.summary.setText(f'已选 {count} / {len(self.paths)} 帧')
-        for button in (self.sheet_button,self.png_button):button.setEnabled(bool(count) and not self.busy)
+        for button in (self.sheet_button,self.png_button,self.godot_button):button.setEnabled(bool(count) and not self.busy)
+
+    def export_godot(self):
+        if not self.busy and self.selected():self.window.godot_controller.frames([self.paths[i] for i in self.selected()],self.fps.value(),parent=self)
 
     def play(self,selected):
         if self.timer.isActive():self.timer.stop();return

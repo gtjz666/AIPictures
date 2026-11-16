@@ -34,8 +34,8 @@ class ApiController:
         return self.settings.backend=='api'
 
     def install_controls(self, layout) -> None:
-        self.button = QPushButton('API 与智能生图…')
-        self.button.setToolTip('配置自己的服务商、Key 和模型；云端生图或可选提示词整理。')
+        self.button = QPushButton('图片 API…')
+        self.button.setToolTip('配置自己的图片服务商、Key 和模型。')
         self.button.clicked.connect(self.open_settings)
         layout.addWidget(self.button)
         self.summary = QLabel()
@@ -61,7 +61,6 @@ class ApiController:
             return
         cloud = self.cloud
         self.summary.setText(('云端图片 API · 单张图片\n动画请切回本地 ComfyUI' if cloud else '本地 ComfyUI')+
-            ('\n单图先整理提示词（额外调用）' if self.settings.smart else '')+
             ('\n'+self.load_error if self.load_error else ''))
         w.generate_button.setEnabled(not w.preparing and (cloud or w.connected))
         if cloud:
@@ -69,7 +68,7 @@ class ApiController:
             w.cfg.hide();w.cfg_label.hide()
             w.reference_strength.hide();w.reference_strength_label.hide()
             w.context_label.setText('云端图片创作')
-            w.model_note.setText('云端模型和尺寸在“API 与智能生图”设置，本地采样参数不参与。')
+            w.model_note.setText('云端模型和尺寸在“图片 API”设置，本地采样参数不参与。')
             for name in ('model','model_family','width','height','steps','cfg','seed','sampler','scheduler','lora',
                          'lora_category','strength','denoise','reference_strength','quality_mode','workflow_selector'):
                 getattr(w,name).setEnabled(False)
@@ -86,7 +85,7 @@ class ApiController:
     def intercept(self) -> bool:
         w = self.window
         translating = bool(getattr(w,'translate_prompt',None) and w.translate_prompt.isChecked() and w.model_family.currentData()=='sdxl')
-        if not self.cloud and (not self.settings.smart and not translating or w.generation_type.currentData()=='walk'):
+        if not self.cloud:
             return False
         if w.preparing:
             return True
@@ -101,7 +100,7 @@ class ApiController:
         intent=getattr(w,'generation_intent',None);prepared=intent.current() if intent else None
         reviewed = bool(prepared) or local and local.current_record and local.applied_context==local.fingerprint(prompts=False)
         # A reviewed local plan needs neither a paid rewrite nor a planner key.
-        planner = self.settings.auth('planner') if self.settings.smart and not reviewed else None
+        planner = None  # Manual prompts are authoritative, including cloud generation.
         image = self.settings.auth('image') if self.cloud else None
         secrets = tuple(auth.key for auth in (planner,image) if auth)
         prompt, negative = w.positive.toPlainText(), w.negative.toPlainText()
@@ -136,7 +135,7 @@ class ApiController:
             check_models(graph,w.info['object_info'])
             check_quality_models(w.info['object_info'],params['quality_mode'])
             client = ComfyClient(w.client.url)
-            if w.translate_prompt.isChecked() and not planner and params.get('model_family') not in ('zimage','qwen_edit','flux_klein'):
+            if not intent and w.translate_prompt.isChecked() and not planner and params.get('model_family') not in ('zimage','qwen_edit','flux_klein'):
                 from .local_translation import settings
                 config = settings(self.data)
                 if not config:

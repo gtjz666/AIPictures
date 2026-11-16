@@ -35,16 +35,8 @@ def generate(folder,params,cancel,emit):
         if not isinstance(params.get('prompt'),str) or not params['prompt'].strip() or len(params['prompt'])>8000:raise ValueError('音频要求无效。')
         if type(params.get('seed')) is not int or not 0<=params['seed']<2**64:raise ValueError('音频种子无效。')
         release_shared(params,folder=folder,cancel=cancel)
-        from .audio_prompt import fingerprint,translate
         negative=params.get('negative','')
-        cached=params.get('caption_english')
-        caption=cached.strip() if isinstance(cached,str) and cached.strip() and params.get('caption_fingerprint')==fingerprint(params['prompt'],negative) else None
-        if caption is None and any('\u4e00'<=c<='\u9fff' for c in params['prompt']+negative) and params.get('intent_settings'):
-            from .audio_prompt import TextSession
-            emit('audio_stage',dict(message='正在整理音频要求…'))
-            with TextSession(params['intent_settings'],folder/'prompt',cancel,emit) as session:
-                caption=translate(session,params['prompt'],negative,compact=False)
-        if caption is None:caption=params['prompt']+('\nAvoid: '+negative if negative else '')
+        caption=params['prompt']+('\nAvoid: '+negative if negative else '')
         from .audio_duration import render_seconds,finish
         work_seconds=render_seconds(params['seconds'])
         generation_caption=caption+f'\nMaintain a complete musical performance across the full {work_seconds} seconds, with a brief natural closing cadence at the very end. Keep instrumentation audible throughout; no premature fade, extended silence or silent padding.'

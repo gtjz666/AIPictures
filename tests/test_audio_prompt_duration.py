@@ -158,7 +158,7 @@ def test_audio_prompt_does_not_load_a_visual_projector():
 
 
 @pytest.mark.parametrize('edited',[False,True])
-def test_audio_submission_reuses_matching_english_and_translates_only_manual_changes(tmp_path,monkeypatch,edited):
+def test_audio_submission_uses_current_manual_text_even_with_old_cached_translation(tmp_path,monkeypatch,edited):
     from aipictures import audio_generation as module
     from aipictures import audio_prompt
     old='史诗配乐';positive='改用小提琴独奏' if edited else old;negative='不要人声'
@@ -177,13 +177,11 @@ def test_audio_submission_reuses_matching_english_and_translates_only_manual_cha
         def poll(self):return 0
     monkeypatch.setattr(module.subprocess,'Popen',Worker)
     result=generate(tmp_path,params,threading.Event(),lambda *_:None)
-    assert factory.call_count==int(edited)
-    if edited:
-        assert 'without condensing' in text.complete.call_args.args[0][0]['content']
-        assert text.complete.call_args.kwargs['max_tokens']==1400
+    factory.assert_not_called()
     request=json.loads((tmp_path/'request.json').read_text('utf-8'))
     assert request['seconds']==29 and request['deliver_seconds']==20
-    assert ('Edited solo violin' if edited else 'Original epic music') in request['caption']
+    assert request['caption'].startswith(positive+'\nAvoid: '+negative)
+    assert 'Edited solo violin' not in request['caption'] and 'Original epic music' not in request['caption']
     data=json.loads((tmp_path/'audio.json').read_text('utf-8'))
     assert data['status']=='completed' and data['duration_integrity']['target_seconds']==20
     assert data['duration_integrity']['trailing_removed_seconds']>3

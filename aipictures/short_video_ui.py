@@ -16,7 +16,7 @@ class ShortVideoPanel(QWidget):
         layout=QVBoxLayout(self);layout.setContentsMargins(0,0,0,0)
         self.continuation_note=QLabel('每次生成一段，完成后可填写新的需求接续。');self.continuation_note.setWordWrap(True);layout.addWidget(self.continuation_note)
         self.new_video=QPushButton('新建视频');self.new_video.clicked.connect(self.start_new);layout.addWidget(self.new_video)
-        layout.addWidget(QLabel('用户需求'))
+        layout.addWidget(QLabel('提示词'))
         self.brief=QPlainTextEdit();self.brief.setMaximumHeight(100)
         self.brief.setPlaceholderText('描述游戏CG中的画面、情节和镜头，例如：古堡大门缓缓开启，镜头向前推进。')
         layout.addWidget(self.brief)
@@ -47,7 +47,7 @@ class ShortVideoPanel(QWidget):
         if value.get('params',{}).get('creation_kind')!='long_video' or not value.get('native_rgb_source'):return
         self.continuation_source=Path(path);self.script=None;self.script_brief=None
         self.window.video_controller.seconds.setRange(2,7)
-        self.continuation_note.setText(f'已生成{value["duration_seconds"]:g}秒。填写下一段需求并生成提示词，再点击接续生成；每段最多7秒。')
+        self.continuation_note.setText(f'已生成{value["duration_seconds"]:g}秒。填写下一段提示词，再点击接续生成；每段最多7秒。')
         if self.brief.toPlainText().strip()==value.get('params',{}).get('source_brief','').strip():self.brief.clear()
         self.brief.setPlaceholderText('描述下一段发生什么；主体与场景参考前文接续。')
 
@@ -76,42 +76,7 @@ class ShortVideoPanel(QWidget):
                 refs,str(w.video_controller.motion.path),w.positive.toPlainText(),w.negative.toPlainText())
 
     def prepare(self):
-        w=self.window;c=w.intent_controller
-        if w.preparing or w.current or w.pending:self.note.setText('请等待当前任务结束。');return
-        editing=self.kind.currentData()=='long_video' and bool(w.video_controller.motion.path)
-        if w.reference_chat.extra and not editing:self.note.setText('多张参考图目前用于单张图片或参考视频编辑，请先添加源视频。');return
-        brief=self.brief.toPlainText().strip() or w.positive.toPlainText().strip()
-        if not brief:self.note.setText('请先描述视频要求。');return
-        if len(brief)>16000:self.note.setText('视频要求请控制在16000字以内。');return
-        if not c.config and not editing:self.note.setText('本地创作助手未配置，可直接填写要求生成单镜头视频。');return
-        negative=w.negative.toPlainText().strip()
-        if negative==self.generated_negative:negative=self.manual_negative
-        seconds=w.video_controller.seconds.value();style=self.music.currentData();reference=w.reference_path
-        initial=self.fingerprint();folder=c.data/'intent'/(datetime.now().strftime('%Y%m%d_%H%M%S_')+uuid4().hex[:8]+'_script')
-        references=w.reference_chat.references()
-        c.running=w.preparing=True;c.cancel_event.clear();self.organize.setEnabled(False)
-        for button in c.prompt_actions:button.setEnabled(False)
-        w.generate_button.setEnabled(False);w.task_display.start();w.progress.setRange(0,0);self.note.setText('正在整理视频脚本…')
-        def run(emit):
-            if editing:
-                from .video_edit import organize
-                return organize(c.config,brief,seconds,style,references,folder,c.cancel_event,emit,exclusions=negative)
-            from .motion_native_backend import release_shared
-            release_shared({'url':w.client.url if w.connected else None},cancel=c.cancel_event)
-            return video_script.organize(c.config,brief,seconds,style,reference,folder,c.cancel_event,emit,exclusions=negative)
-        def finish(kind,data):
-            if kind=='intent_stage':w.status.setText(data['message']);return
-            if kind not in ('result','error','cancelled'):return
-            c.running=w.preparing=False;self.organize.setEnabled(True)
-            for button in c.prompt_actions:button.setEnabled(True)
-            w.task_display.finish('completed' if kind=='result' else 'cancelled' if c.cancel_event.is_set() else 'failed')
-            w.generation_type_changed()
-            if kind=='result' and initial==self.fingerprint() and not c.cancel_event.is_set():
-                if negative and negative not in data['negative_prompt']:data=dict(data,negative_prompt=data['negative_prompt']+'\n'+negative)
-                self.manual_negative=negative
-                self.apply(data);self.note.setText('脚本与提示词已更新，可查看修改后生成。')
-            else:self.note.setText('要求已修改，旧脚本未应用。' if kind=='result' else '脚本未完成：'+str(data))
-        w.launch(run,finish)
+        self.note.setText('请直接填写本段提示词，再点击生成。')
 
     def apply(self,script,replace_negative=True):
         self.script=script;self.script_brief=self.brief.toPlainText();self.window.positive.setPlainText(video_script.prompt(script))

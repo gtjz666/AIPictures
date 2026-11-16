@@ -34,7 +34,7 @@ class H3ImageController:
         if w.custom_graph is not None:raise ValueError('H3图片使用独立工作流，请将后台预设恢复为自动选择。')
         from .prompt_language import texts
         positive,negative=texts(w)
-        if negative.strip():raise ValueError('H3图片没有独立反向条件，请将排除要求写入下方提示词。')
+        if negative.strip():raise ValueError('H3图片没有独立反向条件，请将排除要求写入提示词。')
         refs=w.reference_chat.references();seed=int(w.seed.text())
         if seed==-1:seed=secrets.randbelow(2**53)
         width,height=w.width.value(),w.height.value();h3.validate(width,height,seed,refs)

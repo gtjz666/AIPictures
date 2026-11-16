@@ -32,7 +32,7 @@ def main():
             w.reference_chat.remove(2);assert 3 in w.reference_chat.references() and 2 not in w.reference_chat.references()
             w.positive.setPlainText('Edit Image 1 using the art style of Image 16, preserving the pose of Image 1.')
             w.workbench.right_tabs.setCurrentIndex(1)
-            assert w.workbench.prepare_prompt.isVisible() and w.generate_button.isVisible()
+            assert not hasattr(w.workbench,'prepare_prompt') and w.positive.isVisible() and w.generate_button.isVisible()
             w.workbench.prompt_output.setPlainText(w.positive.toPlainText())
             w.negative.setPlainText('OLD HIDDEN NEGATIVE MUST NOT LEAK')
             assert w.generation_intent.current()
@@ -46,7 +46,7 @@ def main():
             frozen=params['positive'];w.workbench.prompt_output.setPlainText('Different request')
             assert params['positive']==frozen
             w.clear_pending();w.positive.setPlainText('Changed source requirement')
-            assert w.generation_intent.current() is None
+            assert w.generation_intent.current()['positive']=='Changed source requirement'
             assert not w.workbench.structure_row.isVisible()
         finally:w.close();QTest.qWait(40)
     print('Qt sixteen references / offline engine / exact binding / hidden-negative isolation / frozen job / stale draft: PASS')

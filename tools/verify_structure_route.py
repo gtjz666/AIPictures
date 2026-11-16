@@ -24,12 +24,11 @@ def main():
                 for p in refs:Image.new('RGB',(24,24),'blue').save(p)
                 w.reference_chat.import_images(refs);w.workbench.right_tabs.setCurrentIndex(1)
                 w.positive.setPlainText('将图1中的人物替换为图2中的角色，保持图1的姿势和构图')
-                w.workbench.prompt_output.setPlainText('An anime character, with geometry provided by the structure condition.')
                 c=w.generation_intent;assert c.current() and '图1' in w.workbench.structure_note.text()
-                w.workbench.subject_only.setChecked(False);assert c.current() is None
+                previous=c.signature();w.workbench.subject_only.setChecked(False);assert c.signature()!=previous
                 w.workbench.subject_only.setChecked(True);assert c.current()
                 w.workbench.structure_choice.setCurrentIndex(w.workbench.structure_choice.findData('off'))
-                assert c.current() is None
+                assert c.current()['source']['structure_binding'] is None
                 w.workbench.structure_choice.setCurrentIndex(0);assert c.current()
                 info=model_info();info['LoraLoaderModelOnly']={'input':{'required':{'lora_name':[[ADAPTER]]}}}
                 w.info=dict(object_info=info,nodes=list(info)+['CLIPTextEncode','LoadImage','SaveImage','VAEDecode']);w.connected=True
@@ -63,7 +62,7 @@ def main():
                     w.workbench.structure_choice.setCurrentIndex(w.workbench.structure_choice.findData('2'));release.set()
                     wait_until(lambda:not w.preparing)
                     assert not w.pending and '修改' in w.status.text()+w.intent_controller.note.text()+w.reference_chat.view.toPlainText()
-                    assert c.current() is None and w.progress.maximum()==100
+                    assert c.current()['source']['structure_choice']=='2' and w.progress.maximum()==100
                 w.workbench.select_category('long_video');assert not w.workbench.structure_row.isVisible()
             finally:w.close();QTest.qWait(40)
     print('Structure binding / actual queued graph / stale choice rejection: PASS',flush=True)

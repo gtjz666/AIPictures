@@ -53,8 +53,6 @@ class AudioWorkspace:
         self.kind.currentIndexChanged.connect(self.update_kind);self.prompt.textChanged.connect(self.update_kind);self.update_kind()
         self.prompt.setPlaceholderText('描述想要的配乐或游戏音效，例如：层层推进的史诗战斗配乐；或金属剑碰撞后短促清脆的回响。')
         self.note=QLabel();self.note.setWordWrap(True);right.addWidget(self.note)
-        from .audio_prompt_ui import AudioPromptController
-        self.prompt_tools=AudioPromptController(self,right)
         self.page.addWidget(self.left);self.page.addWidget(self.right);self.page.setStretchFactor(0,3);self.page.setStretchFactor(1,1)
         from PySide6.QtWidgets import QAbstractItemView
         self.history=QListWidget();self.history.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection);self.history.itemDoubleClicked.connect(self.open_history)
@@ -98,17 +96,15 @@ class AudioWorkspace:
         kind=self.effective_kind()
         config=self.config.get('woosh',{}) if kind=='sfx' else self.config
         if not config.get('validated'):raise ValueError('游戏音效模型尚未完成安装与验证。')
-        intent=getattr(w,'generation_intent',None);value=intent.current() if intent else None
-        if value:
-            prepared=dict(prompt=value['positive'],negative=value['negative'],source_brief=value['source']['requirement'],caption_english=value.get('english'),prompt_record=value['record'])
-            from .audio_prompt import fingerprint
-            prepared['caption_fingerprint']=fingerprint(prepared['prompt'],prepared['negative'])
-        else:prepared=self.prompt_tools.snapshot()
+        intent=getattr(w,'generation_intent',None)
+        prompt=intent.prompts()[0] if intent else self.prompt.toPlainText().strip()
+        if not prompt or len(prompt)>8000:raise ValueError('请填写8000字以内的音频提示词。')
+        prepared=dict(prompt=prompt,negative='',source_brief=prompt)
         seed=int(w.seed.text());seed=secrets.randbelow(2**53) if seed==-1 else seed
         if not 0<=seed<2**64:raise ValueError('种子范围不正确。')
         folder=self.data/'audio'/(datetime.now().strftime('%Y%m%d_%H%M%S_')+uuid4().hex[:8]);folder.mkdir(parents=True)
         params=dict(prepared,mode='audio',backend='standalone',seconds=self.seconds.value(),seed=seed,
-            audio_kind=kind,audio_settings=config.copy(),intent_settings=w.intent_controller.config,url=w.client.url if w.connected else None)
+            audio_kind=kind,audio_settings=config.copy(),url=w.client.url if w.connected else None)
         if intent:intent.record(params)
         write_json(folder/'job.json',dict(kind='audio',status='queued',params=params))
         item=QListWidgetItem('音频 · 等待');w.queue_list.addItem(item);w.pending.append((None,params,folder,item));w.start_next()
@@ -137,7 +133,6 @@ class AudioWorkspace:
         value=json.loads(Path(path).read_text('utf-8'))
         if value['status']!='completed':raise ValueError(value.get('error','音频尚未完成。'))
         self.player.stop();self.manifest=Path(path);self.audio=Path(value['audio']);self.player.setSource(QUrl.fromLocalFile(str(self.audio)))
-        self.prompt_tools.remember_caption(value.get('params',{}),value.get('caption'))
         for control in (self.play,self.slider,self.export):control.setEnabled(True)
         samples=read_audio(self.audio,value['duration_seconds']);mono=np.abs(samples).mean(axis=0)
         self.wave.values=np.array([np.max(chunk) for chunk in np.array_split(mono,400)]);self.wave.update()

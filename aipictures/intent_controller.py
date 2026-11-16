@@ -11,14 +11,13 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPlainTextEdit, QLabel,
                               QPushButton, QCheckBox, QComboBox, QMessageBox, QInputDialog,QLineEdit)
 
-from .local_intent import analyze, settings
 from .storage import write_json
 
 
 class IntentController:
     def __init__(self, window):
         self.window, self.data = window, window.api_controller.data
-        self.config = settings(self.data)
+        self.config = None  # Manual workflow does not load the retired assistant settings.
         self.running = False
         self.cancel_event = threading.Event()
         self.applied = None
@@ -46,7 +45,7 @@ class IntentController:
         layout.addWidget(self.input,1)
         self.send_shortcut = QShortcut(QKeySequence('Ctrl+Return'), self.input)
         self.send_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        self.send_shortcut.activated.connect(lambda:self.start(False))
+        self.send_shortcut.setEnabled(False)
         self.note = QLabel()
         self.note.setWordWrap(True); self.note.setTextFormat(Qt.TextFormat.PlainText)
         self.note.setObjectName('muted'); layout.addWidget(self.note); self.note.hide()
@@ -102,119 +101,7 @@ class IntentController:
             raise ValueError('创作要求已修改，但当前仍是旧自动稿。请重新生成提示词，或直接修改可见正反提示词后再生成。')
 
     def start(self, generate: bool, *, frame_only=False, motion_detail=False):
-        w = self.window
-        if hasattr(w,'generation_intent'):
-            w.generation_intent.prepare();return
-        if hasattr(w,'short_video') and w.short_video.active():
-            w.short_video.prepare();return
-        if hasattr(w,'reference_chat') and w.reference_chat.extra and w.generation_type.currentData()=='walk' and not w.video_controller.motion.path:
-            self.notify('多图组合目前用于单张图片。可先生成角色替换后的图片，再将成品用于动画；动画入口仍只支持一张角色图与动作素材。');return
-        if frame_only or motion_detail:
-            self.notify('动画内容分析已停用，请在动画页手动填写动作时段。');return
-        if self.running or w.preparing:
-            self.notify('请等待素材准备或识别结束。'); return
-        if w.current or w.pending:
-            self.notify('请等待当前任务完成。'); return
-        if not self.config:
-            self.notify('本地识别模型不可用。'); return
-        if w.custom_graph is not None:
-            self.notify('请先将后台预设恢复为自动选择。'); return
-        manual_timeline=[]
-        if hasattr(w,'workbench') and w.generation_type.currentData()=='walk' and not getattr(w.workbench,'reference_skinning',False):
-            try:manual_timeline=w.workbench.timeline.effective_rows()
-            except ValueError as exc:self.notify(str(exc));return
-        manual=w.positive.toPlainText()
-        if hasattr(w,'workbench'):
-            suffix=w.workbench.timeline.suffix
-            if suffix and suffix in manual:manual=manual.replace(suffix,'',1)
-        manual=manual.strip()
-        if manual==self.generated_positive:manual=self.original_brief
-        chat=self.input.toPlainText().strip()
-        brief = chat if chat and chat!=self.original_brief else manual or chat
-        if hasattr(w,'workbench') and getattr(w.workbench,'reference_skinning',False) and w.generation_type.currentData()=='image':
-            brief=manual
-        if not brief and (w.reference_path or w.video_controller.motion.path):
-            brief = '依据已提供素材制作动画，外观与动作各按其参考用途。' if w.generation_type.currentData()=='walk' else '依据参考图整理主体外观、画风与构图，生成单张图片。'
-        if not brief:
-            self.notify('请描述想生成的内容。'); return
-        folder = self.data/'intent'/(datetime.now().strftime('%Y%m%d_%H%M%S_')+uuid4().hex[:8])
-        reference = Path(w.reference_path) if w.reference_path else None
-        reference_usage=self.role_note.text().strip() if self.role.currentData()=='custom' else ''
-        if reference and self.role.currentData()=='custom' and not reference_usage:
-            self.notify('请填写参考图的自定义用法，例如哪些部分保留、哪些部分改变。');return
-        motion = w.video_controller.motion
-        motion_path = Path(motion.path) if motion.path and w.generation_type.currentData() == 'walk' else None
-        kwargs = dict(selected_kind='animation' if w.generation_type.currentData()=='walk' else 'image',
-                      role=self.role.currentData(), start=motion.start.value(), seconds=w.video_controller.seconds.value(),
-                      output_seconds=w.video_controller.seconds.value(),reference_usage=reference_usage)
-        if motion_path:
-            kwargs.update(output_start=motion.start.value(),motion_repeat=motion.repeat.isChecked(),describe_motion=False)
-        negative = w.negative.toPlainText()
-        if negative == self.generated_negative:
-            negative = self.original_negative
-        initial = self.fingerprint()
-        multi=hasattr(w,'reference_chat') and w.reference_chat.active()
-        references=w.reference_chat.references() if hasattr(w,'reference_chat') else {1:reference} if reference else {}
-        # The reference requirement is a single current instruction, not a
-        # hidden conversation whose earlier requests could change its meaning.
-        history=[]
-        self.last_attempt=folder
-        self.running = w.preparing = True; self.cancel_event.clear()
-        w.generate_button.setEnabled(False)
-        for button in self.prompt_actions:button.setEnabled(False)
-        w.task_display.start(); w.progress.setRange(0, 0)
-        self.notify(''); w.status.setText('正在识别生成需求…')
-        if hasattr(w,'reference_chat'):w.reference_chat.append('你',brief)
-        def run(emit):
-            if w.connected:
-                queue = w.client.request('/queue')
-                if queue.get('queue_running') or queue.get('queue_pending'):
-                    raise ValueError('ComfyUI仍有生成任务，请等队列完成再识别。')
-                from .engine_service import release_idle_models
-                release_idle_models(w.client)
-            from .professional_prompt import organize
-            return organize(self.config,brief,negative,references,motion_path,folder,self.cancel_event,emit,**kwargs)
-        def finish(kind, data):
-            if kind == 'intent_stage':
-                w.status.setText(data['message']); return
-            if kind not in ('result', 'error', 'cancelled'):
-                return
-            unchanged = self.fingerprint() == initial
-            applied=kind=='result' and unchanged and not self.cancel_event.is_set() and not data['plan']['questions']
-            write_json(folder/'application.json',dict(status='applied' if applied else 'stale' if kind=='result' and not unchanged else kind,
-                input_unchanged=unchanged,cancelled=self.cancel_event.is_set(),initial_fingerprint=initial,current_fingerprint=self.fingerprint()))
-            self.running = w.preparing = False
-            for button in self.prompt_actions:button.setEnabled(True)
-            w.progress.setRange(0, 100); w.progress.setValue(100 if kind=='result' else 0)
-            w.task_display.finish('completed' if kind=='result' else 'cancelled' if self.cancel_event.is_set() else 'failed')
-            w.generation_type_changed()
-            if kind != 'result':
-                self.notify('识别已取消，原输入保留。' if self.cancel_event.is_set() else '识别未完成：'+str(data))
-                w.status.setText(self.note.text()); w.add_chat('软件', self.note.text())
-                if hasattr(w,'reference_chat'):w.reference_chat.append('软件',self.note.text())
-            elif self.cancel_event.is_set():
-                self.notify('已取消；识别结果未应用。')
-            elif not unchanged:
-                self.unapplied_result=True
-                self.notify('输入已修改，请重新整理。')
-            elif data['plan']['questions']:
-                self.notify('需要补充：'+'；'.join(data['plan']['questions']))
-                w.add_chat('软件', self.note.text()); w.status.setText('请在需求栏补充后重新发送。')
-                if hasattr(w,'reference_chat'):w.reference_chat.append('软件',self.note.text())
-            else:
-                self.original_negative = negative
-                self.original_brief = brief
-                self.current_record=folder
-                self.apply(data,manual_timeline=manual_timeline)
-                self.notify('')
-                w.add_chat('你', brief, str(reference) if reference else None)
-                w.add_chat('软件', data['plan']['summary'], job=str(folder))
-                if hasattr(w,'reference_chat'):w.reference_chat.append('软件',data['plan']['summary']+'\n已更新中文正反提示词，可点击查看／编辑提示词。')
-                w.status.setText('需求识别完成')
-                if generate:
-                    QTimer.singleShot(0, w.enqueue)
-            QTimer.singleShot(0, w.start_next)
-        w.launch(run, finish)
+        self.window.status.setText('请直接填写提示词，再点击生成。')
 
     def apply(self, result, *, manual_timeline=None):
         w = self.window; plan = result['plan']

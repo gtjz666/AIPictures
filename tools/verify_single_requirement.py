@@ -1,102 +1,69 @@
-"""Separate preparation/review/production, frozen inputs and stale-result protection."""
-import argparse
-import json
-import tempfile
-import threading
-from pathlib import Path
+"""Actual Qt manual prompt workflow across images, animation, CG and audio."""
+import argparse,json,tempfile
 from contextlib import ExitStack
+from pathlib import Path
 from unittest.mock import patch
 from PIL import Image
-from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QDialog
+from PySide6.QtWidgets import QPushButton
 from aipictures.app import Window,create_application
-from aipictures.audio_prompt import fingerprint
 from aipictures.storage import write_json
-from tools.verify_dock_workspace import wait_until
 
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--proof',type=Path);args=parser.parse_args()
     if args.proof:args.proof.mkdir(parents=True,exist_ok=True)
     app=create_application([])
-    with tempfile.TemporaryDirectory() as temporary,ExitStack() as cleanup,patch('aipictures.app.DATA',Path(temporary)/'data'), \
-            patch.object(Window,'auto_connect_engine'),patch.object(Window,'restore_chat'),patch.object(Window,'refresh_stats'), \
-            patch('aipictures.motion_native_backend.release_shared'),patch('aipictures.intent_observation.observe',side_effect=AssertionError('No image analysis')):
-        w=Window();cleanup.callback(lambda:(w.close(),QTest.qWait(40)));w.timer.stop();w.resize(1440,940);w.show();QTest.qWait(40)
-        root=Path(temporary);source=root/'character.png';Image.new('RGB',(16,24),'yellow').save(source);w.set_reference(str(source))
-        w.intent_controller.config={'fixture':True};w.audio_controller.config={'validated':True};vc=w.video_controller
-        vc.h3={'validated':True};vc.long_ready=True
-        c=w.generation_intent;calls=[]
-        # Retired hidden controls must never add invisible constraints or gates.
-        w.intent_controller.role.setCurrentIndex(w.intent_controller.role.findData('custom'));w.intent_controller.role_note.clear()
-        def organize(config,brief,negative,refs,motion,folder,cancel,emit,**kwargs):
-            calls.append((brief,refs,kwargs));return dict(plan=dict(positive_prompt='整理：'+brief,negative_prompt=''),english=dict(positive='Prepared request: '+brief,negative=''))
-        def music(config,brief,seconds,*args,**kwargs):
-            positive='音乐整理：'+brief;return dict(positive_prompt=positive,negative_prompt='不要杂音',english_caption='Clear instrumental music, no artifacts.',caption_fingerprint=fingerprint(positive,'不要杂音'))
-        with patch('aipictures.professional_prompt.organize',side_effect=organize),patch('aipictures.reference_prompt.organize',side_effect=organize),patch('aipictures.audio_prompt.organize',side_effect=music):
-            for kind in ('image','animation','video','audio'):
-                w.workbench.select_category('audio' if kind=='audio' else 'long_video' if kind=='video' else 'sprite')
-                if kind in ('image','animation'):w.workbench.sprite_mode.setCurrentIndex(0 if kind=='image' else 1)
-                w.workbench.right_tabs.setCurrentWidget(w.workbench.animation);QTest.qWait(20)
-                brief={'image':'将图1的人物改成双手抱头，保留外形','animation':'先抱头惊叹，然后捧腹大笑，最后躺地打滚','video':'下一段镜头向右移动，不重复开场','audio':'舒缓又有淡淡悲伤的钢琴音乐'}[kind]
-                editor=c.editor();editor.setPlainText(brief);w.negative.setPlainText('旧的紫发站姿与错误反词')
-                with patch.object(w,'enqueue') as submit:
-                    c.prepare();wait_until(lambda:not c.running);QTest.qWait(30)
-                    assert submit.call_count==0 and editor.toPlainText()==brief
-                assert w.workbench.prompt_output.isVisible() and w.workbench.prepare_prompt.isVisible()
-                assert w.workbench.prompt_output.toPlainText() and not c.intercept()
-                prepared=c.current();assert prepared and prepared['source']['requirement']==brief
-                assert prepared['source']['role']=='appearance' and not prepared['source']['usage']
-                params={};c.record(params);assert params['user_prompt']==brief and params['source_brief']==brief and params['user_negative']==''
-                assert '旧的紫发' not in c.prompts()[0]+c.prompts()[1]
-                assert w.progress.maximum()==100 and not w.task_display.clock.isActive()
-                assert w.generate_button.isVisible() and not w.negative.isVisible() and not w.intent_controller.input.isVisible()
-                if kind in ('animation','video'):
-                    with patch.object(vc,'enqueue') as enqueue:assert vc.intercept()
-                    frozen=enqueue.call_args.args[0];assert brief in frozen['prompt'] and frozen['negative']==''
-                    assert frozen['motion_timeline']==[]
-                    if kind=='video':assert frozen['manual_segments'] and not frozen['continue_from']
-                if kind=='audio':
-                    with patch.object(w,'start_next'):w.audio_controller.enqueue()
-                    frozen=w.pending[-1][1];assert frozen['source_brief']==brief and frozen['caption_english']=='Clear instrumental music, no artifacts.'
-                    w.pending.clear()
-                if args.proof:w.grab().save(str(args.proof/(kind+'.png')))
-            # A manual prompt is authoritative; generating must not analyze again.
-            w.workbench.prompt_output.setPlainText('Soft solo piano, restrained dynamics, a gentle wistful melody.')
-            assert not c.intercept() and c.prompts()[0].startswith('Soft solo piano')
-        # Editing during preprocessing must never send the previous requirement.
-        started=threading.Event();release=threading.Event();previous=c.prepared
-        w.workbench.select_category('sprite');w.workbench.sprite_mode.setCurrentIndex(0);w.positive.setPlainText('第一份请求');previous=c.prepared
-        # Hand edits only translate their current text at production, never re-read images.
-        w.workbench.prompt_output.setPlainText('紫发角色双手抱头')
-        with patch('aipictures.prompt_language.translate',return_value=dict(positive='A purple-haired character holding both hands on her head.',negative='')) as translate,patch.object(w,'enqueue') as submit:
-            assert c.intercept();wait_until(lambda:not c.running);QTest.qWait(20)
-            assert submit.call_count==1 and translate.call_args.args[1]=='紫发角色双手抱头'
-            assert c.current()['english']['positive'].startswith('A purple-haired')
-        w.workbench.prompt_output.setPlainText('采用图4的画风')
+    with tempfile.TemporaryDirectory() as temporary,ExitStack() as cleanup:
+        data=Path(temporary)/'data'
+        for target in ('aipictures.app.DATA','aipictures.storage.DATA'):cleanup.enter_context(patch(target,data))
+        for method in ('auto_connect_engine','restore_chat','refresh_stats'):cleanup.enter_context(patch.object(Window,method))
+        for target in ('aipictures.local_intent.LocalSession.__enter__','aipictures.audio_prompt.TextSession.__enter__','aipictures.prompt_language.translate'):
+            cleanup.enter_context(patch(target,side_effect=AssertionError('Manual generation must never call an assistant')))
+        w=Window();cleanup.callback(lambda:(w.close(),QTest.qWait(40)));w.timer.stop();w.resize(1440,940);w.show();QTest.qWait(60)
+        source=Path(temporary)/'reference.png';Image.new('RGB',(64,96),'yellow').save(source);w.set_reference(source)
+        assert w.intent_controller.config is None and not hasattr(w.workbench,'prepare_prompt')
+        assert not hasattr(w.audio_controller,'prompt_tools')
+        vc=w.video_controller;vc.h3={'validated':True};vc.long_ready=True
+        audio=w.audio_controller;audio.config={'validated':True,'woosh':{'validated':True}}
+        intent=w.generation_intent;proofs=[]
+        for category,mode,brief in [('sprite','image','居中木箱，蓝色水彩。'),('sprite','walk','角色向前行走，然后停下。'),('long_video',None,'古堡大门开启，镜头向前推进。'),('audio','music','低沉弦乐开场，铜管层层推进，无人声。'),('audio','sfx','两次清脆的金属撞击，短促回响。')]:
+            w.workbench.select_category(category)
+            if category=='sprite':w.workbench.sprite_mode.setCurrentIndex(w.workbench.sprite_mode.findData(mode))
+            if category=='audio':audio.kind.setCurrentIndex(audio.kind.findData(mode))
+            w.workbench.right_tabs.setCurrentIndex(1);intent.editor().setPlainText(brief);QTest.qWait(30)
+            assert intent.editor().isVisible() and w.generate_button.isVisible()
+            assert not any(b.isVisible() for b in w.findChildren(QPushButton) if b.objectName()=='promptGenerate')
+            assert intent.prompts()==(brief,'') and not intent.intercept()
+            contract=intent.current();assert contract['manual'] and not contract['professionalized'] and contract['english'] is None
+            w.negative.setPlainText('OLD HIDDEN WORDS MUST NOT LEAK')
+            params={};intent.record(params);assert params['user_prompt']==brief and params['user_negative']==''
+            if category=='audio':
+                with patch.object(w,'start_next'):audio.enqueue()
+                params=w.pending[-1][1];assert params['prompt']==brief and not params['negative']
+                assert 'intent_settings' not in params and 'caption_english' not in params
+                w.clear_pending()
+            elif mode=='walk' or category=='long_video':
+                with patch.object(vc,'enqueue') as queue:assert vc.intercept()
+                params=queue.call_args.args[0];assert params['prompt']==brief and params['negative']=='' and not params['motion_timeline']
+                if category=='long_video':assert params['manual_segments'] and not params['continue_from']
+            frozen=json.loads(json.dumps(params));intent.editor().setPlainText(brief+'改为新的要求。')
+            assert intent.current()['positive']==brief+'改为新的要求。' and params==frozen
+            intent.editor().setPlainText(brief)
+            assert not w.preparing and not w.current and not w.pending and not w.task_display.clock.isActive()
+            if args.proof:w.grab().save(str(args.proof/(category+'-'+str(mode)+'.png')))
+            proofs.append(dict(category=category,mode=mode,prompt=brief,manual_only=True))
+        w.workbench.select_category('sprite');w.workbench.sprite_mode.setCurrentIndex(0)
+        assert w.positive.toPlainText()=='居中木箱，蓝色水彩。'
+        w.positive.setPlainText('采用图4的画风')
         import pytest
-        with pytest.raises(ValueError,match='图4'):c.intercept()
-        w.workbench.prompt_output.setPlainText('紫发角色双手抱头');previous=c.prepared
-        def delayed(*args,**kwargs):started.set();assert release.wait(10);return organize(*args,**kwargs)
-        with patch('aipictures.reference_prompt.organize',side_effect=delayed),patch.object(w,'enqueue') as submit:
-            c.prepare();wait_until(started.is_set);w.positive.setPlainText('用户中途改成第二份请求');release.set();wait_until(lambda:not c.running);QTest.qWait(20)
-            assert submit.call_count==0 and c.prepared==previous and c.current() is None
-        import pytest
-        with pytest.raises(ValueError,match='修改'):c.intercept()
-        w.workbench.prompt_output.clear()
-        with pytest.raises(ValueError,match='生成提示词'):c.intercept()
-        # Closing the export picker must stop protecting a completed boat cache.
-        boat=w.api_controller.data/'videos'/'boat';boat.mkdir(parents=True);write_json(boat/'video.json',dict(status='completed',params=dict(prompt='船')))
-        picker=QDialog(w);picker.manifest=boat/'video.json';picker.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose);w.frame_selection_dialog=picker;picker.show();picker.close();QTest.qWait(30)
-        vc.refresh_history();item=w.assets_dialog.videos.item(0);item.setSelected(True);w.clear_result_cache('video');wait_until(lambda:not w.cache_busy)
-        assert not boat.exists()
-        assert all(w.assets_dialog.tabs.tabText(i) not in ('已保存文件','素材文件夹') for i in range(w.assets_dialog.tabs.count()))
-        assert not w.assets_dialog.cache_status.isVisible()
-        if args.proof:write_json(args.proof/'acceptance.json',dict(explicit_prompt_preparation_all_modes=True,editable_prompt_below=True,old_negative_not_submitted=True,
-            original_text_preserved=True,no_visual_analysis=True,manual_one_segment=True,no_hidden_timeline=True,stale_result_not_submitted=True,
-            busy_progress_finishes=True,closed_picker_cache_deletion=True,music_video_inference=False))
-    print('Single request / all modes / frozen instructions / no visual analysis / progress / cache: PASS')
+        with pytest.raises(ValueError,match='图4'):intent.intercept()
+        w.positive.clear()
+        with pytest.raises(ValueError,match='填写提示词'):intent.intercept()
+        w.intent_controller.start(False);w.short_video.prepare();assert not w.preparing
+        assert not (data/'intent').exists()
+        if args.proof:write_json(args.proof/'acceptance.json',dict(cases=proofs,assistant_used=False,model_inference=False,missing_reference_rejected=True,frozen_jobs=True,mode_drafts=True))
+    print('Manual Qt prompts in every category / no assistant or translation / frozen jobs / mode drafts: PASS')
 
 
 if __name__=='__main__':main()

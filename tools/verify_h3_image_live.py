@@ -26,7 +26,6 @@ def main():
     c=json.loads(a.machine.read_text('utf-8'));c.update(validated=True,validation_scope='isolated production acceptance, not installed')
     c['encoder']['sha256']='35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6'
     write_json(data/'h3-image-settings.json',c)
-    shutil.copyfile(a.data/'local-intent-settings.json',data/'local-intent-settings.json')
     cases=json.loads(a.plan.read_text('utf-8'));write_json(root/'plan.json',cases)
     app=create_application([])
     with ExitStack() as cleanup,patch('aipictures.app.DATA',data),patch('aipictures.storage.DATA',data), \
@@ -43,13 +42,12 @@ def main():
             assert not w.reference_chat.structural_binding() and not w.workbench.structure_row.isVisible()
             w.positive.setPlainText(case['requirement']);w.seed.setText(str(case['seed']))
             w.workbench.right_tabs.setCurrentIndex(1)
-            assert w.workbench.prepare_prompt.isVisible() and w.generate_button.isVisible()
+            assert w.positive.isVisible() and w.generate_button.isVisible() and not w.intent_controller.config
             if 'width' in case:w.width.setValue(case['width']);w.height.setValue(case['height'])
             w.output_background.setCurrentIndex(w.output_background.findData('preserve'))
-            print('PREPARING',case['id'],w.width.value(),w.height.value(),flush=True)
-            w.workbench.prepare_prompt.click();wait(lambda:not w.preparing,600)
-            prepared=w.generation_intent.current();assert prepared and prepared['english'],w.status.text()
-            assert not w.current and not w.pending,'prepare must not generate an image'
+            prepared=w.generation_intent.current();assert prepared and not prepared['english'],w.status.text()
+            assert prepared['positive']==case['requirement'] and prepared['manual']
+            assert not w.current and not w.pending
             assert not w.task_display.clock.isActive() and w.progress.maximum()==100
             write_json(root/(case['id']+'-prepared.json'),prepared);w.grab().save(str(root/(case['id']+'-prompt-ui.png')))
             print('GENERATING',case['id'],flush=True)
@@ -57,6 +55,9 @@ def main():
             w.generate_button.click();QTest.qWait(80);wait(lambda:not w.preparing and w.current is None and not w.pending,1800)
             created=set((data/'jobs').glob('*/job.json'))-before;assert len(created)==1,w.status.text()
             path=created.pop();job=json.loads(path.read_text('utf-8'));assert job['status']=='completed',job
+            from aipictures.h3_image import instruction
+            assert job['params']['positive']==instruction(case['requirement'],{i+1:p for i,p in enumerate(case['references'])})
+            assert not (data/'intent').exists()
             result=json.loads((path.parent/'result.json').read_text('utf-8'))
             for n in ('encode','sample','decode'):
                 process=json.loads((path.parent/n/'process.json').read_text('utf-8'));assert process['status']=='stopped'
@@ -65,7 +66,7 @@ def main():
             assert not w.task_display.clock.isActive() and w.progress.maximum()==100 and w.progress.value()==100
             assert w.output==result['images'][0]
             shutil.copyfile(w.output,root/(case['id']+'-output.png'));w.grab().save(str(root/(case['id']+'-result-ui.png')))
-            rows.append(dict(id=case['id'],job=str(path),result=result,original_hashes=originals,actual_qt=True,actual_models=True,separate_buttons=True,shared_engine_required=False))
+            rows.append(dict(id=case['id'],job=str(path),result=result,original_hashes=originals,actual_qt=True,actual_models=True,manual_prompt=True,assistant_used=False,shared_engine_required=False))
             write_json(root/'acceptance.json',rows);print('COMPLETED',case['id'],flush=True)
 
 

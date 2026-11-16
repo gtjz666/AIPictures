@@ -13,12 +13,12 @@ class ApiDialog(QDialog):
     def __init__(self, controller):
         super().__init__(controller.window)
         self.controller = controller
-        self.setWindowTitle('API 与智能生图')
+        self.setWindowTitle('图片 API')
         self.resize(610, 740)
         self.fields = {}
         self.check_cancel = None
         layout = QVBoxLayout(self)
-        heading = QLabel('选择云端图片模型，或让大模型辅助本地生成')
+        heading = QLabel('选择本地生成或云端图片模型，直接使用填写的提示词')
         heading.setWordWrap(True)
         layout.addWidget(heading)
         self.backend = QComboBox()
@@ -26,7 +26,7 @@ class ApiDialog(QDialog):
         self.backend.addItem('云端图片 API 生图（不需要本地大模型）', 'api')
         layout.addWidget(self.backend)
         self.smart = QCheckBox('先用理解模型整理提示词（可选，增加一次 API 调用）')
-        layout.addWidget(self.smart)
+        self.smart.hide()
         tabs = QTabWidget()
         layout.addWidget(tabs, 1)
         for role, title in (('image','云端生图'),('planner','智能理解 · 可选')):
@@ -97,9 +97,10 @@ class ApiDialog(QDialog):
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
             scroll.setWidget(page)
-            tabs.addTab(scroll,title)
-        note = QLabel('云端生图使用支持图片输出的模型；DeepSeek 等聊天 Key 可用于理解需求。'
-            '当前 API 版本支持单张图，动画仍使用本地完整骨骼。\n'
+            if role=='image':tabs.addTab(scroll,title)
+            else:scroll.setParent(self);scroll.hide()
+        note = QLabel('云端生图使用支持图片输出的模型，提示词直接提交。'
+            '当前 API 版本支持单张图，动画使用本地视频模型。\n'
             '文字和所选参考图会发往这里填写的服务，按平台计费。普通图片 API 不接入本地 LoRA、CFG 或采样器；'
             '不支持独立反向词时，会将反向内容作为文字约束。')
         note.setWordWrap(True)
@@ -121,7 +122,7 @@ class ApiDialog(QDialog):
     def reload(self):
         settings = self.controller.settings
         self.backend.setCurrentIndex(self.backend.findData(settings.backend))
-        self.smart.setChecked(settings.smart)
+        self.smart.setChecked(False)
         for role, values in self.fields.items():
             endpoint = settings.endpoints[role]
             values['url'].setText(endpoint.base_url)
