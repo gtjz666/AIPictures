@@ -2,6 +2,7 @@
 extends EditorPlugin
 
 const DragAsset: GDScript = preload("asset_drag.gd")
+const BlueprintWindow: GDScript = preload("blueprint_window.gd")
 var dock: VBoxContainer
 var application: LineEdit
 var kind: OptionButton
@@ -11,10 +12,8 @@ var refresh_timer: Timer
 var chooser: FileDialog
 var known_catalog: PackedStringArray = []
 var catalog_initialized: bool = false
-var blueprint: AcceptDialog
-var binding_node: Node
-var binding_property: String = ""
-var binding_button: Button
+var blueprint: Window
+
 
 
 func _enter_tree() -> void:
@@ -45,12 +44,6 @@ func _enter_tree() -> void:
 	chooser.dir_selected.connect(func(path: String) -> void:
 		application.text = path
 		EditorInterface.get_editor_settings().set_project_metadata("ali_assets", "application_root", path))
-	chooser = FileDialog.new()
-	chooser.access = FileDialog.ACCESS_FILESYSTEM
-	chooser.file_mode = FileDialog.FILE_MODE_OPEN_DIR
-	dock.add_child(chooser)
-	browse.pressed.connect(func() -> void: chooser.popup_centered_ratio(0.65))
-	chooser.dir_selected.connect(func(path: String) -> void: application.text = path)
 	kind = OptionButton.new()
 	for title: String in ["图片", "精灵动画", "游戏音效", "背景配乐"]:
 		kind.add_item(title)
@@ -60,7 +53,7 @@ func _enter_tree() -> void:
 	open_button.pressed.connect(open_generator)
 	dock.add_child(open_button)
 	var edit_character: Button = Button.new()
-	edit_character.text = "选中角色：动作／键位蓝图…"
+	edit_character.text = "角色蓝图工作台…"
 	edit_character.pressed.connect(open_blueprint)
 	dock.add_child(edit_character)
 	set_process_input(true)
@@ -147,63 +140,27 @@ func _exit_tree() -> void:
 
 
 func open_blueprint() -> void:
+	if not is_instance_valid(blueprint):
+		blueprint = BlueprintWindow.new()
+		dock.add_child(blueprint)
+		blueprint.connect("graph_applied", apply_blueprint)
 	var selected: Array[Node] = EditorInterface.get_selection().get_selected_nodes()
-	if selected.size() != 1 or not "key_left" in selected[0]:
-		status.text = "请选中导出的角色根节点，再打开蓝图。"
-		return
-	binding_node = selected[0]
-	binding_property = ""
-	if is_instance_valid(blueprint):
-		blueprint.queue_free()
-	blueprint = AcceptDialog.new()
-	blueprint.title = "角色动作与键位蓝图"
-	var content: VBoxContainer = VBoxContainer.new()
-	blueprint.add_child(content)
-	var hint: Label = Label.new()
-	hint.text = "点击键位按钮后按新键。保存场景即可保留。\n动作动画在AnimatedSprite2D中编辑；攻击／跳跃／受击／死亡可连接角色信号。"
-	content.add_child(hint)
-	for entry: Array in [["左移", "key_left"], ["右移", "key_right"], ["上移", "key_up"], ["下移", "key_down"], ["奔跑", "key_run"], ["跳跃", "key_jump"], ["攻击", "key_attack"]]:
-		var button: Button = Button.new()
-		var property: String = str(entry[1])
-		button.text = str(entry[0]) + "：" + OS.get_keycode_string(int(binding_node.get(property)))
-		button.pressed.connect(func() -> void:
-			binding_property = property
-			binding_button = button
-			button.text = "请按新键…")
-		content.add_child(button)
-	var speed_row: HBoxContainer = HBoxContainer.new()
-	var speed_label: Label = Label.new()
-	speed_label.text = "移动速度"
-	speed_row.add_child(speed_label)
-	var speed_input: SpinBox = SpinBox.new()
-	speed_input.min_value = 1.0
-	speed_input.max_value = 2000.0
-	speed_input.value = float(binding_node.get("speed"))
-	speed_input.value_changed.connect(func(value: float) -> void: set_blueprint_property("speed", value))
-	speed_row.add_child(speed_input)
-	content.add_child(speed_row)
-	dock.add_child(blueprint)
-	blueprint.confirmed.connect(func() -> void: binding_property = "")
-	blueprint.canceled.connect(func() -> void: binding_property = "")
-	blueprint.popup_centered(Vector2i(520, 460))
+	if selected.size() == 1:
+		blueprint.call("bind_character", selected[0])
+	blueprint.popup_centered(Vector2i(1280, 820))
 
 
-func set_blueprint_property(property: String, value: Variant) -> void:
-	if not is_instance_valid(binding_node):
+func apply_blueprint(data: Dictionary) -> void:
+	var character: Node = blueprint.get("target") as Node
+	if not is_instance_valid(character):
 		return
 	var undo: EditorUndoRedoManager = get_undo_redo()
-	undo.create_action("AlI角色蓝图：" + property)
-	undo.add_do_property(binding_node, property, value)
-	undo.add_undo_property(binding_node, property, binding_node.get(property))
+	undo.create_action("AlI应用角色蓝图", UndoRedo.MERGE_DISABLE, character)
+	var values: Dictionary = {"blueprint": data, "use_project_actions": false,
+		"four_way": data["settings"]["mode"] == "four_way", "platformer": data["settings"]["mode"] == "platformer"}
+	for property: String in ["speed", "run_multiplier", "gravity", "jump_velocity"]:
+		values[property] = data["settings"][property]
+	for property: String in values:
+		undo.add_do_property(character, property, values[property])
+		undo.add_undo_property(character, property, character.get(property))
 	undo.commit_action()
-
-
-func _input(event: InputEvent) -> void:
-	if binding_property.is_empty() or not is_instance_valid(blueprint) or not blueprint.visible:
-		return
-	if event is InputEventKey and event.pressed and not event.echo:
-		set_blueprint_property(binding_property, event.physical_keycode)
-		set_blueprint_property("use_project_actions", false)
-		binding_button.text = binding_property.trim_prefix("key_") + "：" + OS.get_keycode_string(event.physical_keycode)
-		binding_property = ""
-		get_viewport().set_input_as_handled()

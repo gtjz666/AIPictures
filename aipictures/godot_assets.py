@@ -30,7 +30,8 @@ def install_addon(project,application):
     source=ADDON/'addons'/'ali_assets'
     # Existing installations may contain user edits; keep a complete file backup.
     backup=root/'.aipictures'/('addon_backup_'+uuid4().hex[:8])
-    for p in source.iterdir():
+    # Publish preloaded dependencies before the entry script (an open editor may reload it).
+    for p in sorted(source.iterdir(),key=lambda p:(p.name=='plugin.gd',p.name)):
         if not p.is_file() or p.suffix not in ('.gd','.cfg'):continue
         out=target/p.name
         if not out.resolve().is_relative_to(root) or out.is_symlink():raise ValueError('插件文件路径被重定向。')
@@ -102,6 +103,8 @@ def export_asset(project,name,preset,animations=None,*,image=None,audio=None,fps
     moving=preset in ('two_way','four_way','platformer')
     if moving:
         shutil.copy2(ADDON/'runtime'/'player.gd',folder/'player.gd');ext('Script',base+'/player.gd','player')
+        shutil.copy2(ADDON/'runtime'/'blueprint_runtime.gd',folder/'blueprint_runtime.gd')
+        shutil.copy2(ADDON/'addons'/'ali_assets'/'blueprint_model.gd',folder/'blueprint_model.gd')
         resources.append('[sub_resource type="CircleShape2D" id="body_shape"]\nradius = '+str(max(2,size[0]/6)))
         node=['[node name="GeneratedCharacter" type="CharacterBody2D"]','texture_filter = 1','motion_mode = 1','script = ExtResource("player")','four_way = '+str(preset=='four_way').lower(),
             '[node name="CollisionShape2D" type="CollisionShape2D" parent="."]','shape = SubResource("body_shape")']

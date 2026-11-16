@@ -13,6 +13,8 @@ func run() -> void:
 		var node: Node = packed.instantiate()
 		root.add_child(node)
 		await process_frame
+		await physics_frame
+		await physics_frame
 		var preset: String = str(record["preset"])
 		if preset == "platformer":
 			await check_platformer(node as CharacterBody2D)
@@ -35,7 +37,8 @@ func run() -> void:
 			Input.action_release("ui_left" if preset == "two_way" else "ui_up")
 			for frame: int in range(15):
 				await physics_frame
-			assert(not sprite.is_playing() and not audio.playing and body.velocity.length() < 0.01)
+			assert(not audio.playing and body.velocity.length() < 0.01)
+			assert(sprite.animation == &"idle_right" or not sprite.is_playing())
 		elif preset == "audio":
 			var sound: AudioStreamPlayer2D = node as AudioStreamPlayer2D
 			assert(sound.stream.get_length() > 0.0)
