@@ -40,8 +40,12 @@ def check(cancel):
 
 
 class Session:
+    node_package='aipictures_image_probe'
+    required_nodes={'MiniMaxH3ImageConditioning','AIPicturesSaveConditioning','AIPicturesLoadConditioning'}
+    event_prefix='h3_image'
+    label='H3图片'
     def __init__(self,config,folder,cancel,emit):
-        self.config=config;self.folder=Path(folder);self.cancel=cancel;self.emit=emit
+        self.config=config;self.folder=Path(folder).resolve();self.cancel=cancel;self.emit=emit
         self.owner=self.child=self.log=None;self.stop=threading.Event();self.watcher=None
 
     def __enter__(self):
@@ -53,7 +57,7 @@ class Session:
         command=[c['python'],'-u','-m','main','--listen','127.0.0.1','--port',str(port),
             '--extra-model-paths-config',c['model_paths'],'--input-directory',str(self.input),'--output-directory',str(self.output),
             '--user-directory',str(self.folder/'user'),'--database-url','sqlite:///'+(self.folder/'user/comfyui.db').as_posix(),
-            '--disable-all-custom-nodes','--whitelist-custom-nodes','aipictures_image_probe','--disable-api-nodes','--disable-auto-launch',
+            '--disable-all-custom-nodes','--whitelist-custom-nodes',self.node_package,'--disable-api-nodes','--disable-auto-launch',
             '--disable-dynamic-vram','--disable-async-offload','--disable-pinned-memory','--disable-smart-memory','--cache-none','--reserve-vram','3.0']
         write_json(self.folder/'command.json',dict(command=command,cwd=c['source'],stream_weights=True),durable=True)
         self.log=(self.folder/'backend.log').open('w',encoding='utf-8')
@@ -62,7 +66,7 @@ class Session:
                 stdout=self.log,stderr=subprocess.STDOUT,creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0,
                 env=dict(os.environ,PYTHONUTF8='1',HF_HUB_OFFLINE='1',AIPICTURES_STREAM_WEIGHTS='1'))
             self.owner=OwnedProcessJob(self.child.pid)
-            self.emit('h3_image_process',dict(pid=self.child.pid,owner=self.owner))
+            self.emit(self.event_prefix+'_process',dict(pid=self.child.pid,owner=self.owner))
             self.child.stdin.write(b'go\n');self.child.stdin.flush();self.child.stdin.close()
             def watch():
                 while not self.stop.wait(.2):
@@ -72,13 +76,12 @@ class Session:
             deadline=time.monotonic()+240
             while True:
                 check(self.cancel)
-                if self.child.poll() is not None:raise RuntimeError('H3图片引擎启动失败，请查看本次backend.log。')
+                if self.child.poll() is not None:raise RuntimeError(self.label+'引擎启动失败，请查看本次backend.log。')
                 try:self.info=self.client.request('/object_info',timeout=2);break
                 except (EngineUnavailable,TimeoutError,HTTPException,URLError):pass
-                if time.monotonic()>deadline:raise TimeoutError('H3图片引擎启动超时。')
+                if time.monotonic()>deadline:raise TimeoutError(self.label+'引擎启动超时。')
                 self.cancel.wait(.4)
-            required={'MiniMaxH3ImageConditioning','AIPicturesSaveConditioning','AIPicturesLoadConditioning'}
-            if required-set(self.info):raise ValueError('H3图片或张量保存节点缺失；没有切换其他模型。')
+            if self.required_nodes-set(self.info):raise ValueError(self.label+'或张量保存节点缺失；没有切换其他模型。')
             return self
         except BaseException:self.__exit__(None,None,None);raise
 

@@ -28,7 +28,7 @@ def verify(area='layout'):
         assert not b.right_tabs.isMovable() and not b.workspace.childrenCollapsible()
         assert all(not dock.isVisible() for dock in w.findChildren(QDockWidget))
         assert b.task.parentWidget()==b.canvas and not w.output_shortcut.isEnabled()
-        assert [a.text() for a in w.menuBar().actions()]==['记录','画面','采样','连接','API','窗口','Godot']
+        assert [a.text() for a in w.menuBar().actions()]==['记录','画面','采样','连接','API','MOSS排版','窗口','Godot']
         if area in ('layout','sprite'):
             image=root/'person.png';Image.new('RGB',(64,96),'purple').save(image)
             frames=[Image.new('RGB',(64,96),(80+i*20,110,180)) for i in range(8)]

@@ -850,6 +850,7 @@ class Window(QMainWindow):
         return folder
 
     def start_next(self):
+        if getattr(getattr(self,'moss_window',None),'busy',False):return
         if self.current or self.preparing or not self.pending: return
         index = next((i for i,job in enumerate(self.pending) if self.connected or
             (job[1].get('mode')=='smart_image' and job[1].get('backend')=='api') or
@@ -1121,6 +1122,7 @@ class Window(QMainWindow):
             except (OSError,ValueError,KeyError) as exc: QMessageBox.warning(self, '保存失败', str(exc))
 
     def closeEvent(self, event):
+        if hasattr(self,'moss_window'):self.moss_window.shutdown()
         if hasattr(self,'audio_controller'):self.audio_controller.stop()
         self.video_controller.motion.cancel_preview()
         self.video_controller.player.stop()

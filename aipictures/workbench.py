@@ -271,6 +271,8 @@ class Workbench:
         for title,key in [('画面','image'),('采样','sampling'),('连接','connection')]:
             w.menuBar().addAction(title,lambda checked=False,section=key:self.open_settings(section))
         w.menuBar().addAction('API',w.api_controller.open_settings)
+        from .moss_workspace import open_workspace
+        w.menuBar().addAction('MOSS排版',lambda:open_workspace(w))
         view=w.menuBar().addMenu('窗口')
         view.addAction('恢复默认布局',self.reset_layout);self.view_menu=view
 
