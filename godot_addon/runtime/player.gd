@@ -110,6 +110,7 @@ func die() -> void:
 
 
 func _physics_process(delta: float) -> void:
+    var blocked: bool = get_viewport().gui_get_focus_owner() is LineEdit or get_viewport().gui_get_focus_owner() is TextEdit
     if dead:
         if blueprint_runtime != null:
             blueprint_runtime.call("input_state", delta)
@@ -125,6 +126,12 @@ func _physics_process(delta: float) -> void:
     var running: bool = Input.is_physical_key_pressed(key_run)
     var jumping: bool = Input.is_physical_key_pressed(key_jump)
     var attacking: bool = Input.is_physical_key_pressed(key_attack)
+    if blocked:
+        direction = Vector2.ZERO
+        moving = false
+        running = false
+        jumping = false
+        attacking = false
     var triggered: Array = []
     if blueprint_runtime != null:
         var state: Dictionary = blueprint_runtime.call("input_state", delta)
@@ -202,3 +209,8 @@ func set_blueprint_variable(variable: String, value: bool) -> void:
     if blueprint_runtime != null:
         var values: Dictionary = blueprint_runtime.get("variables")
         values[variable] = value
+
+
+func _exit_tree() -> void:
+    if blueprint_runtime != null:
+        blueprint_runtime.call("dispose")

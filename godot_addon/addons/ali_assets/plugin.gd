@@ -4,6 +4,7 @@ extends EditorPlugin
 const DragAsset: GDScript = preload("asset_drag.gd")
 const BlueprintWindow: GDScript = preload("blueprint_window.gd")
 const GameWindow: GDScript = preload("game_window.gd")
+const FrameworkWizard: GDScript = preload("framework_wizard.gd")
 var dock: VBoxContainer
 var application: LineEdit
 var kind: OptionButton
@@ -15,6 +16,7 @@ var known_catalog: PackedStringArray = []
 var catalog_initialized: bool = false
 var blueprint: Window
 var game_window: Window
+var framework_wizard: Window
 
 
 
@@ -62,6 +64,12 @@ func _enter_tree() -> void:
 	edit_game.text = "游戏蓝图／创建小游戏…"
 	edit_game.pressed.connect(open_game_window)
 	dock.add_child(edit_game)
+	var framework_button: Button = Button.new()
+	framework_button.text = "创建2D游戏框架…"
+	framework_button.pressed.connect(func() -> void:
+		if not is_instance_valid(framework_wizard): framework_wizard = FrameworkWizard.new(); dock.add_child(framework_wizard)
+		framework_wizard.popup_centered())
+	dock.add_child(framework_button)
 	set_process_input(true)
 	status = Label.new()
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -101,7 +109,7 @@ func open_generator() -> void:
 
 
 func refresh_assets() -> void:
-	var directory: DirAccess = DirAccess.open("res://generated/ali_assets")
+	var directory: DirAccess = DirAccess.open("res://".path_join("generated/ali_assets"))
 	if directory == null:
 		return
 	var catalog: PackedStringArray = []
@@ -138,6 +146,7 @@ func refresh_assets() -> void:
 
 
 func _exit_tree() -> void:
+	if is_instance_valid(framework_wizard): framework_wizard.queue_free()
 	if is_instance_valid(game_window):
 		game_window.queue_free()
 	if is_instance_valid(blueprint):

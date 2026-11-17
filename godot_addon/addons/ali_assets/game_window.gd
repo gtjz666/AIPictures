@@ -10,6 +10,14 @@ const Groups: GDScript = preload("inspector_groups.gd")
 const ButtonPreview: GDScript = preload("button_preview.gd")
 const Browser: GDScript = preload("resource_browser.gd")
 const Builder: GDScript = preload("game_builder.gd")
+const EditorTools: GDScript = preload("game_editor_tools.gd")
+const InputDefinitions: GDScript = preload("framework_input.gd")
+const NodeSlot: GDScript = preload("node_slot.gd")
+const Access: GDScript = preload("blueprint_access.gd")
+const ImportWizard: GDScript = preload("asset_import_wizard.gd")
+const AnimationPreview: GDScript = preload("animation_preview.gd")
+const ParameterLibrary: GDScript = preload("subgraph_library.gd")
+const TilePicker: GDScript = preload("tile_picker.gd")
 var data: Dictionary = Model.preset()
 var graph: GraphEdit
 var inspector: VBoxContainer
@@ -32,6 +40,13 @@ var palette_port: int = 0
 var palette_position: Vector2 = Vector2.ZERO
 var module_draft: Dictionary = {}
 var navigator: OptionButton
+var favorites: Array = []
+var favorites_only: bool = false
+var moving_nodes: bool = false
+var move_draft: Dictionary = {}
+var debug_timer: Timer
+var debug_list: ItemList
+var debug_snapshot: Dictionary = {}
 
 
 func _init() -> void:
@@ -74,6 +89,12 @@ func _ready() -> void:
 	button(toolbar, "编译检查", check_graph)
 	button(toolbar, "保存所选为子图…", save_module)
 	button(toolbar, "执行记录", show_debug)
+	button(toolbar, "动画／图集导入…", func() -> void:
+		var wizard: Window = ImportWizard.new()
+		add_child(wizard)
+		wizard.popup_centered())
+	button(toolbar, "复制", copy_selected)
+	button(toolbar, "粘贴", paste_nodes)
 	button(toolbar, "资源预览…", func() -> void:
 		var browser: Window = Browser.new()
 		add_child(browser)
@@ -114,6 +135,15 @@ func _ready() -> void:
 	graph.connection_request.connect(connect_modules)
 	graph.disconnection_request.connect(disconnect_modules)
 	graph.delete_nodes_request.connect(delete_modules)
+	graph.copy_nodes_request.connect(copy_selected)
+	graph.paste_nodes_request.connect(paste_nodes)
+	graph.begin_node_move.connect(func() -> void: moving_nodes = true; move_draft = data.duplicate(true))
+	graph.end_node_move.connect(func() -> void:
+		moving_nodes = false
+		for widget: Node in graph.get_children():
+			if widget is GraphNode: Model.find(move_draft,str(widget.name))["position"] = [widget.position_offset.x,widget.position_offset.y]
+		if move_draft != data: change("移动所选模块",move_draft)
+		move_draft = {})
 	graph.popup_request.connect(func(at: Vector2) -> void: open_palette("", 0, at))
 	graph.connection_to_empty.connect(func(source: StringName, port: int, at: Vector2) -> void: open_palette(str(source), port, at))
 	split.add_child(graph)
@@ -132,6 +162,12 @@ func _ready() -> void:
 	chooser.file_selected.connect(file_selected)
 	add_child(chooser)
 	setup_palette()
+	if Engine.is_editor_hint(): favorites = EditorInterface.get_editor_settings().get_project_metadata("ali_assets","favorites",[])
+	debug_timer = Timer.new()
+	debug_timer.wait_time = 0.5
+	debug_timer.timeout.connect(poll_debug)
+	add_child(debug_timer)
+	debug_timer.start()
 	render()
 
 
@@ -157,7 +193,7 @@ func change(label: String, next: Dictionary, refresh: bool = true) -> bool:
 
 
 func assign(next: Dictionary, refresh: bool = true) -> void:
-	data = Link.normalize(next)
+	data = Link.normalize(Model.upgrade(next))
 	dirty = true
 	capture_field = ""
 	render(refresh)
@@ -185,7 +221,7 @@ func render(refresh: bool = true) -> void:
 		var kind: String = str(node["kind"])
 		widget.name = id
 		widget.title = str(Model.TITLES[kind]) + (" · " + Model.summary(node) if not Model.summary(node).is_empty() else "")
-		widget.tooltip_text = "模块编号：" + id
+		widget.tooltip_text = EditorTools.description(kind)+"\n模块编号："+id
 		widget.custom_minimum_size.x = 260
 		widget.position_offset = Vector2(float(node["position"][0]), float(node["position"][1]))
 		var style: StyleBoxFlat = StyleBoxFlat.new()
@@ -198,6 +234,7 @@ func render(refresh: bool = true) -> void:
 			navigator.select(data["nodes"].find(node))
 			show_inspector())
 		widget.dragged.connect(func(_from: Vector2, to: Vector2) -> void:
+			if moving_nodes: return
 			var next: Dictionary = data.duplicate(true)
 			Model.find(next, id)["position"] = [to.x, to.y]
 			change("移动模块", next))
@@ -213,9 +250,9 @@ func render(refresh: bool = true) -> void:
 			right.text = str(outs[index]) if index < outs.size() else ""
 			row.add_child(right)
 			widget.add_child(row)
-			var left_type: int = Registry.port_type(kind, node["params"], index, false)
-			var right_type: int = Registry.port_type(kind, node["params"], index, true)
-			widget.set_slot(index, index < ins.size(), left_type, Model.color_for(left_type), index < outs.size(), right_type, Model.color_for(right_type))
+			var left_type: int = Model.port_type(data, id, index, false)
+			var right_type: int = Model.port_type(data, id, index, true)
+			widget.set_slot(index, index < ins.size(), left_type, Model.color_for(left_type), index < outs.size(), right_type, Color.ORANGE if EditorTools.event_output(kind,index) else Model.color_for(right_type))
 		if ins.is_empty() and outs.is_empty():
 			(widget.get_child(0).get_child(0) as Label).text = "选择此模块配置参数"
 	for edge: Dictionary in data["edges"]:
@@ -236,10 +273,18 @@ func show_inspector() -> void:
 	title.text = str(Model.TITLES[kind])
 	title.add_theme_font_size_override("font_size", 20)
 	inspector.add_child(title)
+	var description: Label = Label.new()
+	description.text = EditorTools.description(kind)
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	inspector.add_child(description)
+	button(inspector,"★ 取消收藏" if kind in favorites else "☆ 收藏此类模块",func() -> void:
+		if kind in favorites: favorites.erase(kind)
+		else: favorites.append(kind)
+		if Engine.is_editor_hint(): EditorInterface.get_editor_settings().set_project_metadata("ali_assets","favorites",favorites)
+		show_inspector())
 	var groups: Dictionary = {}
 	for field: Array in Model.fields(kind):
-		if kind in ["blackboard", "set_variable"] and field[0] in ["bool", "number", "text"] and field[0] != node["params"]["value_type"]:
-			continue
+		if not EditorTools.visible_field(node,str(field[0])): continue
 		var name: String = str(field[0])
 		var type: String = str(field[2])
 		var value: Variant = node["params"][name]
@@ -249,13 +294,58 @@ func show_inspector() -> void:
 		var body: VBoxContainer = groups[group]
 		var caption: Label = Label.new()
 		caption.text = str(field[1])
+		caption.tooltip_text = EditorTools.field_hint(kind,field)
 		body.add_child(caption)
 		match type:
+			"node":
+				var slot: HBoxContainer = NodeSlot.new()
+				body.add_child(slot)
+				slot.call("setup",target,str(value))
+				slot.connect("value_changed",func(path: String) -> void: parameter(name,path))
+				slot.connect("node_chosen",func(_path: String, chosen: Node) -> void:
+					if kind == "animation" and name == "target":
+						if chosen is AnimationPlayer: parameter("mode","animation")
+						elif chosen is AnimatedSprite2D: parameter("mode","frames")
+						show_inspector())
+			"json":
+				var edit: TextEdit = TextEdit.new()
+				edit.text = str(value)
+				edit.custom_minimum_size = Vector2(260,90)
+				body.add_child(edit)
+				button(body,"应用JSON",func() -> void: parameter(name,edit.text.strip_edges()))
+			"property":
+				var properties: OptionButton = OptionButton.new()
+				var bound: Node = Access.node(target,str(node["params"].get("target",""))) if is_instance_valid(target) else null
+				var names: Array[String] = []
+				for property: String in Access.PROPERTIES:
+					if bound == null or Access.has_property(bound,property): names.append(property)
+				if not str(value) in names: names.append(str(value))
+				for property: String in names: properties.add_item(property)
+				properties.select(names.find(str(value)))
+				properties.item_selected.connect(func(index: int) -> void: parameter(name,names[index]))
+				body.add_child(properties)
+			"input_action":
+				var actions: OptionButton = OptionButton.new()
+				var names: Array[String] = []
+				for action: StringName in InputMap.get_actions():
+					if not str(action).begins_with("ui_"): names.append(str(action))
+				for action: String in InputDefinitions.DEFAULTS:
+					if not action in names: names.append(action)
+				if not str(value) in names: names.append(str(value))
+				for action: String in names: actions.add_item(action)
+				actions.select(names.find(str(value)))
+				actions.item_selected.connect(func(index: int) -> void: parameter(name,names[index]))
+				body.add_child(actions)
+				var custom: LineEdit = LineEdit.new()
+				custom.text = str(value)
+				custom.placeholder_text = "自定义InputMap动作名称"
+				custom.text_submitted.connect(func(next: String) -> void: parameter(name,next.strip_edges()))
+				body.add_child(custom)
 			"number", "integer":
 				var spin: SpinBox = SpinBox.new()
 				spin.min_value = float(field[4])
 				spin.max_value = float(field[5])
-				spin.step = 1 if type == "integer" or float(field[5]) > 100 else 0.01
+				spin.step = 1 if type == "integer" else 0.01
 				spin.value = float(value)
 				spin.value_changed.connect(func(next: float) -> void: parameter(name, next))
 				body.add_child(spin)
@@ -303,6 +393,16 @@ func show_inspector() -> void:
 				color.color_changed.connect(func(next: Color) -> void: parameter(name, next.to_html()))
 				body.add_child(color)
 			_:
+				if kind == "animation" and name == "clip":
+					var clips: Array[String] = animation_clips(node["params"])
+					if not clips.is_empty():
+						if not str(value) in clips: clips.push_front(str(value))
+						var choice: OptionButton = OptionButton.new()
+						for clip: String in clips: choice.add_item(clip)
+						choice.select(clips.find(str(value)))
+						choice.item_selected.connect(func(index: int) -> void: parameter(name,clips[index]))
+						body.add_child(choice)
+						continue
 				var edit: LineEdit = LineEdit.new()
 				edit.text = str(value)
 				edit.text_submitted.connect(func(next: String) -> void: parameter(name, next.strip_edges()))
@@ -311,7 +411,7 @@ func show_inspector() -> void:
 	if kind == "button":
 		var events: VBoxContainer = Groups.add(inspector, "game:button:events", "事件与预览")
 		var hint: Label = Label.new()
-		hint.text = "从节点右侧连接：点击、按下、释放、鼠标进入／离开。\n绑定现有按钮时保留原生布局。动画接入在后续阶段提供。"
+		hint.text = "从节点右侧连接：点击、按下、释放、鼠标进入／离开。\n悬停／按下／点击动效复用通用动画服务，可配置或关闭。"
 		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		events.add_child(hint)
 		button(events, "预览四状态按钮…", func() -> void:
@@ -322,9 +422,46 @@ func show_inspector() -> void:
 			var preview: Window = ButtonPreview.new()
 			add_child(preview)
 			preview.call("present", node["params"].duplicate(true)))
+	if kind in ["animation","camera2d"]:
+		button(inspector,"▶ 独立预览／复位…",func() -> void:
+			var preview: Window = AnimationPreview.new()
+			add_child(preview)
+			preview.call("present",target,node))
+	if kind == "camera2d":
+		for row: Array in [["平台跟随",5.0],["俯视跟随",8.0],["即时跟随",0.0]]:
+			button(inspector,str(row[0]),func() -> void:
+				var next: Dictionary = data.duplicate(true)
+				Model.find(next,selected_id)["params"].merge({"operation":"follow","follow":"Player","smoothing":row[1]},true)
+				change("应用Camera2D预设",next))
+	if kind == "tilemap":
+		button(inspector,"选择瓦片…",func() -> void:
+			var tiles: TileSet = load(node["params"]["tileset"]) as TileSet if not str(node["params"]["tileset"]).is_empty() else null
+			var bound: Node = Access.node(target,str(node["params"]["target"])) if is_instance_valid(target) else null
+			if tiles == null and bound is TileMapLayer: tiles = bound.tile_set
+			if tiles == null: message.text = "请先选择TileSet或绑定已有图层"; return
+			var picker: Window = TilePicker.new()
+			add_child(picker)
+			picker.connect("tile_selected",func(source: int,coords: Vector2i,alternative: int) -> void:
+				var next: Dictionary = data.duplicate(true)
+				Model.find(next,str(node["id"]))["params"].merge({"source":source,"atlas_x":coords.x,"atlas_y":coords.y,"alternative":alternative},true)
+				change("选择瓦片",next))
+			picker.call("present",tiles))
+		button(inspector,"在原生TileMap／TileSet编辑器中打开",func() -> void:
+			var bound: Node = Access.node(target,str(node["params"]["target"])) if is_instance_valid(target) else null
+			if bound is TileMapLayer:
+				EditorInterface.get_selection().clear()
+				EditorInterface.get_selection().add_node(bound)
+				EditorInterface.inspect_object(bound)
+			elif not str(node["params"]["tileset"]).is_empty(): EditorInterface.edit_resource(load(node["params"]["tileset"]))
+			else: message.text = "请先绑定场景图层或选择TileSet")
 
 
 func field_group(kind: String, name: String, type: String, field: Array) -> String:
+	if kind == "animation":
+		if name in ["loops","reverse","pingpong","restore","wait","ui","policy","timeout"]: return "执行与恢复"
+		if name in ["delay","seconds","transition","ease","speed"]: return "时长与缓动"
+		if name in ["animation","frames","clip","player","remap","retarget"]: return "原生动画绑定"
+	if kind == "button" and name in ["effects_enabled","hover_scale","pressed_scale","effect_seconds","click_animation"]: return "动画设置"
 	if kind == "button" and (name in ["hover_sound", "click_sound", "volume", "bus"]):
 		return "声音设置"
 	if type == "asset":
@@ -340,6 +477,14 @@ func parameter(field: String, value: Variant) -> void:
 	var next: Dictionary = data.duplicate(true)
 	var node: Dictionary = Model.find(next, selected_id)
 	node["params"][field] = value
+	if field == "value_type" and node["params"].has("json"):
+		var initial: Variant = JSON.parse_string(str(node["params"]["json"]))
+		if initial != null and not Model.Types.json_compatible(initial,str(value)): node["params"]["json"] = Model.Types.default_json(str(value))
+	if node["kind"] == "animation" and field in ["frames","animation"] and not str(value).is_empty():
+		node["params"]["mode"] = "frames" if field == "frames" else "animation"
+		if is_instance_valid(target) and str(node["params"]["target"]).is_empty():
+			var candidates: Array[Node] = target.find_children("*","AnimatedSprite2D" if field == "frames" else "AnimationPlayer",true,false)
+			if candidates.size() == 1: node["params"]["target"] = str(target.get_path_to(candidates[0]))
 	for definition: Array in Model.fields(str(node["kind"])):
 		if definition[0] == field and definition[2] == "asset":
 			if not node.has("resources"):
@@ -348,7 +493,7 @@ func parameter(field: String, value: Variant) -> void:
 				node["resources"].erase(field)
 			else:
 				node["resources"][field] = Link.descriptor(str(value))
-	if not change("修改参数", next, field == "value_type"):
+	if not change("修改参数", next, field in ["value_type","mode","operation","use_from","effects_enabled","create_type","target","frames","animation"]):
 		show_inspector()
 
 
@@ -424,7 +569,7 @@ func apply_game() -> void:
 	if not is_instance_valid(target):
 		message.text = "请先绑定游戏根节点，或创建新场景。"
 		return
-	if not "compiled_blueprint" in target or not target.get_script() is GDScript or int(target.get_script().get_script_constant_map().get("API_VERSION", 0)) < 5:
+	if not "compiled_blueprint" in target or not target.get_script() is GDScript or int(target.get_script().get_script_constant_map().get("API_VERSION", 0)) < 6:
 		message.text = "此场景使用旧运行模块。草稿已保留，请创建新名称的游戏场景升级；旧场景不会覆盖。"
 		return
 	var prepared: Dictionary = Library.compile(data)
@@ -522,6 +667,10 @@ func setup_palette() -> void:
 	results.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	results.item_activated.connect(add_palette_item)
 	box.add_child(results)
+	var only: CheckBox = CheckBox.new()
+	only.text = "只显示收藏模块"
+	only.toggled.connect(func(value: bool) -> void: favorites_only = value; filter_palette())
+	box.add_child(only)
 	button(box, "添加所选模块", func() -> void:
 		var selected: PackedInt32Array = results.get_selected_items()
 		if not selected.is_empty():
@@ -543,7 +692,8 @@ func filter_palette() -> void:
 	results.clear()
 	var term: String = search.text.strip_edges().to_lower()
 	for kind: String in Model.TITLES:
-		var label: String = Registry.category(kind) + " · " + str(Model.TITLES[kind])
+		if favorites_only and not kind in favorites: continue
+		var label: String = ("★ " if kind in favorites else "")+Model.category(kind) + " · " + str(Model.TITLES[kind])
 		if not term.is_empty() and not term in label.to_lower() and not term in kind:
 			continue
 		if kind in Model.SINGLETONS and not Model.by_kind(data, kind).is_empty():
@@ -551,12 +701,13 @@ func filter_palette() -> void:
 		if not palette_source.is_empty():
 			var compatible: bool = false
 			for port: int in range(Model.INPUTS[kind].size()):
-				if Registry.port_type(kind, Model.params(kind), port, false) == Model.port_type(data, palette_source, palette_port, true):
+				if Model.port_type({"nodes":[Model.module("candidate", kind, 0, 0)]}, "candidate", port, false) == Model.port_type(data, palette_source, palette_port, true):
 					compatible = true
 			if not compatible:
 				continue
 		var index: int = results.add_item(label)
 		results.set_item_metadata(index, kind)
+		results.set_item_tooltip(index,EditorTools.description(kind))
 
 
 func add_palette_item(index: int) -> void:
@@ -569,7 +720,7 @@ func add_palette_item(index: int) -> void:
 	next["nodes"].append(node)
 	if not palette_source.is_empty():
 		for port: int in range(Model.INPUTS[kind].size()):
-			if Registry.port_type(kind, node["params"], port, false) == Model.port_type(data, palette_source, palette_port, true):
+			if Model.port_type({"nodes":[node]}, id, port, false) == Model.port_type(data, palette_source, palette_port, true):
 				next["edges"].append({"from": palette_source, "from_port": palette_port, "to": id, "to_port": port})
 				break
 	if change("添加并连接模块", next):
@@ -595,7 +746,10 @@ func save_module() -> void:
 	for child: Node in graph.get_children():
 		if child is GraphNode and (child as GraphNode).selected:
 			selected.append(str(child.name))
-	var result: Dictionary = Library.extract(data, selected)
+	var parameterized: bool = false
+	for id: String in selected:
+		if Model.find(data,id)["kind"] in ["module_input","module_output"]: parameterized = true
+	var result: Dictionary = ParameterLibrary.extract(data,selected,Library) if parameterized else Library.extract(data, selected)
 	if result.has("error"):
 		message.text = str(result["error"])
 		return
@@ -604,18 +758,90 @@ func save_module() -> void:
 
 
 func show_debug() -> void:
-	var path: String = "user://ali_blueprint_" + str(Model.by_kind(data, "session")["params"]["save_key"]) + ".json"
-	if not FileAccess.file_exists(path):
-		message.text = "尚无执行记录。运行并退出此游戏场景后再打开；发行版不写调试记录。"
-		return
 	var dialog: AcceptDialog = AcceptDialog.new()
-	dialog.title = "最近一次执行 · 变量／状态／生命值／最多256条事件"
-	var text: TextEdit = TextEdit.new()
-	text.editable = false
-	text.custom_minimum_size = Vector2(850, 550)
-	text.text = FileAccess.get_file_as_string(path)
-	dialog.add_child(text)
+	dialog.title = "实时执行记录 · 点击定位源模块"
+	debug_list = ItemList.new()
+	debug_list.custom_minimum_size = Vector2(900,550)
+	debug_list.item_selected.connect(func(index: int) -> void: focus_node(str(debug_list.get_item_metadata(index))))
+	dialog.add_child(debug_list)
 	add_child(dialog)
 	dialog.confirmed.connect(dialog.queue_free)
 	dialog.canceled.connect(dialog.queue_free)
 	dialog.popup_centered()
+	poll_debug()
+
+
+func selected_nodes() -> Array[String]:
+	var ids: Array[String] = []
+	for child: Node in graph.get_children():
+		if child is GraphNode and child.selected: ids.append(str(child.name))
+	return ids
+
+
+func copy_selected() -> void:
+	var clipboard: Dictionary = EditorTools.copy(data,selected_nodes())
+	if clipboard["nodes"].is_empty(): message.text = "请选择可复制的非核心模块"; return
+	DisplayServer.clipboard_set(JSON.stringify(clipboard))
+	message.text = "已复制%d个模块及内部连线" % clipboard["nodes"].size()
+
+
+func paste_nodes() -> void:
+	var clipboard: String = DisplayServer.clipboard_get()
+	if clipboard.to_utf8_buffer().size() > 1024*1024: message.text = "剪贴板超过1MB"; return
+	var result: Dictionary = EditorTools.paste(data,JSON.parse_string(clipboard))
+	if result.has("error"): message.text = result["error"]; return
+	if change("粘贴模块组",result["data"]):
+		for child: Node in graph.get_children():
+			if child is GraphNode: child.selected = str(child.name) in result["selected"]
+
+
+func focus_node(id: String) -> void:
+	var node: Dictionary = Model.find(data,id)
+	if node.is_empty(): return
+	selected_id = id
+	show_inspector()
+	graph.scroll_offset = Vector2(node["position"][0],node["position"][1])*graph.zoom-graph.size/2+Vector2(140,80)
+	for child: Node in graph.get_children():
+		if child is GraphNode: child.selected = str(child.name) == id
+
+
+func poll_debug() -> void:
+	if not visible: return
+	var path: String = "user://ali_blueprint_"+str(Model.by_kind(data,"session")["params"]["save_key"])+".json"
+	if not FileAccess.file_exists(path) or FileAccess.get_file_as_bytes(path).size() > 2*1024*1024: return
+	var parser: JSON = JSON.new()
+	if parser.parse(FileAccess.get_file_as_string(path)) != OK: return
+	var snapshot: Variant = parser.data
+	if not snapshot is Dictionary or snapshot.get("signature") != Library.signature(data): return
+	debug_snapshot = snapshot
+	if is_instance_valid(debug_list):
+		debug_list.clear()
+		for event: Dictionary in snapshot.get("events",[]):
+			var index: int = debug_list.add_item(str(event.get("time",0))+"s · "+str(event.get("source",""))+" · "+str(event.get("detail","")))
+			debug_list.set_item_metadata(index,str(event.get("source","")))
+			if "失败" in str(event.get("detail","")) or "错误" in str(event.get("detail","")): debug_list.set_item_custom_fg_color(index,Color.SALMON)
+	for widget: Node in graph.get_children():
+		if not widget is GraphNode: continue
+		var row: Dictionary = snapshot.get("nodes",{}).get(str(widget.name),{})
+		if row.is_empty(): continue
+		var status: String = str(row.get("state",""))
+		var style: StyleBoxFlat = StyleBoxFlat.new()
+		style.bg_color = Color("282d38")
+		style.set_border_width_all(3)
+		style.border_color = Color.SKY_BLUE if status == "running" else Color.MEDIUM_SEA_GREEN if status == "completed" else Color.SALMON if status == "failed" else Color.ORANGE
+		widget.add_theme_stylebox_override("panel",style)
+		widget.tooltip_text = EditorTools.description(str(Model.find(data,str(widget.name))["kind"]))+"\n"+status+" · "+str(row.get("detail",""))
+
+
+func animation_clips(p: Dictionary) -> Array[String]:
+	var result: Array[String] = []
+	var resource: Resource = load(p["frames"]) if p["mode"] == "frames" and not str(p["frames"]).is_empty() else load(p["animation"]) if not str(p["animation"]).is_empty() else null
+	var bound: Node = Access.node(target,str(p["target"])) if is_instance_valid(target) else null
+	if resource == null and bound is AnimatedSprite2D: resource = bound.sprite_frames
+	if resource is SpriteFrames:
+		for clip: StringName in resource.get_animation_names(): result.append(str(clip))
+	elif resource is AnimationLibrary:
+		for clip: StringName in resource.get_animation_list(): result.append(str(clip))
+	elif bound is AnimationPlayer:
+		for clip: String in bound.get_animation_list(): result.append(clip)
+	return result

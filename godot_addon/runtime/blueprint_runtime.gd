@@ -1,5 +1,11 @@
 extends RefCounted
 ## Installed beside the generated player; no editor plugin needed at runtime.
+const Types: GDScript = preload("blueprint_types.gd")
+const Events: GDScript = preload("blueprint_events.gd")
+const Binding: GDScript = preload("animation_binding.gd")
+var bus: Node
+var payload: Variant
+var event_values: Dictionary = {}
 const Model: GDScript = preload("blueprint_model.gd")
 const Link: GDScript = preload("resource_link.gd")
 var data: Dictionary = {}
@@ -59,6 +65,17 @@ func setup(graph: Dictionary, owner_node: Node, animated: AnimatedSprite2D) -> b
 		players[node["id"]] = player
 	sprite.frame_changed.connect(on_frame)
 	sprite.animation_finished.connect(func() -> void: emit_event("animation_finished"))
+	bus = Events.obtain(actor.get_tree(),Events)
+	for node: Dictionary in data["nodes"]:
+		if node["kind"] == "receive_event":
+			var p: Dictionary = node["params"]
+			var id: String = str(node["id"])
+			bus.call("subscribe",actor,event_scope(str(p["scope"])),str(p["name"]),func(value: Variant) -> void:
+				if Types.matches(value,str(p["value_type"])):
+					payload = value
+					event_values[id] = value
+					execution_budget = 512
+					follow(id,0,requests,true,0))
 	return true
 
 
@@ -75,13 +92,18 @@ func input_state(delta: float = 0.0) -> Dictionary:
 	for item: Dictionary in due:
 		item["remaining"] = float(item["remaining"]) - delta
 		if float(item["remaining"]) <= 0.0:
+			payload = item.get("payload")
+			event_values = item.get("event_values",{})
 			follow(str(item["source"]), 0, active, true, 0)
 		else:
 			pending.append(item)
 	var pressed: Array[String] = []
 	var now: Dictionary = {}
 	for node: Dictionary in data.get("nodes", []):
-		if node["kind"] != "key" or not Input.is_physical_key_pressed(int(node["params"]["code"])):
+		if node["kind"] != "key": continue
+		var action: String = str(node["params"].get("input_action", ""))
+		var down: bool = Input.is_action_pressed(action) if not action.is_empty() and InputMap.has_action(action) else Input.is_physical_key_pressed(int(node["params"]["code"]))
+		if not down or actor.get_viewport().gui_get_focus_owner() is LineEdit or actor.get_viewport().gui_get_focus_owner() is TextEdit:
 			continue
 		var id: String = str(node["id"])
 		now[id] = true
@@ -116,6 +138,11 @@ func follow(source: String, port: int, active: Dictionary, pulse: bool, depth: i
 		var id: String = str(node["id"])
 		var params: Dictionary = node["params"]
 		match str(node["kind"]):
+			"send_event":
+				if pulse:
+					var value: Variant = data_input(id,1,Types.initial(params,actor))
+					if Types.matches(value,str(params["value_type"])): bus.call("send",event_scope(str(params["scope"])),str(params["name"]),value)
+					follow(id,0,active,true,depth+1)
 			"action": active[str(params["action"])] = true
 			"branch": follow(id, 0 if condition(node) else 1, active, pulse, depth + 1)
 			"sequence":
@@ -123,10 +150,10 @@ func follow(source: String, port: int, active: Dictionary, pulse: bool, depth: i
 				follow(id, 1, active, pulse, depth + 1)
 			"delay":
 				if pulse and pending.size() < 128:
-					pending.append({"source": id, "remaining": float(params["seconds"])})
+					pending.append({"source": id, "remaining": float(params["seconds"]),"payload":payload,"event_values":event_values.duplicate(true)})
 			"custom":
 				if pulse and modules.has(id):
-					var result: Variant = (modules[id] as RefCounted).call("execute", {"actor": actor, "delta": frame_delta, "variables": variables})
+					var result: Variant = (modules[id] as RefCounted).call("execute", {"actor": actor, "delta": frame_delta, "variables": variables,"payload":payload})
 					if result is Dictionary:
 						follow(id, clampi(int(result.get("output", 0)), 0, 1), active, true, depth + 1)
 			"animation":
@@ -150,8 +177,7 @@ func condition(node: Dictionary) -> bool:
 		"always": value = true
 	for edge: Dictionary in data["edges"]:
 		if edge["to"] == node["id"] and int(edge.get("to_port", 0)) == 1:
-			var boolean: Dictionary = Model.find_node(data, str(edge["from"]))["params"]
-			value = bool(variables.get(str(boolean["name"]), boolean["value"]))
+			value = bool(data_input(str(node["id"]),1,false))
 	return not value if params["invert"] else value
 
 
@@ -178,7 +204,7 @@ func play_animation(animation: Dictionary, restart: bool = false) -> bool:
 		last_frame = -1
 		if restart:
 			sprite.stop()
-		sprite.play(clip)
+		Binding.play(sprite,clip)
 		for sound: Dictionary in Model.outgoing(data, active_animation):
 			if sound["kind"] != "sound":
 				continue
@@ -194,7 +220,7 @@ func play_animation(animation: Dictionary, restart: bool = false) -> bool:
 	elif not sprite.is_playing():
 		# Finished one-shots stay on their last frame until another action.
 		if sprite.sprite_frames.get_animation_loop(clip):
-			sprite.play(clip)
+			Binding.play(sprite,clip)
 	return true
 
 
@@ -236,3 +262,33 @@ func stop_repeats() -> void:
 func stop() -> void:
 	stop_repeats()
 	active_animation = ""
+
+
+func event_scope(scope: String) -> String:
+	if scope == "role": return "role:" + str(actor.get_instance_id())
+	var game: Node = actor.get_parent()
+	while game != null and not "game_blueprint" in game: game = game.get_parent()
+	if scope == "game": return "game:" + str(game.get_instance_id()) if game != null else "role:" + str(actor.get_instance_id())
+	var key: String = str(data["settings"].get("project_scope",""))
+	if key.is_empty() and game != null:
+		key = str(game.get("services").get("key")) if game.get("services") != null else str(game.call("settings","session")["save_key"])
+	return "project:" + key
+
+
+func data_input(id: String, port: int, fallback: Variant) -> Variant:
+	for edge: Dictionary in data["edges"]:
+		if edge["to"] != id or int(edge.get("to_port",0)) != port: continue
+		var node: Dictionary = Model.find_node(data,str(edge["from"]))
+		if node["kind"] == "boolean": return variables.get(node["params"]["name"],node["params"]["value"])
+		if node["kind"] == "typed_value": return Types.initial(node["params"],actor)
+		if node["kind"] == "receive_event": return event_values.get(node["id"],fallback)
+	return fallback
+
+
+func dispose() -> void:
+	stop()
+	if is_instance_valid(bus): bus.call("unsubscribe",actor)
+	for player: AudioStreamPlayer2D in players.values():
+		if is_instance_valid(player): player.stop()
+	players.clear()
+	pending.clear()

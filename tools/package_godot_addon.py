@@ -23,7 +23,10 @@ def package(output):
         archive.writestr('蓝图技术文档.html',render_guide(technical,title='AlI 蓝图技术文档',navigation_title='技术目录'))
         stage=ADDON.parent/'docs/BLUEPRINT_05_PLAN.md'
         archive.write(stage,'BLUEPRINT_05_PLAN.md')
-        archive.writestr('蓝图0.5阶段文档.html',render_guide(stage,title='AlI 蓝图0.5第一阶段',navigation_title='阶段目录'))
+        archive.writestr('蓝图0.5阶段文档.html',render_guide(stage,title='AlI 蓝图0.5完整2D使用步骤',navigation_title='阶段目录'))
+        for picture in sorted((ADDON.parent/'docs/images').glob('blueprint-2d-*.png')):
+            archive.write(picture,'images/'+picture.name)
+        archive.write(ADDON.parent/'docs/BLUEPRINT_05_REQUIREMENTS.md','BLUEPRINT_05_REQUIREMENTS.md')
         archive.write(ADDON.parent/'docs/images/blueprint-programming.png','images/blueprint-programming.png')
         archive.write(catalog,'GODOT_BLUEPRINT_CATALOG.md')
         archive.writestr('蓝图模块手册.html',render_guide(catalog,title='AlI 蓝图模块手册',navigation_title='模块目录'))

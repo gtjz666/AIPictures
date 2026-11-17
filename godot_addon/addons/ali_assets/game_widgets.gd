@@ -6,6 +6,8 @@ var buttons: Dictionary = {}
 var voices: Dictionary = {}
 var connections: Array[Dictionary] = []
 var originals: Array[Dictionary] = []
+var effects: Dictionary = {}
+var baselines: Dictionary = {}
 
 
 static func texture(p: Dictionary, key: String) -> Texture2D:
@@ -63,6 +65,8 @@ func setup(owner_game: Node) -> void:
 			remember(button)
 		decorate(button, p)
 		buttons[id] = button
+		effects[id] = p.duplicate(true)
+		baselines[id] = button.scale
 		var pair: Dictionary = {}
 		for channel: String in ["hover", "click"]:
 			var voice: AudioStreamPlayer = AudioStreamPlayer.new()
@@ -98,6 +102,11 @@ func dispatch(id: String, port: int) -> void:
 		var voice: AudioStreamPlayer = voices[id]["click" if port == 0 else "hover"]
 		if voice.stream != null:
 			voice.play()
+	if effects[id].get("effects_enabled",false) and game.get("animations") != null:
+		var p: Dictionary = effects[id]
+		var factor: float = float(p.get("hover_scale",1.1)) if port == 3 else float(p.get("pressed_scale",0.95)) if port == 1 else 1.0
+		if port in [1,2,3,4]: game.get("animations").call("start",{"mode":"property","property":"scale","to":baselines[id]*factor,"seconds":p.get("effect_seconds",0.12),"ui":true},button)
+		if port == 0 and not str(p.get("click_animation","")).is_empty(): game.get("animations").call("start",{"mode":"animation","animation":p["click_animation"],"retarget":true,"ui":true,"restore":false},button)
 	game.call("emit_port", id, port)
 
 

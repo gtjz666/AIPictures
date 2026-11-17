@@ -94,6 +94,8 @@ static func problem(path: String, filter: String) -> String:
 	var resource: Resource = load(path)
 	if resource == null:
 		return "资源无法加载：" + path
+	if filter == "animation_source":
+		return "" if resource is Animation or resource is AnimationLibrary else "需要Animation或AnimationLibrary。"
 	if filter == "frames":
 		return "" if frames(resource) != null else "需要SpriteFrames或包含它的角色场景；单张图片不是动画。"
 	var expected: String = str(TYPES.get(filter, filter))

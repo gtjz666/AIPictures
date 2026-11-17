@@ -16,7 +16,7 @@ func _ready() -> void:
 	body.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(body)
 	var hint: Label = Label.new()
-	hint.text = "拖入图片、音频、SpriteFrames、Animation或AnimationLibrary预览。\n场景、TileSet和其他Resource可查看类型并在检查器中编辑。\n动画预览台仅预览2D属性；运行绑定将在通用动画阶段提供。"
+	hint.text = "拖入图片、音频、SpriteFrames、Animation或AnimationLibrary预览。\n场景、TileSet和其他Resource可在检查器中编辑。\n通用动画／Camera2D节点另提供绑定目标的独立副本预览。"
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.add_child(hint)
 	var slot: VBoxContainer = Slot.new()

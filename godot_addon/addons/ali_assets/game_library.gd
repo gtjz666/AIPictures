@@ -3,6 +3,7 @@ extends RefCounted
 ## Expand reusable flow graphs at compile time; packaged games need no JSON files.
 const Model: GDScript = preload("game_model.gd")
 const Link: GDScript = preload("resource_link.gd")
+const Parameters: GDScript = preload("subgraph_library.gd")
 
 
 static func signature(data: Dictionary) -> String:
@@ -38,11 +39,12 @@ static func read_module(path: String) -> Dictionary:
 	return {"data": raw}
 
 
-static func compile(data: Dictionary) -> Dictionary:
+static func compile(data: Dictionary, parameter_stack: Array = [], bake_budget: Dictionary = {}) -> Dictionary:
+	if bake_budget.is_empty(): bake_budget = {"calls":0}
 	var error: String = Model.validate(data)
 	if not error.is_empty():
 		return {"error": error}
-	var result: Dictionary = Link.normalize(data)
+	var result: Dictionary = Link.normalize(Model.upgrade(data))
 	for node: Dictionary in result["nodes"]:
 		node.erase("_stack")
 		node.erase("_origin")
@@ -89,6 +91,31 @@ static func compile(data: Dictionary) -> Dictionary:
 		if result["nodes"].size() > 256 or result["edges"].size() > 800:
 			return {"error": "展开后超过256模块／800连线。"}
 	result = Link.normalize(result)
+	for node: Dictionary in result["nodes"]:
+		if node["kind"] != "subgraph": continue
+		var path: String = str(node["params"]["path"])
+		if not FileAccess.file_exists(path) and node.get("_subgraph") is Dictionary: continue
+		if path in parameter_stack or parameter_stack.size() >= 8: return {"error":"参数化子图递归或超过8层："+path}
+		bake_budget["calls"] = int(bake_budget["calls"])+1
+		if int(bake_budget["calls"]) > 64: return {"error":"参数化子图调用超过64项"}
+		var source: Dictionary = Parameters.read(path)
+		if source.has("error"): return source
+		var child: Dictionary = source["graph"]
+		child["nodes"].append(Model.module("__param_entry","log",0,0))
+		child["nodes"].append(Model.module("__param_exit","log",0,0))
+		child["edges"].append({"from":"__param_entry","from_port":0,"to":source["data"]["entry"]["node"],"to_port":source["data"]["entry"]["port"]})
+		child["edges"].append({"from":source["data"]["exit"]["node"],"from_port":source["data"]["exit"]["port"],"to":"__param_exit","to_port":0})
+		var prepared: Dictionary = compile(child,parameter_stack+[path],bake_budget)
+		if prepared.has("error"): return prepared
+		var body: Dictionary = prepared["data"]
+		var entry: Dictionary = {}
+		var exit: Dictionary = {}
+		for edge: Dictionary in body["edges"]:
+			if edge["from"] == "__param_entry": entry = {"node":edge["to"],"port":edge["to_port"]}
+			if edge["to"] == "__param_exit": exit = {"node":edge["from"],"port":edge["from_port"]}
+		body["nodes"] = body["nodes"].filter(func(item: Dictionary) -> bool: return not item["kind"] in Model.SINGLETONS and not item["id"] in ["__param_entry","__param_exit"])
+		body["edges"] = body["edges"].filter(func(edge: Dictionary) -> bool: return not Model.find(body,str(edge["from"])).is_empty() and not Model.find(body,str(edge["to"])).is_empty())
+		node["_subgraph"] = {"nodes":body["nodes"],"edges":body["edges"],"entry":entry,"exit":exit,"interface":source["interface"]}
 	error = Model.validate(result, true)
 	return {"error": error} if not error.is_empty() else {"data": result, "signature": signature(data)}
 

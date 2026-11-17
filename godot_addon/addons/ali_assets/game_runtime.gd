@@ -1,6 +1,12 @@
 extends Node2D
 ## A self-contained game assembled from editable modules, with no autoloads.
-const API_VERSION: int = 5
+const API_VERSION: int = 6
+const Animations: GDScript = preload("game_animations.gd")
+const Tasks: GDScript = preload("game_tasks.gd")
+const Features: GDScript = preload("game_features.gd")
+const WorldTools: GDScript = preload("game_world_tools.gd")
+const Services: GDScript = preload("framework_services.gd")
+const AudioTools: GDScript = preload("game_audio_tools.gd")
 const Link: GDScript = preload("resource_link.gd")
 const Widgets: GDScript = preload("game_widgets.gd")
 const Library: GDScript = preload("game_library.gd")
@@ -15,6 +21,7 @@ const Hud: GDScript = preload("game_hud.gd")
 @export var game_blueprint: Dictionary = {}
 @export var compiled_blueprint: Dictionary = {}
 @export var compiled_signature: String = ""
+@export var framework: Dictionary = {}
 var program: RefCounted
 var debug_path: String = ""
 var state: String = "waiting"
@@ -45,7 +52,18 @@ var previous_scale: Vector2i
 var previous_mode: Window.ContentScaleMode = Window.CONTENT_SCALE_MODE_DISABLED
 var previous_aspect: Window.ContentScaleAspect = Window.CONTENT_SCALE_ASPECT_KEEP
 var initialized: bool = false
+var animations: Node
+var tasks: Node
+var features: Node
+var services: Node
+var world_tools: Node
+var audio_tools: Node
+var capturing: bool = false
+var captured: Array[Dictionary] = []
+var captured_events: Array[Dictionary] = []
 var widgets: Node
+var debug_clock: float = 0.0
+var debug_source_signature: String = ""
 
 
 func settings(kind: String) -> Dictionary:
@@ -55,10 +73,11 @@ func settings(kind: String) -> Dictionary:
 func _ready() -> void:
 	if Engine.is_editor_hint():
 		return
+	debug_source_signature = Library.signature(game_blueprint)
 	var prepared: Dictionary = {"data": compiled_blueprint} if not compiled_blueprint.is_empty() and compiled_signature == Library.signature(game_blueprint) else Library.compile(game_blueprint)
 	var problem: String = str(prepared.get("error", ""))
 	if problem.is_empty():
-		game_blueprint = Link.normalize(prepared["data"])
+		game_blueprint = Link.normalize(Model.upgrade(prepared["data"]))
 		problem = Model.validate(game_blueprint, true)
 	if not problem.is_empty():
 		push_error("游戏蓝图：" + problem)
@@ -79,6 +98,7 @@ func _ready() -> void:
 		profile.load(profile_path)
 	best = maxi(0, int(profile.get_value("score", "best", 0)))
 	setup_buses()
+	services = Services.obtain(get_tree(),framework,str(settings("session")["save_key"]),Services)
 	if not Model.by_kind(game_blueprint, "runner").is_empty() and not Model.by_kind(game_blueprint, "world").is_empty():
 		world = World.new()
 		world.name = "World"
@@ -114,8 +134,29 @@ func _ready() -> void:
 	hud.name = "GameUI"
 	add_child(hud)
 	hud.call("setup", self, settings("hud"))
+	if framework.get("native_menus",false): hud.hide()
 	program = Program.new()
 	program.call("setup", self)
+	animations = Animations.new()
+	animations.name = "BlueprintAnimations"
+	add_child(animations)
+	animations.call("setup", self)
+	tasks = Tasks.new()
+	tasks.name = "BlueprintTasks"
+	add_child(tasks)
+	tasks.call("setup", self)
+	features = Features.new()
+	features.name = "BlueprintFeatures"
+	add_child(features)
+	features.call("setup", self)
+	world_tools = WorldTools.new()
+	world_tools.name = "WorldTools"
+	add_child(world_tools)
+	world_tools.call("setup", self)
+	audio_tools = AudioTools.new()
+	audio_tools.name = "AudioTools"
+	add_child(audio_tools)
+	audio_tools.call("setup",self)
 	widgets = Widgets.new()
 	widgets.name = "BlueprintWidgets"
 	add_child(widgets)
@@ -123,6 +164,7 @@ func _ready() -> void:
 	debug_path = "user://ali_blueprint_" + str(settings("session")["save_key"]) + ".json"
 	hud.call("refresh_health")
 	initialized = true
+	services.call("attach_game",self)
 	queue_redraw()
 	set_process_unhandled_key_input(true)
 
@@ -150,10 +192,20 @@ func set_volume(channel: String, value: float, persist: bool = true) -> void:
 	if persist:
 		profile.set_value("audio", channel, value)
 		save_countdown = 0.5
+		if is_instance_valid(services):
+			if not services.get("settings").has("volumes"): services.get("settings")["volumes"] = {}
+			services.get("settings")["volumes"][channel] = value
+			services.call("save_settings")
 
 
 func _unhandled_key_input(event_input: InputEvent) -> void:
 	if not initialized or not event_input is InputEventKey or event_input.echo:
+		return
+	if services != null and services.get("inputs").call("deliver",self,event_input):
+		get_viewport().set_input_as_handled()
+		return
+	if not framework.is_empty():
+		if event_input.is_pressed() and event_input.is_action("Jump"): event("input",1 if state == "waiting" else 2 if state == "dead" else 0); get_viewport().set_input_as_handled()
 		return
 	var key: int = event_input.physical_keycode if event_input.physical_keycode != 0 else event_input.keycode
 	var handled: bool = false
@@ -181,6 +233,10 @@ func _unhandled_key_input(event_input: InputEvent) -> void:
 func _process(delta: float) -> void:
 	if not initialized:
 		return
+	if OS.is_debug_build():
+		debug_clock += delta
+		if debug_clock >= 0.5: debug_clock = 0.0; write_debug()
+	if services != null: services.get("inputs").call("tick",self)
 	if save_countdown >= 0:
 		save_countdown -= delta
 		if save_countdown < 0:
@@ -229,6 +285,9 @@ func event(kind: String, port: int) -> void:
 
 
 func emit_port(source: String, port: int) -> void:
+	if capturing:
+		captured.append({"id":source,"port":port})
+		return
 	for edge: Dictionary in game_blueprint["edges"]:
 		if edge["from"] != source or int(edge.get("from_port", 0)) != port:
 			continue
@@ -238,7 +297,10 @@ func emit_port(source: String, port: int) -> void:
 	drain()
 
 
-func queue_event(id: String, payload: String) -> void:
+func queue_event(id: String, payload: Variant) -> void:
+	if capturing:
+		captured_events.append({"id":id,"payload":payload})
+		return
 	queue.append({"event": true, "id": id, "payload": payload})
 	drain()
 
@@ -267,6 +329,9 @@ func drain() -> void:
 func deliver(id: String, port: int) -> void:
 	var node: Dictionary = Model.find(game_blueprint, id)
 	if node.is_empty():
+		return
+	if features != null and features.call("has_kind", str(node["kind"])) or node["kind"] == "task_group":
+		tasks.call("launch", id, port)
 		return
 	program.get("cache").clear()
 	program.call("record", id, "执行输入 " + str(port))
@@ -314,6 +379,8 @@ func session_command(port: int) -> void:
 			state = "running"
 			score = 0
 			elapsed = 0
+			if tasks != null: tasks.call("cancel_all")
+			if animations != null: animations.call("cancel_all")
 			generation += 1
 			queue.clear()
 			delayed.clear()
@@ -334,6 +401,7 @@ func session_command(port: int) -> void:
 			profile.save(profile_path)
 			program.call("pause", true)
 			event("session", 1)
+			if framework.get("native_menus",false): services.set("state","ended"); services.call("notify","ended")
 		2:
 			state = "waiting"
 			for sound: Node in audio.values():
@@ -342,6 +410,7 @@ func session_command(port: int) -> void:
 				actor.get("sprite").set("speed_scale", 1.0)
 			event("session", 2)
 			session_command(0)
+			if framework.get("native_menus",false): services.call("notify","restarted")
 		3:
 			if state not in ["running", "paused"]:
 				return
@@ -367,13 +436,22 @@ func write_debug() -> void:
 	if OS.is_debug_build() and program != null and not debug_path.is_empty():
 		var file: FileAccess = FileAccess.open(debug_path, FileAccess.WRITE)
 		if file != null:
-			file.store_string(JSON.stringify(program.call("report"), "\t"))
+			var snapshot: Dictionary = program.call("report")
+			snapshot["signature"] = debug_source_signature
+			snapshot["nodes"] = tasks.get("last_states").duplicate(true) if tasks != null else {}
+			for event_row: Dictionary in snapshot["events"]:
+				var id: String = str(event_row.get("source",""))
+				if not snapshot["nodes"].has(id): snapshot["nodes"][id] = {"state":"failed" if "错误" in str(event_row["detail"]) else "completed","detail":event_row["detail"]}
+			file.store_string(JSON.stringify(Program.Types.encode(snapshot,self), "\t"))
 			file.close()
 
 
 func _exit_tree() -> void:
 	if not initialized:
 		return
+	if services != null: services.call("detach_game",self)
+	if tasks != null: tasks.call("cancel_all")
+	if animations != null: animations.call("cancel_all")
 	write_debug()
 	program.call("dispose")
 	for sound: Node in audio.values():
@@ -397,3 +475,27 @@ func _exit_tree() -> void:
 func _draw() -> void:
 	if initialized and not is_instance_valid(world):
 		draw_rect(Rect2(Vector2.ZERO, Vector2(base_size)), Color("dceef0"))
+
+
+func capture_node(id: String, port: int, context: Dictionary) -> Array[Dictionary]:
+	var previous: Dictionary = program.get("messages")
+	program.set("messages", context.get("messages", {}))
+	features.set("context", context)
+	capturing = true
+	captured = []
+	captured_events = []
+	deliver(id, port)
+	capturing = false
+	var emissions: Array[Dictionary] = captured
+	var events: Array[Dictionary] = captured_events
+	captured = []
+	captured_events = []
+	context["messages"] = program.get("messages").duplicate(true)
+	program.set("messages", previous)
+	for entry: Dictionary in events: queue_event.call_deferred(str(entry["id"]), entry["payload"])
+	return emissions
+
+
+func _unhandled_input(input_event: InputEvent) -> void:
+	if not initialized or input_event is InputEventKey or services == null: return
+	if services.get("inputs").call("deliver",self,input_event): get_viewport().set_input_as_handled()

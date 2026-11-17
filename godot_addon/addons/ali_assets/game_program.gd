@@ -1,6 +1,9 @@
 extends RefCounted
 ## Pull-only data expressions and event-driven tasks; bounded, local to one game.
 ## Health/FSM invariants follow the skill's signal-driven component templates.
+const Types: GDScript = preload("blueprint_types.gd")
+const Access: GDScript = preload("blueprint_access.gd")
+const Binding: GDScript = preload("animation_binding.gd")
 const Model: GDScript = preload("game_model.gd")
 var game: Node2D
 var clock: float = 0.0
@@ -58,8 +61,10 @@ func reset(initial: bool = false) -> void:
 		var p: Dictionary = node["params"]
 		match str(node["kind"]):
 			"blackboard":
-				if initial or p["reset"]:
-					game.get("variables")[p["name"]] = p[p["value_type"]]
+				if p.get("scope","game") == "project":
+					var global_values: Dictionary = game.get("services").get("globals")
+					if not global_values.has(p["name"]) or not initial and p.get("reset_global",false): global_values[p["name"]] = Types.initial(p,game)
+				elif initial or p["reset"]: game.get("variables")[p["name"]] = Types.initial(p, game)
 			"boolean": game.get("variables")[p["name"]] = p["value"]
 			"do_once": flow[id] = bool(p["closed"])
 			"gate": flow[id] = bool(p["open"])
@@ -95,7 +100,7 @@ func value(id: String, port: int, depth: int = 0) -> Variant:
 	var p: Dictionary = node["params"]
 	var result: Variant = 0.0
 	match str(node["kind"]):
-		"blackboard", "boolean": result = game.get("variables").get(p["name"], false)
+		"blackboard", "boolean": result = game.get("services").get("globals").get(p["name"],Types.initial(p,game)) if p.get("scope","game") == "project" else game.get("variables").get(p["name"], false)
 		"number", "text": result = p["value"]
 		"math", "compare":
 			var a: float = float(input_value(id, 0, p["a"], depth))
@@ -133,6 +138,8 @@ func value(id: String, port: int, depth: int = 0) -> Variant:
 			elif p["value_type"] == "text":
 				fallback = ""
 			result = str(p["template"]).replace("{value}", str(input_value(id, 0, fallback, depth)))
+		_:
+			if game.get("features") != null: result = game.get("features").call("value", node, port)
 	if result is float and not is_finite(result):
 		fault(id, "数字溢出，结果使用0。")
 		result = 0.0
@@ -149,12 +156,13 @@ func execute(node: Dictionary, port: int) -> void:
 	var p: Dictionary = node["params"]
 	match str(node["kind"]):
 		"set_variable":
-			var next: Variant = input_value(id, 1, p[p["value_type"]])
-			var valid: bool = next is bool if p["value_type"] == "bool" else next is String if p["value_type"] == "text" else next is int or next is float
-			if not valid or not game.get("variables").has(p["name"]):
+			var next: Variant = input_value(id, 1, Types.initial(p, game))
+			var valid: bool = Types.matches(next, str(p["value_type"]))
+			var storage: Dictionary = game.get("services").get("globals") if p.get("scope","game") == "project" else game.get("variables")
+			if not valid or not storage.has(p["name"]):
 				fault(id, "变量缺失或值类型不一致。")
 				return
-			game.get("variables")[p["name"]] = next
+			storage[p["name"]] = next
 			emit(id)
 		"do_once":
 			if port == 1:
@@ -211,7 +219,8 @@ func execute(node: Dictionary, port: int) -> void:
 			instance.name = str(p["name"])
 			if instance is Node2D:
 				(instance as Node2D).position = Vector2(float(input_value(id, 2, p["x"])), float(input_value(id, 3, p["y"])))
-			game.add_child(instance, true)
+			var parent: Node = game.get("binding_root") as Node if "binding_root" in game else game
+			parent.add_child(instance, true)
 			live.append(instance)
 			bind_signals()
 			emit(id)
@@ -265,7 +274,7 @@ func change_health(id: String, p: Dictionary, port: int) -> void:
 
 
 func resolve(path: String) -> Node:
-	return game.get_node_or_null(NodePath(path))
+	return Access.node(game,path)
 
 
 func node_action(p: Dictionary, id: String) -> bool:
@@ -294,7 +303,7 @@ func node_action(p: Dictionary, id: String) -> bool:
 			(target as CharacterBody2D).velocity = xy
 		"animation":
 			if target is AnimatedSprite2D and (target as AnimatedSprite2D).sprite_frames.has_animation(str(p["clip"])):
-				(target as AnimatedSprite2D).play(str(p["clip"]))
+				Binding.play(target as AnimatedSprite2D,str(p["clip"]))
 			elif target is AnimationPlayer and (target as AnimationPlayer).has_animation(str(p["clip"])):
 				(target as AnimationPlayer).play(str(p["clip"]))
 			else:
@@ -305,7 +314,7 @@ func node_action(p: Dictionary, id: String) -> bool:
 func clear_instances(id: String) -> void:
 	for instance: Node in instances.get(id, []):
 		if is_instance_valid(instance) and not instance.is_queued_for_deletion():
-			game.remove_child(instance)
+			instance.get_parent().remove_child(instance)
 			instance.queue_free()
 	instances[id] = []
 

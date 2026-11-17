@@ -10,7 +10,7 @@ func _initialize() -> void:
 
 
 func run() -> void:
-	assert(Model.TITLES.size() == 41)
+	assert(Model.TITLES.size() == 71)
 	assert(Model.validate(Model.preset(), true).is_empty())
 	assert(Model.validate(Model.scene_preset(), true).is_empty())
 	assert(not Link.problem("res://fixtures/button.png", "frames").is_empty())
@@ -160,6 +160,6 @@ func run() -> void:
 	# Fixed-fps headless frames outrun the native audio mixing thread.
 	OS.delay_msec(250)
 	var file: FileAccess = FileAccess.open("res://blueprint05-proof.json", FileAccess.WRITE)
-	file.store_string(JSON.stringify({"legacy_presets":true,"module_count":41,"typed_resources":true,"uid_relocation":true,"manual_path_precedence":true,"missing_identity":true,"self_contained_scene":true,"button_five_events":true,"button_audio_bus":true,"disabled_guard":true,"normal_state_fallback":true,"bound_layout_and_restore":true}, "\t"))
+	file.store_string(JSON.stringify({"legacy_presets":true,"module_count":Model.TITLES.size(),"typed_resources":true,"uid_relocation":true,"manual_path_precedence":true,"missing_identity":true,"self_contained_scene":true,"button_five_events":true,"button_audio_bus":true,"disabled_guard":true,"normal_state_fallback":true,"bound_layout_and_restore":true}, "\t"))
 	file.close()
 	quit.call_deferred(0)

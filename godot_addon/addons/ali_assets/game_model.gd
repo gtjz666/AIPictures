@@ -4,11 +4,13 @@ extends RefCounted
 const BASE_TITLES: Dictionary = {"session": "游戏状态／计分", "input": "游戏按键", "runner": "自动奔跑角色", "world": "背景／地面滚动", "spawner": "障碍生成／碰撞", "hud": "菜单／分数／设置UI", "mixer": "音频总线混音", "screen": "画面比例", "audio": "播放声音", "timer": "计时器", "branch": "条件分支", "sequence": "顺序执行", "delay": "延迟", "boolean": "布尔变量", "custom": "自定义模块"}
 const BASE_INPUTS: Dictionary = {"session": ["开始", "游戏结束", "重新开始", "暂停／继续", "加分"], "input": [], "runner": ["开始／重置", "跳跃", "死亡", "停止"], "world": ["开始／重置", "停止"], "spawner": ["开始／清空", "停止"], "hud": ["游戏画面", "结束菜单", "开始菜单", "暂停菜单", "更新分数", "开关设置"], "mixer": [], "screen": [], "audio": ["播放", "停止", "暂停", "继续"], "timer": ["启动", "停止", "重置"], "branch": ["判断", "布尔条件"], "sequence": ["执行"], "delay": ["执行"], "boolean": [], "custom": ["执行"]}
 const BASE_OUTPUTS: Dictionary = {"session": ["开始时", "结束时", "重开时", "暂停时", "继续时", "分数变化"], "input": ["跳跃键", "开始键", "重开键", "暂停键"], "runner": ["起跳时", "落地时", "死亡时", "死亡动画结束", "地面脚步"], "world": [], "spawner": ["碰到角色", "越过障碍"], "hud": ["开始按钮", "重开按钮", "暂停按钮", "跳跃按钮", "按钮音效"], "mixer": [], "screen": [], "audio": ["播放结束"], "timer": ["到时"], "branch": ["成立", "不成立"], "sequence": ["先执行1", "再执行2"], "delay": ["等待后"], "boolean": ["布尔值"], "custom": ["完成", "备用"]}
+const Extra: GDScript = preload("extended_registry.gd")
+const Types: GDScript = preload("blueprint_types.gd")
 const Registry: GDScript = preload("game_registry.gd")
 const Link: GDScript = preload("resource_link.gd")
-static var TITLES: Dictionary = joined(BASE_TITLES, Registry.TITLES)
-static var INPUTS: Dictionary = joined(BASE_INPUTS, Registry.INPUTS)
-static var OUTPUTS: Dictionary = joined(BASE_OUTPUTS, Registry.OUTPUTS)
+static var TITLES: Dictionary = joined(joined(BASE_TITLES, Registry.TITLES), Extra.TITLES)
+static var INPUTS: Dictionary = joined(joined(BASE_INPUTS, Registry.INPUTS), Extra.INPUTS)
+static var OUTPUTS: Dictionary = joined(joined(BASE_OUTPUTS, Registry.OUTPUTS), Extra.OUTPUTS)
 const SINGLETONS: Array[String] = ["session", "input", "runner", "world", "spawner", "hud", "mixer", "screen"]
 const HUD_TEXT: Array = [["start_text", "开始按钮文字", "text", "START"], ["retry_text", "重开按钮文字", "text", "RETRY"], ["pause_text", "暂停按钮文字", "text", "PAUSE"], ["resume_text", "继续按钮文字", "text", "RESUME"], ["over_text", "结束标题", "text", "GAME OVER"], ["jump_text", "跳跃按钮文字", "text", "JUMP"], ["audio_text", "声音设置文字", "text", "AUDIO"], ["close_text", "关闭按钮文字", "text", "CLOSE"], ["score_text", "分数标签", "text", "SCORE"], ["best_text", "最高分标签", "text", "BEST"], ["subtitle", "标题说明", "text", "Jump. Avoid. Try again."]]
 # field, Chinese label, type, default, minimum/options/filter, maximum.
@@ -37,11 +39,11 @@ static func joined(first: Dictionary, second: Dictionary) -> Dictionary:
 
 static func port_type(data: Dictionary, id: String, port: int, output: bool) -> int:
 	var node: Dictionary = find(data, id)
-	return Registry.port_type(str(node["kind"]), node["params"], port, output)
+	return Extra.port_type(str(node["kind"]), node["params"], port, output) if Extra.TITLES.has(node["kind"]) else Registry.port_type(str(node["kind"]), node["params"], port, output)
 
 
 static func color_for(type: int) -> Color:
-	return Color.MEDIUM_SEA_GREEN if type == 6 else Color.SKY_BLUE if type == 7 else Color.HOT_PINK if type == 8 else Color.WHITE
+	return Color({9:"b6a0ee",10:"966edb",11:"ffc876",12:"73d8ce",13:"9ab767",14:"c7a775",15:"cf8fae"}[type]) if type >= 9 else Color.MEDIUM_SEA_GREEN if type == 6 else Color.SKY_BLUE if type == 7 else Color.HOT_PINK if type == 8 else Color.WHITE
 
 
 static func summary(node: Dictionary) -> String:
@@ -77,7 +79,7 @@ static func params(kind: String) -> Dictionary:
 
 
 static func fields(kind: String) -> Array:
-	return FIELDS[kind] + HUD_TEXT if kind == "hud" else FIELDS[kind] if FIELDS.has(kind) else Registry.FIELDS[kind]
+	return FIELDS[kind] + HUD_TEXT if kind == "hud" else Registry.FIELDS[kind] + Registry.BUTTON_EFFECTS if kind == "button" else FIELDS[kind] if FIELDS.has(kind) else Registry.FIELDS[kind] if Registry.FIELDS.has(kind) else Extra.FIELDS[kind]
 
 
 static func module(id: String, kind: String, x: float, y: float) -> Dictionary:
@@ -135,6 +137,7 @@ static func frames_at(path: String) -> SpriteFrames:
 
 
 static func validate(data: Dictionary, resources: bool = false) -> String:
+	data = upgrade(data)
 	if data.get("version") != 1 or data.get("type") != "runner_game" or not data.get("nodes") is Array or not data.get("edges") is Array:
 		return "游戏蓝图格式不正确。"
 	if data["nodes"].size() > 256 or data["edges"].size() > 800:
@@ -160,9 +163,13 @@ static func validate(data: Dictionary, resources: bool = false) -> String:
 				return TITLES[kind] + "只能放一个。"
 			singles[kind] = true
 		var p: Dictionary = raw["params"]
-		if resources and not Link.metadata_problem(raw).is_empty():
-			return id + "：" + Link.metadata_problem(raw)
+		var reference_data: Dictionary = raw.duplicate(true)
+		if kind == "subgraph" and raw.get("_subgraph") is Dictionary:
+			if reference_data.get("resources") is Dictionary: reference_data["resources"].erase("path")
+		if resources and not Link.metadata_problem(reference_data).is_empty():
+			return id + "：" + Link.metadata_problem(reference_data)
 		for field: Array in fields(kind):
+			if kind == "subgraph" and field[0] == "path" and raw.get("_subgraph") is Dictionary: continue
 			var value: Variant = p.get(field[0])
 			var type: String = str(field[2])
 			if type in ["number", "integer", "key"]:
@@ -175,8 +182,12 @@ static func validate(data: Dictionary, resources: bool = false) -> String:
 			elif type == "bool":
 				if not value is bool:
 					return str(field[1]) + "需要开关值。"
-			elif not value is String or str(value).length() > 1024:
+			elif not value is String or str(value).length() > (16384 if type == "json" else 1024):
 				return str(field[1]) + "文本无效。"
+			elif type == "json" and JSON.new().parse(str(value)) != OK:
+				return str(field[1]) + "需要有效JSON。"
+			elif type == "node" and not str(value).is_empty() and not Types.relative_path(str(value)):
+				return str(field[1]) + "需要项目内相对节点路径。"
 			elif type == "choice" and not field[4].has(value):
 				return str(field[1]) + "选项无效。"
 			elif type == "color" and not Color.html_is_valid(str(value)):
@@ -208,6 +219,9 @@ static func validate(data: Dictionary, resources: bool = false) -> String:
 								found = true
 						if not found:
 							return "模块需提供execute(context)方法。"
+		if kind in ["typed_value","blackboard","set_variable","module_input","module_output","event_send","data_register","property_set","ui_control"] and str(p.get("json","null")) != "null":
+			var initial: Variant = JSON.parse_string(str(p["json"]))
+			if initial != null and not Types.json_compatible(initial,str(p["value_type"])): return id+"：默认JSON与所选数据类型不符"
 		if kind in ["session", "boolean", "blackboard"]:
 			var name: String = str(p["save_key"] if kind == "session" else p["name"])
 			if not name.is_valid_identifier() or variables.has(name):
@@ -300,6 +314,9 @@ static func validate(data: Dictionary, resources: bool = false) -> String:
 			var p: Dictionary = node["params"]
 			if node["kind"] == "set_variable" and variables.get(p["name"], "") != p["value_type"]:
 				return str(node["id"]) + "：变量不存在或类型不符。"
+			if node["kind"] == "set_variable":
+				for declaration: Dictionary in data["nodes"]:
+					if declaration["kind"] in ["blackboard","boolean"] and declaration["params"]["name"] == p["name"] and declaration["params"].get("scope","game") != p.get("scope","game"): return str(node["id"])+"：写入与变量声明作用域不一致"
 			if node["kind"] == "set_state" and (not machines.has(p["name"]) or not p["state"] in machines.get(p["name"], [])):
 				return str(node["id"]) + "：状态机或目标状态不存在。"
 	return ""
@@ -314,7 +331,7 @@ static func data_cycle(data: Dictionary, id: String, visits: Dictionary) -> bool
 	for edge: Dictionary in data["edges"]:
 		if edge["to"] == id and port_type(data, str(edge["from"]), int(edge["from_port"]), true) != 0:
 			# Stateful outputs (health/FSM/variables) are storage, not recursive expressions.
-			if find(data, str(edge["from"]))["kind"] in ["math", "compare", "logic", "format_text"] and data_cycle(data, str(edge["from"]), visits):
+			if find(data, str(edge["from"]))["kind"] in ["math", "compare", "logic", "format_text"] + Extra.PURE and data_cycle(data, str(edge["from"]), visits):
 				return true
 	visits[id] = 2
 	return false
@@ -340,4 +357,23 @@ static func add_combo(data: Dictionary, kind: String) -> Dictionary:
 		result["edges"].append({"from": prefix + str(item[0]), "from_port": item[1], "to": prefix + str(item[2]), "to_port": item[3]})
 	if kind == "health":
 		result["edges"].append({"from": prefix + "hp", "from_port": 1, "to": by_kind(result, "session")["id"], "to_port": 1})
+	return result
+
+
+static func category(kind: String) -> String:
+	return Extra.category(kind) if Extra.TITLES.has(kind) else Registry.category(kind)
+
+
+static func upgrade(data: Dictionary) -> Dictionary:
+	var result: Dictionary = data.duplicate(true)
+	if not result.get("nodes") is Array: return result
+	for raw: Variant in result["nodes"]:
+		if not raw is Dictionary or not raw.get("params") is Dictionary: continue
+		var kind: String = str(raw.get("kind", ""))
+		if kind in ["blackboard", "set_variable"] and not raw["params"].has("json"): raw["params"]["json"] = "null"
+		if kind in ["blackboard", "set_variable"] and not raw["params"].has("scope"): raw["params"]["scope"] = "game"
+		if kind == "blackboard" and not raw["params"].has("reset_global"): raw["params"]["reset_global"] = false
+		if kind == "button":
+			for addition: Array in Registry.BUTTON_EFFECTS:
+				if not raw["params"].has(addition[0]): raw["params"][addition[0]] = addition[3]
 	return result

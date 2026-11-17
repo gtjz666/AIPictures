@@ -1,5 +1,6 @@
 @tool
 extends RefCounted
+const Types: GDScript = preload("blueprint_types.gd")
 ## Data only: the graph never evaluates expressions or executes user scripts.
 
 const ACTIONS: Dictionary = {
@@ -7,8 +8,9 @@ const ACTIONS: Dictionary = {
 	"idle": "待机", "walk": "行走", "run": "奔跑", "jump": "跳跃", "attack": "攻击",
 	"hurt": "受击", "death": "死亡", "dash": "冲刺", "roll": "翻滚", "block": "防御",
 	"cast": "施法", "interact": "交互", "climb": "攀爬", "fall": "下落", "land": "落地"}
-const KINDS: Array[String] = ["key", "action", "animation", "sound", "event", "branch", "sequence", "delay", "boolean", "custom"]
-const FLOW: Array[String] = ["event", "branch", "sequence", "delay", "custom"]
+const KINDS: Array[String] = ["key", "action", "animation", "sound", "event", "branch", "sequence", "delay", "boolean", "custom", "receive_event", "send_event", "typed_value"]
+const TITLES: Dictionary = {"key":"按键事件","action":"封装动作模块","animation":"播放动画","sound":"播放音效","event":"事件入口","branch":"条件分支","sequence":"顺序执行","delay":"延迟","boolean":"布尔变量","custom":"自定义模块","receive_event":"接收参数事件","send_event":"发送参数事件","typed_value":"类型化常量"}
+const FLOW: Array[String] = ["event", "branch", "sequence", "delay", "custom", "receive_event", "send_event"]
 const CONDITIONS: Dictionary = {"grounded": "已落地", "in_air": "在空中", "moving": "正在移动", "running": "正在奔跑", "always": "始终成立"}
 const EVENTS: Dictionary = {"ready": "角色就绪", "hurt": "受到伤害", "death": "角色死亡", "land": "落地时", "animation_finished": "动画播放结束"}
 
@@ -70,6 +72,12 @@ static func validate(data: Dictionary, frames: SpriteFrames = null) -> String:
 			if not (number is float or number is int) or not is_finite(float(number)) or absf(float(number)) > 100000:
 				return "模块位置超出范围。"
 		var params: Dictionary = node["params"]
+		if kind in ["receive_event","send_event","typed_value"]:
+			if not Types.NAMES.has(params.get("value_type", "")): return "请选择事件／常量类型。"
+			if kind != "typed_value" and (not str(params.get("name", "")).is_valid_identifier() or not params.get("scope") in ["game","project","role"]): return "参数事件名称或范围无效。"
+			if kind != "receive_event" and (not params.get("json") is String or JSON.new().parse(str(params["json"])) != OK): return "默认值需要有效JSON。"
+			if kind != "receive_event" and str(params["json"]).length() > 16384: return "默认值JSON超过16KB"
+			if kind != "receive_event" and JSON.parse_string(str(params["json"])) != null and not Types.json_compatible(JSON.parse_string(str(params["json"])),str(params["value_type"])): return "默认值JSON与类型不符"
 		if kind == "key":
 			var code: Variant = params.get("code")
 			if not (code is float or code is int) or float(code) != int(code) or int(code) <= 0 or int(code) > 67108864:
@@ -140,18 +148,19 @@ static func validate(data: Dictionary, frames: SpriteFrames = null) -> String:
 		seen[pair] = true
 		var source_kind: String = str(ids[source])
 		var target_kind: String = str(ids[target])
-		var boolean_edge: bool = source_kind == "boolean" and target_kind == "branch" and from_port == 0 and to_port == 1
-		var valid_flow: bool = to_port == 0 and from_port >= 0 and from_port <= (1 if source_kind in ["key", "branch", "sequence", "custom"] else 0) and (
-			(source_kind == "key" and (target_kind == "action" or target_kind in FLOW and target_kind != "event")) or
-			(source_kind in FLOW and (target_kind in ["action", "animation", "sound"] or target_kind in FLOW and target_kind != "event")) or
+		var boolean_edge: bool = from_port >= 0 and from_port < output_count(find_node(data,source)) and to_port >= 0 and to_port < input_count(find_node(data,target)) and port_type(find_node(data,source),from_port,true) != 0 and port_type(find_node(data,source),from_port,true) == port_type(find_node(data,target),to_port,false)
+		var valid_flow: bool = source_kind not in ["boolean","typed_value"] and to_port == 0 and from_port >= 0 and from_port <= (1 if source_kind in ["key", "branch", "sequence", "custom"] else 0) and (
+			(source_kind == "key" and (target_kind == "action" or target_kind in FLOW and target_kind not in ["event","receive_event"])) or
+			(source_kind in FLOW and (target_kind in ["action", "animation", "sound"] or target_kind in FLOW and target_kind not in ["event","receive_event"])) or
 			(source_kind == "action" and target_kind == "animation") or
-			(source_kind == "animation" and (target_kind == "sound" or target_kind in FLOW and target_kind != "event")))
+			(source_kind == "animation" and (target_kind == "sound" or target_kind in FLOW and target_kind not in ["event","receive_event"])))
 		if not boolean_edge and not valid_flow:
 			return "白色端口连接执行流程；绿色布尔值只能连接条件输入。"
 		if boolean_edge:
-			if inputs.has(target):
+			var input_key: String = target + ":" + str(to_port)
+			if inputs.has(input_key):
 				return "一个条件输入只能接一个布尔变量。"
-			inputs[target] = true
+			inputs[input_key] = true
 		indegree[target] += 1
 		adjacency[source].append(target)
 		if ids[source] == "action":
@@ -233,3 +242,19 @@ static func preset(mode: String, frames: SpriteFrames = null, keys: Dictionary =
 			data["nodes"].append(make_node(anim, "animation", 720, y, {"clip": clip}))
 			data["edges"].append({"from": aid, "to": anim})
 	return data
+
+
+static func input_count(node: Dictionary) -> int:
+	return 0 if node["kind"] in ["key","event","boolean","receive_event","typed_value"] else 2 if node["kind"] in ["branch","send_event"] else 1
+
+
+static func output_count(node: Dictionary) -> int:
+	return 0 if node["kind"] == "sound" else 2 if node["kind"] in ["key","branch","sequence","custom","receive_event"] else 1
+
+
+static func port_type(node: Dictionary, port: int, output: bool) -> int:
+	var kind: String = str(node["kind"])
+	if output and kind == "boolean": return 6
+	if output and (kind == "typed_value" or kind == "receive_event" and port == 1) or not output and kind == "send_event" and port == 1: return int(Types.PORTS[node["params"]["value_type"]])
+	if not output and kind == "branch" and port == 1: return 6
+	return 0

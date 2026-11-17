@@ -6,7 +6,9 @@ const Link: GDScript = preload("resource_link.gd")
 const Slot: GDScript = preload("resource_slot.gd")
 const Groups: GDScript = preload("inspector_groups.gd")
 const Browser: GDScript = preload("resource_browser.gd")
+const Types: GDScript = preload("blueprint_types.gd")
 const Model: GDScript = preload("blueprint_model.gd")
+const Inputs: GDScript = preload("framework_input.gd")
 var data: Dictionary = Model.preset("two_way")
 var selected_id: String = ""
 var inspector: VBoxContainer
@@ -22,6 +24,9 @@ var file_operation: String = ""
 var sound_id: String = ""
 var settings_row: HBoxContainer
 var dirty: bool = false
+var favorites: Array = []
+var palette: Window
+var moving: bool = false
 
 
 func _init() -> void:
@@ -57,9 +62,9 @@ func _ready() -> void:
 		add_button(toolbar, "+ " + str(entry[0]), func() -> void: add_module(kind))
 	var logic: MenuButton = MenuButton.new()
 	logic.text = "+ 逻辑／自定义 ▾"
-	for label: String in ["事件入口", "条件分支", "顺序执行", "延迟", "布尔变量", "自定义脚本模块"]:
+	for label: String in ["事件入口", "条件分支", "顺序执行", "延迟", "布尔变量", "自定义脚本模块", "接收参数事件", "发送参数事件", "类型化常量"]:
 		logic.get_popup().add_item(label)
-	logic.get_popup().id_pressed.connect(func(index: int) -> void: add_module(["event", "branch", "sequence", "delay", "boolean", "custom"][index]))
+	logic.get_popup().id_pressed.connect(func(index: int) -> void: add_module(["event", "branch", "sequence", "delay", "boolean", "custom", "receive_event", "send_event", "typed_value"][index]))
 	toolbar.add_child(logic)
 	add_button(toolbar, "撤销", func() -> void: history.undo())
 	add_button(toolbar, "重做", func() -> void: history.redo())
@@ -75,6 +80,9 @@ func _ready() -> void:
 	common.get_popup().id_pressed.connect(add_common_module)
 	binding.add_child(common)
 	add_button(binding, "绑定当前选中角色", bind_selection)
+	add_button(binding,"搜索模块…",open_palette)
+	add_button(binding,"复制",copy_nodes)
+	add_button(binding,"粘贴",paste_nodes)
 	add_button(binding, "资源预览…", func() -> void:
 		var browser: Window = Browser.new()
 		add_child(browser)
@@ -96,6 +104,16 @@ func _ready() -> void:
 	graph.connection_request.connect(func(source: StringName, from_port: int, dest: StringName, to_port: int) -> void: connect_modules(str(source), str(dest), from_port, to_port))
 	graph.disconnection_request.connect(func(source: StringName, from_port: int, dest: StringName, to_port: int) -> void: disconnect_modules(str(source), str(dest), from_port, to_port))
 	graph.delete_nodes_request.connect(delete_modules)
+	graph.copy_nodes_request.connect(copy_nodes)
+	graph.paste_nodes_request.connect(paste_nodes)
+	graph.popup_request.connect(func(_at: Vector2) -> void: open_palette())
+	graph.begin_node_move.connect(func() -> void: moving = true)
+	graph.end_node_move.connect(func() -> void:
+		moving = false
+		var next: Dictionary = data.duplicate(true)
+		for child: Node in graph.get_children():
+			if child is GraphNode: Model.find_node(next,str(child.name))["position"] = [child.position_offset.x,child.position_offset.y]
+		change("移动所选模块",next))
 	var split: HSplitContainer = HSplitContainer.new()
 	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(split)
@@ -115,6 +133,7 @@ func _ready() -> void:
 	file_dialog.force_native = true
 	file_dialog.file_selected.connect(on_file_selected)
 	add_child(file_dialog)
+	if Engine.is_editor_hint(): favorites = EditorInterface.get_editor_settings().get_project_metadata("ali_assets","role_favorites",[])
 	render()
 
 
@@ -226,6 +245,8 @@ func add_module(kind: String) -> void:
 		"sequence": params = {}
 		"delay": params = {"seconds": 0.5}
 		"boolean": params = {"name": "can_act_" + str(Time.get_ticks_usec()), "value": true}
+		"receive_event", "send_event": params = {"name":"event","scope":"game","value_type":"bool","json":"true"}
+		"typed_value": params = {"value_type":"bool","json":"true"}
 		"custom": params = {"script": ""}
 	var offset: Vector2 = graph.scroll_offset + Vector2(100, 100) / graph.zoom
 	next["nodes"].append(Model.make_node(id, kind, offset.x, offset.y, params))
@@ -236,6 +257,9 @@ func update_parameter(id: String, field: String, value: Variant) -> void:
 	var next: Dictionary = data.duplicate(true)
 	var node: Dictionary = Model.find_node(next, id)
 	node["params"][field] = value
+	if field == "value_type" and node["params"].has("json"):
+		var initial: Variant = JSON.parse_string(str(node["params"]["json"]))
+		if initial != null and not Types.json_compatible(initial,str(value)): node["params"]["json"] = Types.default_json(str(value))
 	if field in ["script", "path"]:
 		if not node.has("resources"):
 			node["resources"] = {}
@@ -354,13 +378,85 @@ func update_setting(field: String, value: Variant) -> void:
 	change("修改运动参数", next)
 
 
+func open_palette() -> void:
+	if is_instance_valid(palette): palette.queue_free()
+	palette = Window.new()
+	palette.visible = false
+	palette.title = "搜索角色模块 · ☆收藏"
+	palette.close_requested.connect(palette.hide)
+	var box: VBoxContainer = VBoxContainer.new()
+	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	palette.add_child(box)
+	var search: LineEdit = LineEdit.new()
+	search.placeholder_text = "名称／类型"
+	box.add_child(search)
+	var only: CheckBox = CheckBox.new()
+	only.text = "只显示收藏"
+	box.add_child(only)
+	var list: ItemList = ItemList.new()
+	list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	box.add_child(list)
+	var refresh: Callable = func() -> void:
+		list.clear()
+		for kind: String in Model.KINDS:
+			if only.button_pressed and not kind in favorites: continue
+			if not search.text.is_empty() and not search.text.to_lower() in (str(Model.TITLES[kind])+kind).to_lower(): continue
+			var index: int = list.add_item(("★ " if kind in favorites else "")+str(Model.TITLES[kind]))
+			list.set_item_metadata(index,kind)
+	search.text_changed.connect(func(_text: String) -> void: refresh.call())
+	only.toggled.connect(func(_value: bool) -> void: refresh.call())
+	list.item_activated.connect(func(index: int) -> void: add_module(str(list.get_item_metadata(index))); palette.hide())
+	add_child(palette)
+	refresh.call()
+	palette.popup_centered_clamped(Vector2i(460,500),0.8)
+	search.grab_focus()
+
+
+func copy_nodes() -> void:
+	var selected: Array[String] = []
+	for child: Node in graph.get_children():
+		if child is GraphNode and child.selected: selected.append(str(child.name))
+	var copied: Dictionary = {"type":"ali_role_clipboard","nodes":data["nodes"].filter(func(node: Dictionary) -> bool: return str(node["id"]) in selected),"edges":data["edges"].filter(func(edge: Dictionary) -> bool: return edge["from"] in selected and edge["to"] in selected)}
+	DisplayServer.clipboard_set(JSON.stringify(copied))
+	message.text = "已复制所选模块及内部连线；粘贴到已有相同动作的图时，请先删除重复动作声明。"
+
+
+func paste_nodes() -> void:
+	var text: String = DisplayServer.clipboard_get()
+	if text.to_utf8_buffer().size() > 1024*1024: message.text = "剪贴板超过1MB"; return
+	var parser: JSON = JSON.new()
+	if parser.parse(text) != OK: message.text = "不是角色蓝图片段"; return
+	var copied: Variant = parser.data
+	if not copied is Dictionary or copied.get("type") != "ali_role_clipboard" or not copied.get("nodes") is Array or not copied.get("edges") is Array: message.text = "不是角色蓝图片段"; return
+	var next: Dictionary = data.duplicate(true)
+	var names: Dictionary = {}
+	var prefix: String = "p_"+str(Time.get_ticks_usec())+"_"
+	for original: Variant in copied["nodes"]:
+		if not original is Dictionary or not original.get("id") is String or not original.get("params") is Dictionary: message.text = "角色模块格式无效"; return
+		var node: Dictionary = original.duplicate(true)
+		names[node["id"]] = prefix+str(node["id"])
+		node["id"] = names[node["id"]]
+		if not node.get("position") is Array or node["position"].size() != 2: message.text = "位置格式无效"; return
+		node["position"] = [float(node["position"][0])+60,float(node["position"][1])+60]
+		if node.get("kind") == "boolean": node["params"]["name"] = prefix+str(node["params"].get("name","value"))
+		next["nodes"].append(node)
+	for original: Variant in copied["edges"]:
+		if not original is Dictionary or not names.has(original.get("from")) or not names.has(original.get("to")): message.text = "连线格式无效"; return
+		var edge: Dictionary = original.duplicate(true)
+		edge["from"] = names[edge["from"]]
+		edge["to"] = names[edge["to"]]
+		next["edges"].append(edge)
+	change("粘贴角色模块组",next)
+
+
 func render_node(node: Dictionary) -> void:
 	var widget: GraphNode = GraphNode.new()
 	var id: String = str(node["id"])
 	var kind: String = str(node["kind"])
 	widget.name = id
-	widget.title = {"key": "按键事件", "action": "封装动作模块", "animation": "播放动画", "sound": "播放音效", "event": "事件入口", "branch": "条件分支", "sequence": "顺序执行", "delay": "延迟", "boolean": "布尔变量", "custom": "自定义模块"}[kind]
+	widget.title = {"key": "按键事件", "action": "封装动作模块", "animation": "播放动画", "sound": "播放音效", "event": "事件入口", "branch": "条件分支", "sequence": "顺序执行", "delay": "延迟", "boolean": "布尔变量", "custom": "自定义模块", "receive_event":"接收参数事件", "send_event":"发送参数事件", "typed_value":"类型化常量"}[kind]
 	widget.custom_minimum_size = Vector2(240, 0)
+	widget.tooltip_text = str(Model.TITLES[kind])+" · "+id+"\n事件与输入使用橙色执行口；数据口按类型连线。在右侧配置参数与资源。"
 	var bar: StyleBoxFlat = StyleBoxFlat.new()
 	bar.bg_color = Color("803b43") if kind in ["key", "event"] else Color("36617e") if kind in ["action", "animation"] else Color("655084") if kind == "custom" else Color("447459") if kind == "boolean" else Color("585858")
 	bar.content_margin_left = 10
@@ -373,16 +469,16 @@ func render_node(node: Dictionary) -> void:
 	widget.add_theme_stylebox_override("titlebar_selected", selected_bar)
 	widget.position_offset = Vector2(float(node["position"][0]), float(node["position"][1]))
 	graph.add_child(widget)
-	var port: Label = Label.new()
-	port.text = {"key": "按住时 →", "action": "执行 → 动画", "animation": "执行 → 动画时刻", "sound": "执行音效", "event": "事件发生时 →", "branch": "执行 → 成立", "sequence": "执行 → 先执行1", "delay": "执行 → 等待后", "boolean": "布尔值 →", "custom": "执行 → 完成"}[kind]
-	widget.add_child(port)
-	widget.set_slot(0, kind not in ["key", "event", "boolean"], 0, Color.WHITE, kind != "sound", 6 if kind == "boolean" else 0, Color.MEDIUM_SEA_GREEN if kind == "boolean" else Color.WHITE)
-	if kind in ["key", "branch", "sequence", "custom"]:
-		var second: Label = Label.new()
-		second.text = {"key": "按下时 →（仅一次）", "branch": "布尔条件 → 不成立", "sequence": "再执行2 →", "custom": "备用 →"}[kind]
-		widget.add_child(second)
-		widget.set_slot(1, kind == "branch", 6, Color.MEDIUM_SEA_GREEN, true, 0, Color.WHITE)
+	var count: int = maxi(1,maxi(Model.input_count(node),Model.output_count(node)))
+	for index: int in range(count):
+		var port: Label = Label.new()
+		port.text = "数据" if Model.port_type(node,index,true) != 0 else "执行／事件" if index == 0 else "分支／参数"
+		widget.add_child(port)
+		var left: int = Model.port_type(node,index,false)
+		var right: int = Model.port_type(node,index,true)
+		widget.set_slot(index,index < Model.input_count(node),left,Color.WHITE if left == 0 else Color.MEDIUM_SEA_GREEN if left == 6 else Color("bba0ef"),index < Model.output_count(node),right,Color.ORANGE if right == 0 and kind in ["key","event","receive_event"] else Color.WHITE if right == 0 else Color.MEDIUM_SEA_GREEN if right == 6 else Color("bba0ef"))
 	widget.dragged.connect(func(_from: Vector2, to: Vector2) -> void:
+		if moving: return
 		var next: Dictionary = data.duplicate(true)
 		Model.find_node(next, id)["position"] = [to.x, to.y]
 		change("移动模块", next))
@@ -406,7 +502,27 @@ func show_inspector() -> void:
 	var id: String = str(node["id"])
 	var params: Dictionary = node["params"]
 	var widget: VBoxContainer = Groups.add(inspector, "role:" + kind, "模块参数 · " + id)
+	add_button(inspector,"★ 取消收藏" if kind in favorites else "☆ 收藏此类模块",func() -> void:
+		if kind in favorites: favorites.erase(kind)
+		else: favorites.append(kind)
+		if Engine.is_editor_hint(): EditorInterface.get_editor_settings().set_project_metadata("ali_assets","role_favorites",favorites)
+		show_inspector())
 	match kind:
+		"receive_event", "send_event", "typed_value":
+			if kind != "typed_value":
+				var name: LineEdit = LineEdit.new()
+				name.text = str(params["name"])
+				name.placeholder_text = "事件名称（回车确认）"
+				name.text_submitted.connect(func(value: String) -> void: update_parameter(id,"name",value))
+				widget.add_child(name)
+				add_choice(widget,{"game":"本游戏实例","project":"跨场景全局","role":"本角色"},str(params["scope"]),func(value: String) -> void: update_parameter(id,"scope",value))
+			add_choice(widget,Types.NAMES,str(params["value_type"]),func(value: String) -> void: update_parameter(id,"value_type",value))
+			if kind != "receive_event":
+				var value: TextEdit = TextEdit.new()
+				value.text = str(params["json"])
+				value.custom_minimum_size = Vector2(240,80)
+				widget.add_child(value)
+				add_button(widget,"应用JSON值",func() -> void: update_parameter(id,"json",value.text))
 		"event":
 			add_choice(widget, Model.EVENTS, str(params["event"]), func(value: String) -> void: update_parameter(id, "event", value))
 		"branch":
@@ -450,6 +566,17 @@ func show_inspector() -> void:
 			if not path.is_empty():
 				add_button(widget, "在Godot中编辑脚本", func() -> void: EditorInterface.edit_script(load(path) as Script))
 		"key":
+			var actions: Dictionary = {"":"使用物理按键"}
+			for name: String in Inputs.DEFAULTS: actions[name] = name
+			for name: StringName in InputMap.get_actions():
+				if not str(name).begins_with("ui_"): actions[str(name)] = str(name)
+			if not actions.has(str(params.get("input_action",""))): actions[str(params["input_action"])] = str(params["input_action"])
+			add_choice(widget,actions,str(params.get("input_action","")),func(value: String) -> void: update_parameter(id,"input_action",value))
+			var action: LineEdit = LineEdit.new()
+			action.placeholder_text = "InputMap动作，留空用物理键"
+			action.text = str(params.get("input_action",""))
+			action.text_submitted.connect(func(value: String) -> void: update_parameter(id,"input_action",value))
+			widget.add_child(action)
 			add_button(widget, OS.get_keycode_string(int(params["code"])) + " · 点击改键", func() -> void:
 				capture_id = id
 				message.text = "请按新键（Esc取消），物理键位不受输入法影响。")

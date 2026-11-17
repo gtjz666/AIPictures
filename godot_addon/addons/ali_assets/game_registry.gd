@@ -1,7 +1,8 @@
 @tool
 extends RefCounted
 ## Declarative nodes shared by the editor, compiler and native runtime.
-const VALUE_TYPES: Dictionary = {"bool": "布尔", "number": "数字", "text": "文字"}
+const Types: GDScript = preload("blueprint_types.gd")
+const VALUE_TYPES: Dictionary = Types.NAMES
 const TITLES: Dictionary = {
 	"button": "界面按钮",
 	"blackboard": "黑板变量", "set_variable": "写入变量", "number": "数字常量", "text": "文字常量",
@@ -26,8 +27,8 @@ const OUTPUTS: Dictionary = {
 	"log": ["完成"], "module": ["完成"], "key_event": ["按下", "释放"], "format_text": ["文字"], "ui_message": ["完成"]}
 const FIELDS: Dictionary = {
 	"button": [["target", "绑定现有按钮（空则创建）", "text", ""], ["widget", "新建控件类型", "choice", "button", {"button":"Button文字按钮", "texture":"TextureButton图片按钮"}], ["text", "文字", "text", "BUTTON"], ["disabled", "初始禁用", "bool", false], ["x", "新建位置X", "number", 60.0, -10000, 10000], ["y", "新建位置Y", "number", 60.0, -10000, 10000], ["width", "新建宽度", "number", 200.0, 1, 4096], ["height", "新建高度", "number", 64.0, 1, 4096], ["normal_texture", "普通贴图", "asset", "", "image"], ["hover_texture", "悬停贴图", "asset", "", "image"], ["pressed_texture", "按下贴图", "asset", "", "image"], ["disabled_texture", "禁用贴图", "asset", "", "image"], ["hover_sound", "悬停音效", "asset", "", "audio"], ["click_sound", "点击音效", "asset", "", "audio"], ["volume", "独立音量／dB", "number", -8.0, -60, 6], ["bus", "输出总线", "choice", "UI", {"Master":"总线", "BGM":"背景音乐", "SFX":"游戏音效", "UI":"界面声音"}]],
-	"blackboard": [["name", "变量名", "text", "value"], ["value_type", "类型", "choice", "number", VALUE_TYPES], ["number", "初始数字", "number", 0.0, -1000000, 1000000], ["text", "初始文字", "text", ""], ["bool", "初始布尔值", "bool", false], ["reset", "新一局恢复初始值", "bool", true]],
-	"set_variable": [["name", "变量名", "text", "value"], ["value_type", "类型", "choice", "number", VALUE_TYPES], ["number", "默认数字", "number", 0.0, -1000000, 1000000], ["text", "默认文字", "text", ""], ["bool", "默认布尔值", "bool", false]],
+	"blackboard": [["name", "变量名", "text", "value"], ["scope", "变量范围", "choice", "game", {"game":"本游戏实例", "project":"跨场景全局"}], ["value_type", "类型", "choice", "number", VALUE_TYPES], ["number", "初始数字", "number", 0.0, -1000000, 1000000], ["text", "初始文字", "text", ""], ["bool", "初始布尔值", "bool", false], ["json", "复杂类型初始值JSON", "json", "null"], ["reset", "本局变量重开恢复", "bool", true], ["reset_global", "全局变量也随单局重置", "bool", false]],
+	"set_variable": [["name", "变量名", "text", "value"], ["scope", "变量范围", "choice", "game", {"game":"本游戏实例", "project":"跨场景全局"}], ["value_type", "类型", "choice", "number", VALUE_TYPES], ["number", "默认数字", "number", 0.0, -1000000, 1000000], ["text", "默认文字", "text", ""], ["bool", "默认布尔值", "bool", false], ["json", "复杂类型默认值JSON", "json", "null"]],
 	"number": [["value", "数字", "number", 1.0, -1000000, 1000000]], "text": [["value", "文字", "text", "Hello"]],
 	"math": [["op", "计算", "choice", "add", {"add":"加", "subtract":"减", "multiply":"乘", "divide":"除", "min":"取小", "max":"取大"}], ["a", "未接线时A", "number", 0.0, -1000000, 1000000], ["b", "未接线时B", "number", 1.0, -1000000, 1000000]],
 	"compare": [["op", "比较", "choice", "greater", {"greater":"大于", "less":"小于", "equal":"近似相等", "greater_equal":"大于等于", "less_equal":"小于等于"}], ["a", "未接线时A", "number", 0.0, -1000000, 1000000], ["b", "未接线时B", "number", 1.0, -1000000, 1000000]],
@@ -47,10 +48,11 @@ const FIELDS: Dictionary = {
 	"format_text": [["value_type", "输入类型", "choice", "number", VALUE_TYPES], ["template", "文字（{value}为值）", "text", "Value: {value}"]],
 	"ui_message": [["text", "显示文字", "text", "Complete"], ["seconds", "显示秒数", "number", 2.0, 0.1, 60]]}
 const PURE: Array[String] = ["blackboard", "number", "text", "math", "compare", "logic", "game_value", "format_text", "boolean"]
+const BUTTON_EFFECTS: Array = [["effects_enabled","启用按钮动效","bool",false],["hover_scale","悬停缩放倍率","number",1.1,0.01,10],["pressed_scale","按下缩放倍率","number",0.95,0.01,10],["effect_seconds","反馈过渡秒数","number",0.12,0.001,5],["click_animation","点击播放Animation／Library","asset","","animation_source"]]
 
 
 static func value_type(p: Dictionary) -> int:
-	return 6 if p.get("value_type") == "bool" else 8 if p.get("value_type") == "text" else 7
+	return int(Types.PORTS.get(p.get("value_type", "number"), 7))
 
 
 static func port_type(kind: String, p: Dictionary, port: int, output: bool) -> int:
