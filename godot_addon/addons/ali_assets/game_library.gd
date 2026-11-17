@@ -2,6 +2,7 @@
 extends RefCounted
 ## Expand reusable flow graphs at compile time; packaged games need no JSON files.
 const Model: GDScript = preload("game_model.gd")
+const Link: GDScript = preload("resource_link.gd")
 
 
 static func signature(data: Dictionary) -> String:
@@ -41,7 +42,7 @@ static func compile(data: Dictionary) -> Dictionary:
 	var error: String = Model.validate(data)
 	if not error.is_empty():
 		return {"error": error}
-	var result: Dictionary = data.duplicate(true)
+	var result: Dictionary = Link.normalize(data)
 	for node: Dictionary in result["nodes"]:
 		node.erase("_stack")
 		node.erase("_origin")
@@ -87,6 +88,7 @@ static func compile(data: Dictionary) -> Dictionary:
 			result["edges"].append(edge)
 		if result["nodes"].size() > 256 or result["edges"].size() > 800:
 			return {"error": "展开后超过256模块／800连线。"}
+	result = Link.normalize(result)
 	error = Model.validate(result, true)
 	return {"error": error} if not error.is_empty() else {"data": result, "signature": signature(data)}
 

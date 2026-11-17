@@ -5,6 +5,7 @@ const BASE_TITLES: Dictionary = {"session": "游戏状态／计分", "input": "�
 const BASE_INPUTS: Dictionary = {"session": ["开始", "游戏结束", "重新开始", "暂停／继续", "加分"], "input": [], "runner": ["开始／重置", "跳跃", "死亡", "停止"], "world": ["开始／重置", "停止"], "spawner": ["开始／清空", "停止"], "hud": ["游戏画面", "结束菜单", "开始菜单", "暂停菜单", "更新分数", "开关设置"], "mixer": [], "screen": [], "audio": ["播放", "停止", "暂停", "继续"], "timer": ["启动", "停止", "重置"], "branch": ["判断", "布尔条件"], "sequence": ["执行"], "delay": ["执行"], "boolean": [], "custom": ["执行"]}
 const BASE_OUTPUTS: Dictionary = {"session": ["开始时", "结束时", "重开时", "暂停时", "继续时", "分数变化"], "input": ["跳跃键", "开始键", "重开键", "暂停键"], "runner": ["起跳时", "落地时", "死亡时", "死亡动画结束", "地面脚步"], "world": [], "spawner": ["碰到角色", "越过障碍"], "hud": ["开始按钮", "重开按钮", "暂停按钮", "跳跃按钮", "按钮音效"], "mixer": [], "screen": [], "audio": ["播放结束"], "timer": ["到时"], "branch": ["成立", "不成立"], "sequence": ["先执行1", "再执行2"], "delay": ["等待后"], "boolean": ["布尔值"], "custom": ["完成", "备用"]}
 const Registry: GDScript = preload("game_registry.gd")
+const Link: GDScript = preload("resource_link.gd")
 static var TITLES: Dictionary = joined(BASE_TITLES, Registry.TITLES)
 static var INPUTS: Dictionary = joined(BASE_INPUTS, Registry.INPUTS)
 static var OUTPUTS: Dictionary = joined(BASE_OUTPUTS, Registry.OUTPUTS)
@@ -142,6 +143,7 @@ static func validate(data: Dictionary, resources: bool = false) -> String:
 	var singles: Dictionary = {}
 	var variables: Dictionary = {}
 	var machines: Dictionary = {}
+	var bound_buttons: Dictionary = {}
 	for raw: Variant in data["nodes"]:
 		if not raw is Dictionary:
 			return "模块格式无效。"
@@ -158,6 +160,8 @@ static func validate(data: Dictionary, resources: bool = false) -> String:
 				return TITLES[kind] + "只能放一个。"
 			singles[kind] = true
 		var p: Dictionary = raw["params"]
+		if resources and not Link.metadata_problem(raw).is_empty():
+			return id + "：" + Link.metadata_problem(raw)
 		for field: Array in fields(kind):
 			var value: Variant = p.get(field[0])
 			var type: String = str(field[2])
@@ -181,6 +185,9 @@ static func validate(data: Dictionary, resources: bool = false) -> String:
 				if not str(value).begins_with("res://") or ".." in str(value):
 					return "请选择当前项目内的资源。"
 				if resources:
+					var resource_problem: String = Link.problem(str(value), str(field[4]))
+					if not resource_problem.is_empty():
+						return id + "／" + str(field[1]) + "：" + resource_problem
 					if field[4] == "module":
 						if not FileAccess.file_exists(str(value)):
 							return "子图不存在：" + str(value)
@@ -226,6 +233,11 @@ static func validate(data: Dictionary, resources: bool = false) -> String:
 			machines[p["name"]] = states
 		if kind in ["node_action", "signal_event"] and (str(p["target"]).is_empty() or str(p["target"]).begins_with("/") or ":" in str(p["target"]) or ".." in str(p["target"])):
 			return id + "：目标需为游戏根节点下的相对路径。"
+		if kind == "button" and not str(p["target"]).is_empty():
+			var path: String = str(p["target"])
+			if path.begins_with("/") or ":" in path or ".." in path or bound_buttons.has(path):
+				return id + "：按钮目标需为唯一的项目内相对节点路径。"
+			bound_buttons[path] = true
 		if resources and kind in ["spawn_scene", "module"] and str(p["scene"] if kind == "spawn_scene" else p["path"]).is_empty():
 			return id + "：请选择资源。"
 		if kind == "spawner" and (float(p["interval_max"]) < float(p["interval_min"]) or float(p["max_speed"]) < float(p["speed"])):

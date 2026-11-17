@@ -3,6 +3,7 @@ extends RefCounted
 ## Declarative nodes shared by the editor, compiler and native runtime.
 const VALUE_TYPES: Dictionary = {"bool": "布尔", "number": "数字", "text": "文字"}
 const TITLES: Dictionary = {
+	"button": "界面按钮",
 	"blackboard": "黑板变量", "set_variable": "写入变量", "number": "数字常量", "text": "文字常量",
 	"math": "数字运算", "compare": "数字比较", "logic": "布尔运算", "game_value": "读取游戏数据",
 	"do_once": "只执行一次", "gate": "执行闸门", "flip_flop": "交替执行", "cooldown": "冷却限制",
@@ -10,18 +11,21 @@ const TITLES: Dictionary = {
 	"health": "生命值", "spawn_scene": "生成场景实例", "node_action": "场景节点操作", "signal_event": "场景信号事件",
 	"log": "调试记录", "module": "可复用子图", "key_event": "自定义按键事件", "format_text": "文字格式化", "ui_message": "界面提示"}
 const INPUTS: Dictionary = {
+	"button": ["启用", "禁用", "显示", "隐藏", "点击"],
 	"blackboard": [], "set_variable": ["写入", "值"], "number": [], "text": [], "math": ["A", "B"], "compare": ["A", "B"], "logic": ["A", "B"], "game_value": [],
 	"do_once": ["执行", "重置"], "gate": ["执行", "打开", "关闭", "切换"], "flip_flop": ["执行", "重置"], "cooldown": ["执行", "重置"],
 	"fsm": ["重置"], "set_state": ["执行"], "event_emit": ["发送", "消息"], "event_listener": [],
 	"health": ["伤害", "恢复", "重置", "数量"], "spawn_scene": ["生成", "清理本模块实例", "X", "Y"], "node_action": ["执行", "X", "Y"], "signal_event": [],
 	"log": ["执行", "文字"], "module": ["执行"], "key_event": [], "format_text": ["值"], "ui_message": ["显示", "文字"]}
 const OUTPUTS: Dictionary = {
+	"button": ["点击时", "按下时", "释放时", "鼠标进入", "鼠标离开"],
 	"blackboard": ["当前值"], "set_variable": ["完成"], "number": ["数字"], "text": ["文字"], "math": ["结果"], "compare": ["结果"], "logic": ["结果"], "game_value": ["值"],
 	"do_once": ["通过"], "gate": ["通过"], "flip_flop": ["A", "B", "本次为A"], "cooldown": ["通过", "冷却中"],
 	"fsm": ["进入状态", "当前状态", "离开状态", "上一状态"], "set_state": ["成功", "拒绝"], "event_emit": ["已发送"], "event_listener": ["收到", "消息"],
 	"health": ["变化", "耗尽", "当前生命", "生命比例"], "spawn_scene": ["成功", "失败"], "node_action": ["成功", "失败"], "signal_event": ["触发", "首个参数"],
 	"log": ["完成"], "module": ["完成"], "key_event": ["按下", "释放"], "format_text": ["文字"], "ui_message": ["完成"]}
 const FIELDS: Dictionary = {
+	"button": [["target", "绑定现有按钮（空则创建）", "text", ""], ["widget", "新建控件类型", "choice", "button", {"button":"Button文字按钮", "texture":"TextureButton图片按钮"}], ["text", "文字", "text", "BUTTON"], ["disabled", "初始禁用", "bool", false], ["x", "新建位置X", "number", 60.0, -10000, 10000], ["y", "新建位置Y", "number", 60.0, -10000, 10000], ["width", "新建宽度", "number", 200.0, 1, 4096], ["height", "新建高度", "number", 64.0, 1, 4096], ["normal_texture", "普通贴图", "asset", "", "image"], ["hover_texture", "悬停贴图", "asset", "", "image"], ["pressed_texture", "按下贴图", "asset", "", "image"], ["disabled_texture", "禁用贴图", "asset", "", "image"], ["hover_sound", "悬停音效", "asset", "", "audio"], ["click_sound", "点击音效", "asset", "", "audio"], ["volume", "独立音量／dB", "number", -8.0, -60, 6], ["bus", "输出总线", "choice", "UI", {"Master":"总线", "BGM":"背景音乐", "SFX":"游戏音效", "UI":"界面声音"}]],
 	"blackboard": [["name", "变量名", "text", "value"], ["value_type", "类型", "choice", "number", VALUE_TYPES], ["number", "初始数字", "number", 0.0, -1000000, 1000000], ["text", "初始文字", "text", ""], ["bool", "初始布尔值", "bool", false], ["reset", "新一局恢复初始值", "bool", true]],
 	"set_variable": [["name", "变量名", "text", "value"], ["value_type", "类型", "choice", "number", VALUE_TYPES], ["number", "默认数字", "number", 0.0, -1000000, 1000000], ["text", "默认文字", "text", ""], ["bool", "默认布尔值", "bool", false]],
 	"number": [["value", "数字", "number", 1.0, -1000000, 1000000]], "text": [["value", "文字", "text", "Hello"]],

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 PURPOSES={
+ 'button':'创建或绑定原生Button／TextureButton，集中配置四状态贴图、悬停／点击音效与五类交互事件。',
  'session':'管理一局游戏的开始、结束、暂停、继续、重开和分数；保存最高分。',
  'input':'将实际按键转换成开始、跳跃、重开或暂停事件。默认Space在开始菜单用于开始，在结束后用于重开。',
  'runner':'横版跑酷角色控制：固定横向位置，地面和障碍滚动；包含落地判断、单次跳跃、行走动画、死亡动画及脚步事件。',
@@ -21,6 +22,7 @@ PURPOSES={
  'custom':'选择或编写项目GDScript，在执行线到达时调用execute(context)，返回完成或备用出口。',
 }
 NOTES={
+ 'button':'空状态图沿用普通图；空目标创建新控件，已有目标保留原生布局。禁用不发出蓝图事件。预览在独立副本中进行。按钮动画与通用Tween任务将在后续阶段提供，详见0.5阶段文档。',
  'session':'“加分”入口使用“越过障碍加分”参数；每秒分数单独累计。存档内容目前是最高分与音量，不是完整关卡／背包存档。',
  'input':'跳跃、暂停、重开需使用不同键。该模块是单键输入，不包含组合键或通用手柄重映射系统。',
  'runner':'角色资源支持SpriteFrames.tres或含SpriteFrames的角色asset.tscn；需要行走、跳跃、死亡三种动画。不包含二段跳、下蹲、攀墙、攻击判定或敌人AI。',
@@ -113,7 +115,8 @@ def requirement(field):
 
 def build(data):
     rows=['# AlI 蓝图模块手册','',
-      '版本快照：插件0.4，2026年11月16日。按当前安装模块与运行代码核对。',
+      '版本快照：插件0.5.0-stage1，2026年11月17日。按当前安装模块与运行代码核对。',
+      '', '本轮新增统一资源槽、独立预览、折叠检查器和界面按钮。角色节点参数移至右侧；下方旧截图仅为机制示意。完整范围及未完成阶段见[0.5阶段文档](BLUEPRINT_05_PLAN.md)。',
       '', '## 先看这份总览','',
       f"目前有两个独立工作台：游戏蓝图{len(data['game_modules'])}类模块，角色蓝图{len(data['character_types'])}类模块。部分能力重复，属于各自工作台的模块。角色动作菜单有{len(data['actions'])}个选项，这些是一个动作模块内的选项；游戏字段定义共{sum(len(m['fields']) for m in data['game_modules'])}项。",
       '', '| 工作台 | 打开入口 | 适合做什么 |', '| --- | --- | --- |',
@@ -197,7 +200,7 @@ def build(data):
       '1. 游戏工作台选择游戏根节点，绑定后修改，点击应用到游戏，再保存场景。也可创建新游戏场景，保留原有文件。',
       '2. 角色工作台选择新版导出的角色根节点，绑定后修改，点击应用到角色，再保存场景。',
       '3. 保存JSON只保存蓝图草稿，不会自动改变运行场景。运行时不自动调用AI生成新素材。',
-      '', '这份手册是当前0.4版本的功能清单。默认跑酷示例与所用占位素材只用于验证玩法和接线；其它类型游戏、AI素材质量和发行包仍需分别验收。', '']
+      '', '这份手册是当前0.5第一阶段的功能清单。默认跑酷示例与所用占位素材只用于验证玩法和接线；其它类型游戏、AI素材质量和发行包仍需分别验收。', '']
     rows += ['', '## 技术说明与参考资料', '', '完整架构、编译规则、子图作用域、验证与迁移见docs/GODOT_BLUEPRINT_TECHNICAL.md及配套离线技术文档。', '', '[UE执行与数据流](https://dev.epicgames.com/documentation/en-us/unreal-engine/basic-scripting-with-blueprints-in-unreal-engine)、[NodeCanvas黑板](https://nodecanvas.paradoxnotion.com/documentation/?section=the-blackboard)、[NodeCanvas状态机](https://nodecanvas.paradoxnotion.com/documentation/?section=fsm-node-reference)。']
     return '\n'.join(rows)
 

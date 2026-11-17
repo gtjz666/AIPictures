@@ -4,6 +4,11 @@ signal game_applied(target: Node, data: Dictionary)
 const Model: GDScript = preload("game_model.gd")
 const Library: GDScript = preload("game_library.gd")
 const Registry: GDScript = preload("game_registry.gd")
+const Link: GDScript = preload("resource_link.gd")
+const Slot: GDScript = preload("resource_slot.gd")
+const Groups: GDScript = preload("inspector_groups.gd")
+const ButtonPreview: GDScript = preload("button_preview.gd")
+const Browser: GDScript = preload("resource_browser.gd")
 const Builder: GDScript = preload("game_builder.gd")
 var data: Dictionary = Model.preset()
 var graph: GraphEdit
@@ -69,6 +74,10 @@ func _ready() -> void:
 	button(toolbar, "编译检查", check_graph)
 	button(toolbar, "保存所选为子图…", save_module)
 	button(toolbar, "执行记录", show_debug)
+	button(toolbar, "资源预览…", func() -> void:
+		var browser: Window = Browser.new()
+		add_child(browser)
+		browser.popup_centered())
 	button(toolbar, "创建游戏场景…", func() -> void: choose("scene"))
 	button(toolbar, "绑定当前游戏", bind_selection)
 	button(toolbar, "应用到游戏", apply_game)
@@ -148,7 +157,7 @@ func change(label: String, next: Dictionary, refresh: bool = true) -> bool:
 
 
 func assign(next: Dictionary, refresh: bool = true) -> void:
-	data = next.duplicate(true)
+	data = Link.normalize(next)
 	dirty = true
 	capture_field = ""
 	render(refresh)
@@ -227,15 +236,20 @@ func show_inspector() -> void:
 	title.text = str(Model.TITLES[kind])
 	title.add_theme_font_size_override("font_size", 20)
 	inspector.add_child(title)
+	var groups: Dictionary = {}
 	for field: Array in Model.fields(kind):
 		if kind in ["blackboard", "set_variable"] and field[0] in ["bool", "number", "text"] and field[0] != node["params"]["value_type"]:
 			continue
 		var name: String = str(field[0])
 		var type: String = str(field[2])
 		var value: Variant = node["params"][name]
+		var group: String = field_group(kind, name, type, field)
+		if not groups.has(group):
+			groups[group] = Groups.add(inspector, "game:" + kind + ":" + group, group)
+		var body: VBoxContainer = groups[group]
 		var caption: Label = Label.new()
 		caption.text = str(field[1])
-		inspector.add_child(caption)
+		body.add_child(caption)
 		match type:
 			"number", "integer":
 				var spin: SpinBox = SpinBox.new()
@@ -244,13 +258,13 @@ func show_inspector() -> void:
 				spin.step = 1 if type == "integer" or float(field[5]) > 100 else 0.01
 				spin.value = float(value)
 				spin.value_changed.connect(func(next: float) -> void: parameter(name, next))
-				inspector.add_child(spin)
+				body.add_child(spin)
 			"bool":
 				var check: CheckBox = CheckBox.new()
 				check.text = "启用"
 				check.button_pressed = bool(value)
 				check.toggled.connect(func(next: bool) -> void: parameter(name, next))
-				inspector.add_child(check)
+				body.add_child(check)
 			"choice":
 				var choice: OptionButton = OptionButton.new()
 				var keys: Array = field[4].keys()
@@ -258,21 +272,18 @@ func show_inspector() -> void:
 					choice.add_item(str(field[4][key]))
 				choice.selected = keys.find(value)
 				choice.item_selected.connect(func(index: int) -> void: parameter(name, keys[index]))
-				inspector.add_child(choice)
+				body.add_child(choice)
 			"asset":
-				var row: HBoxContainer = HBoxContainer.new()
-				var pick: Button = button(row, "选择…" if str(value).is_empty() else str(value).get_file(), func() -> void:
-					pending_field = name
-					choose("scene_asset" if field[4] == "scene" else str(field[4])))
-				pick.tooltip_text = str(value)
-				button(row, "清空", func() -> void: parameter(name, ""))
-				inspector.add_child(row)
+				var slot: VBoxContainer = Slot.new()
+				body.add_child(slot)
+				slot.call("setup", str(field[4]), str(value))
+				slot.connect("value_changed", func(path: String) -> void: parameter(name, path))
 				if field[4] == "script":
-					button(inspector, "新建可编写模块…", func() -> void:
+					button(body, "新建可编写模块…", func() -> void:
 						pending_field = name
 						choose("new_script"))
 					if not str(value).is_empty():
-						button(inspector, "在Godot中编辑脚本", func() -> void: EditorInterface.edit_script(load(str(value)) as Script))
+						button(body, "在Godot中编辑脚本", func() -> void: EditorInterface.edit_script(load(str(value)) as Script))
 			"key":
 				var common: OptionButton = OptionButton.new()
 				var keys: Array[int] = [KEY_SPACE, KEY_ESCAPE, KEY_ENTER, KEY_UP, KEY_W, KEY_A, KEY_S, KEY_D, KEY_J, KEY_K, KEY_R, KEY_P]
@@ -282,27 +293,61 @@ func show_inspector() -> void:
 					common.add_item(OS.get_keycode_string(key))
 				common.selected = keys.find(int(value))
 				common.item_selected.connect(func(index: int) -> void: parameter(name, keys[index]))
-				inspector.add_child(common)
-				button(inspector, OS.get_keycode_string(int(value)) + " · 点击改键", func() -> void:
+				body.add_child(common)
+				button(body, OS.get_keycode_string(int(value)) + " · 点击改键", func() -> void:
 					capture_field = name
 					message.text = "请按新键，Esc取消。")
 			"color":
 				var color: ColorPickerButton = ColorPickerButton.new()
 				color.color = Color(str(value))
 				color.color_changed.connect(func(next: Color) -> void: parameter(name, next.to_html()))
-				inspector.add_child(color)
+				body.add_child(color)
 			_:
 				var edit: LineEdit = LineEdit.new()
 				edit.text = str(value)
 				edit.text_submitted.connect(func(next: String) -> void: parameter(name, next.strip_edges()))
-				inspector.add_child(edit)
+				body.add_child(edit)
+
+	if kind == "button":
+		var events: VBoxContainer = Groups.add(inspector, "game:button:events", "事件与预览")
+		var hint: Label = Label.new()
+		hint.text = "从节点右侧连接：点击、按下、释放、鼠标进入／离开。\n绑定现有按钮时保留原生布局。动画接入在后续阶段提供。"
+		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		events.add_child(hint)
+		button(events, "预览四状态按钮…", func() -> void:
+			var prepared: Dictionary = Library.compile(data)
+			if prepared.has("error"):
+				message.text = prepared["error"]
+				return
+			var preview: Window = ButtonPreview.new()
+			add_child(preview)
+			preview.call("present", node["params"].duplicate(true)))
+
+
+func field_group(kind: String, name: String, type: String, field: Array) -> String:
+	if kind == "button" and (name in ["hover_sound", "click_sound", "volume", "bus"]):
+		return "声音设置"
+	if type == "asset":
+		return "声音资源" if field[4] == "audio" else "脚本与子图" if field[4] in ["script", "module"] else "图像与资源"
+	if type == "key":
+		return "输入绑定"
+	return "基础参数"
 
 
 func parameter(field: String, value: Variant) -> void:
 	if Model.find(data, selected_id)["params"].get(field) == value:
 		return
 	var next: Dictionary = data.duplicate(true)
-	Model.find(next, selected_id)["params"][field] = value
+	var node: Dictionary = Model.find(next, selected_id)
+	node["params"][field] = value
+	for definition: Array in Model.fields(str(node["kind"])):
+		if definition[0] == field and definition[2] == "asset":
+			if not node.has("resources"):
+				node["resources"] = {}
+			if str(value).is_empty():
+				node["resources"].erase(field)
+			else:
+				node["resources"][field] = Link.descriptor(str(value))
 	if not change("修改参数", next, field == "value_type"):
 		show_inspector()
 
@@ -369,7 +414,7 @@ func bind_selection() -> void:
 	if not problem.is_empty():
 		message.text = problem
 		return
-	data = stored.duplicate(true)
+	data = Link.normalize(stored)
 	history.clear_history()
 	target_label.text = "已绑定：" + str(target.name)
 	render()
@@ -379,7 +424,7 @@ func apply_game() -> void:
 	if not is_instance_valid(target):
 		message.text = "请先绑定游戏根节点，或创建新场景。"
 		return
-	if not "compiled_blueprint" in target:
+	if not "compiled_blueprint" in target or not target.get_script() is GDScript or int(target.get_script().get_script_constant_map().get("API_VERSION", 0)) < 5:
 		message.text = "此场景使用旧运行模块。草稿已保留，请创建新名称的游戏场景升级；旧场景不会覆盖。"
 		return
 	var prepared: Dictionary = Library.compile(data)

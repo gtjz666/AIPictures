@@ -105,6 +105,7 @@ def export_asset(project,name,preset,animations=None,*,image=None,audio=None,fps
         shutil.copy2(ADDON/'runtime'/'player.gd',folder/'player.gd');ext('Script',base+'/player.gd','player')
         shutil.copy2(ADDON/'runtime'/'blueprint_runtime.gd',folder/'blueprint_runtime.gd')
         shutil.copy2(ADDON/'addons'/'ali_assets'/'blueprint_model.gd',folder/'blueprint_model.gd')
+        shutil.copy2(ADDON/'addons'/'ali_assets'/'resource_link.gd',folder/'resource_link.gd')
         resources.append('[sub_resource type="CircleShape2D" id="body_shape"]\nradius = '+str(max(2,size[0]/6)))
         node=['[node name="GeneratedCharacter" type="CharacterBody2D"]','texture_filter = 1','motion_mode = 1','script = ExtResource("player")','four_way = '+str(preset=='four_way').lower(),
             '[node name="CollisionShape2D" type="CollisionShape2D" parent="."]','shape = SubResource("body_shape")']

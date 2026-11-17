@@ -21,6 +21,9 @@ def package(output):
         technical=ADDON.parent/'docs/GODOT_BLUEPRINT_TECHNICAL.md'
         archive.write(technical,'GODOT_BLUEPRINT_TECHNICAL.md')
         archive.writestr('蓝图技术文档.html',render_guide(technical,title='AlI 蓝图技术文档',navigation_title='技术目录'))
+        stage=ADDON.parent/'docs/BLUEPRINT_05_PLAN.md'
+        archive.write(stage,'BLUEPRINT_05_PLAN.md')
+        archive.writestr('蓝图0.5阶段文档.html',render_guide(stage,title='AlI 蓝图0.5第一阶段',navigation_title='阶段目录'))
         archive.write(ADDON.parent/'docs/images/blueprint-programming.png','images/blueprint-programming.png')
         archive.write(catalog,'GODOT_BLUEPRINT_CATALOG.md')
         archive.writestr('蓝图模块手册.html',render_guide(catalog,title='AlI 蓝图模块手册',navigation_title='模块目录'))

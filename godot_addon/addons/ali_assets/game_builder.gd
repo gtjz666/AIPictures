@@ -2,7 +2,7 @@
 extends RefCounted
 const Library: GDScript = preload("game_library.gd")
 const Model: GDScript = preload("game_model.gd")
-const RUNTIME_FILES: Array[String] = ["game_registry.gd", "game_library.gd", "game_program.gd", "game_runtime.gd", "game_model.gd", "game_assets.gd", "game_actor.gd", "game_world.gd", "game_spawner.gd", "game_audio.gd", "game_hud.gd"]
+const RUNTIME_FILES: Array[String] = ["resource_link.gd", "game_widgets.gd", "game_registry.gd", "game_library.gd", "game_program.gd", "game_runtime.gd", "game_model.gd", "game_assets.gd", "game_actor.gd", "game_world.gd", "game_spawner.gd", "game_audio.gd", "game_hud.gd"]
 
 
 static func create_scene(data: Dictionary, path: String) -> String:

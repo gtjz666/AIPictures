@@ -1,6 +1,8 @@
 extends Node2D
 ## A self-contained game assembled from editable modules, with no autoloads.
-const API_VERSION: int = 4
+const API_VERSION: int = 5
+const Link: GDScript = preload("resource_link.gd")
+const Widgets: GDScript = preload("game_widgets.gd")
 const Library: GDScript = preload("game_library.gd")
 const Program: GDScript = preload("game_program.gd")
 const Model: GDScript = preload("game_model.gd")
@@ -43,6 +45,7 @@ var previous_scale: Vector2i
 var previous_mode: Window.ContentScaleMode = Window.CONTENT_SCALE_MODE_DISABLED
 var previous_aspect: Window.ContentScaleAspect = Window.CONTENT_SCALE_ASPECT_KEEP
 var initialized: bool = false
+var widgets: Node
 
 
 func settings(kind: String) -> Dictionary:
@@ -55,7 +58,7 @@ func _ready() -> void:
 	var prepared: Dictionary = {"data": compiled_blueprint} if not compiled_blueprint.is_empty() and compiled_signature == Library.signature(game_blueprint) else Library.compile(game_blueprint)
 	var problem: String = str(prepared.get("error", ""))
 	if problem.is_empty():
-		game_blueprint = prepared["data"].duplicate(true)
+		game_blueprint = Link.normalize(prepared["data"])
 		problem = Model.validate(game_blueprint, true)
 	if not problem.is_empty():
 		push_error("游戏蓝图：" + problem)
@@ -113,6 +116,10 @@ func _ready() -> void:
 	hud.call("setup", self, settings("hud"))
 	program = Program.new()
 	program.call("setup", self)
+	widgets = Widgets.new()
+	widgets.name = "BlueprintWidgets"
+	add_child(widgets)
+	widgets.call("setup", self)
 	debug_path = "user://ali_blueprint_" + str(settings("session")["save_key"]) + ".json"
 	hud.call("refresh_health")
 	initialized = true
@@ -265,6 +272,7 @@ func deliver(id: String, port: int) -> void:
 	program.call("record", id, "执行输入 " + str(port))
 	var p: Dictionary = node["params"]
 	match str(node["kind"]):
+		"button": widgets.call("command", id, port)
 		"session": session_command(port)
 		"runner": actor.call("command", port)
 		"world": world.call("command", port)

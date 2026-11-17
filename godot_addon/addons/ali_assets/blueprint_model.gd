@@ -107,8 +107,8 @@ static func validate(data: Dictionary, frames: SpriteFrames = null) -> String:
 			if not sound.get("path") is String:
 				return "音效路径格式不正确。"
 			var path: String = str(sound.get("path", ""))
-			if not path.is_empty() and (not path.begins_with("res://") or ".." in path or path.get_extension().to_lower() not in ["wav", "ogg", "mp3"]):
-				return "音效需为当前项目中的WAV、OGG或MP3文件。"
+			if not path.is_empty() and (not path.begins_with("res://") or ".." in path or path.get_extension().to_lower() not in ["wav", "ogg", "mp3", "tres", "res"]):
+				return "音效需为当前项目中的音频资源。"
 			if str(sound.get("trigger", "")) not in ["start", "frame", "repeat"]:
 				return "音效触发方式无效。"
 			for field: String in ["frame", "interval", "volume"]:

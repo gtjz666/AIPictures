@@ -2,8 +2,14 @@
 extends Window
 
 signal graph_applied(data: Dictionary)
+const Link: GDScript = preload("resource_link.gd")
+const Slot: GDScript = preload("resource_slot.gd")
+const Groups: GDScript = preload("inspector_groups.gd")
+const Browser: GDScript = preload("resource_browser.gd")
 const Model: GDScript = preload("blueprint_model.gd")
 var data: Dictionary = Model.preset("two_way")
+var selected_id: String = ""
+var inspector: VBoxContainer
 var graph: GraphEdit
 var message: Label
 var binding_label: Label
@@ -69,6 +75,10 @@ func _ready() -> void:
 	common.get_popup().id_pressed.connect(add_common_module)
 	binding.add_child(common)
 	add_button(binding, "绑定当前选中角色", bind_selection)
+	add_button(binding, "资源预览…", func() -> void:
+		var browser: Window = Browser.new()
+		add_child(browser)
+		browser.popup_centered())
 	binding_label = Label.new()
 	binding_label.text = "未绑定 · 可先搭建并保存蓝图；选中导出的角色根节点后绑定。"
 	binding.add_child(binding_label)
@@ -86,7 +96,17 @@ func _ready() -> void:
 	graph.connection_request.connect(func(source: StringName, from_port: int, dest: StringName, to_port: int) -> void: connect_modules(str(source), str(dest), from_port, to_port))
 	graph.disconnection_request.connect(func(source: StringName, from_port: int, dest: StringName, to_port: int) -> void: disconnect_modules(str(source), str(dest), from_port, to_port))
 	graph.delete_nodes_request.connect(delete_modules)
-	root.add_child(graph)
+	var split: HSplitContainer = HSplitContainer.new()
+	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(split)
+	graph.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	split.add_child(graph)
+	var scroll: ScrollContainer = ScrollContainer.new()
+	scroll.custom_minimum_size.x = 320
+	split.add_child(scroll)
+	inspector = VBoxContainer.new()
+	inspector.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(inspector)
 	message = Label.new()
 	message.text = "蓝图只编排已有动作；攻击等模块会播放动画并发出动作信号。"
 	root.add_child(message)
@@ -121,7 +141,7 @@ func change(label: String, next: Dictionary) -> bool:
 
 
 func set_data(next: Dictionary) -> void:
-	data = next.duplicate(true)
+	data = Link.normalize(next)
 	dirty = true
 	capture_id = ""
 	render()
@@ -161,7 +181,7 @@ func bind_character(character: Node) -> bool:
 			if not problem.is_empty():
 				message.text = problem
 				return false
-			data = stored.duplicate(true)
+			data = Link.normalize(stored)
 		history.clear_history()
 	render()
 	message.text = "已读取角色动画。连接完成后点击“应用到角色”，再保存场景。"
@@ -214,7 +234,15 @@ func add_module(kind: String) -> void:
 
 func update_parameter(id: String, field: String, value: Variant) -> void:
 	var next: Dictionary = data.duplicate(true)
-	Model.find_node(next, id)["params"][field] = value
+	var node: Dictionary = Model.find_node(next, id)
+	node["params"][field] = value
+	if field in ["script", "path"]:
+		if not node.has("resources"):
+			node["resources"] = {}
+		if str(value).is_empty():
+			node["resources"].erase(field)
+		else:
+			node["resources"][field] = Link.descriptor(str(value))
 	change("修改模块", next)
 
 
@@ -317,6 +345,8 @@ func render() -> void:
 		spin.value_changed.connect(func(value: float) -> void: update_setting(field, value))
 		settings_row.add_child(spin)
 
+	show_inspector()
+
 
 func update_setting(field: String, value: Variant) -> void:
 	var next: Dictionary = data.duplicate(true)
@@ -328,7 +358,6 @@ func render_node(node: Dictionary) -> void:
 	var widget: GraphNode = GraphNode.new()
 	var id: String = str(node["id"])
 	var kind: String = str(node["kind"])
-	var params: Dictionary = node["params"]
 	widget.name = id
 	widget.title = {"key": "按键事件", "action": "封装动作模块", "animation": "播放动画", "sound": "播放音效", "event": "事件入口", "branch": "条件分支", "sequence": "顺序执行", "delay": "延迟", "boolean": "布尔变量", "custom": "自定义模块"}[kind]
 	widget.custom_minimum_size = Vector2(240, 0)
@@ -357,6 +386,26 @@ func render_node(node: Dictionary) -> void:
 		var next: Dictionary = data.duplicate(true)
 		Model.find_node(next, id)["position"] = [to.x, to.y]
 		change("移动模块", next))
+	widget.node_selected.connect(func() -> void:
+		selected_id = id
+		show_inspector())
+	widget.selected = selected_id == id
+
+
+func show_inspector() -> void:
+	for child: Node in inspector.get_children():
+		inspector.remove_child(child)
+		child.queue_free()
+	var node: Dictionary = Model.find_node(data, selected_id)
+	if node.is_empty():
+		var hint: Label = Label.new()
+		hint.text = "选择节点，在此编辑参数。"
+		inspector.add_child(hint)
+		return
+	var kind: String = str(node["kind"])
+	var id: String = str(node["id"])
+	var params: Dictionary = node["params"]
+	var widget: VBoxContainer = Groups.add(inspector, "role:" + kind, "模块参数 · " + id)
 	match kind:
 		"event":
 			add_choice(widget, Model.EVENTS, str(params["event"]), func(value: String) -> void: update_parameter(id, "event", value))
@@ -391,9 +440,10 @@ func render_node(node: Dictionary) -> void:
 			widget.add_child(value)
 		"custom":
 			var path: String = str(params["script"])
-			add_button(widget, path.get_file() if not path.is_empty() else "选择模块脚本…", func() -> void:
-				sound_id = id
-				choose_file("script"))
+			var slot: VBoxContainer = Slot.new()
+			widget.add_child(slot)
+			slot.call("setup", "script", path)
+			slot.connect("value_changed", func(value: String) -> void: update_parameter(id, "script", value))
 			add_button(widget, "新建可编写模块…", func() -> void:
 				sound_id = id
 				choose_file("new_module"))
@@ -433,11 +483,10 @@ func render_node(node: Dictionary) -> void:
 				edit.text_submitted.connect(func(text: String) -> void: update_parameter(id, "clip", text.strip_edges()))
 				widget.add_child(edit)
 		"sound":
-			var path: String = str(params["path"])
-			var button: Button = add_button(widget, path.get_file() if not path.is_empty() else "选择项目音效…", func() -> void:
-				sound_id = id
-				choose_file("sound"))
-			button.tooltip_text = path
+			var slot: VBoxContainer = Slot.new()
+			widget.add_child(slot)
+			slot.call("setup", "audio", str(params["path"]))
+			slot.connect("value_changed", func(value: String) -> void: update_parameter(id, "path", value))
 			var trigger: OptionButton = OptionButton.new()
 			for label: String in ["动画开始时", "指定动画帧（从0开始）", "动画播放中按间隔重复"]:
 				trigger.add_item(label)

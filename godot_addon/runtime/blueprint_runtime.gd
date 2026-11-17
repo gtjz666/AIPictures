@@ -1,6 +1,7 @@
 extends RefCounted
 ## Installed beside the generated player; no editor plugin needed at runtime.
 const Model: GDScript = preload("blueprint_model.gd")
+const Link: GDScript = preload("resource_link.gd")
 var data: Dictionary = {}
 var sprite: AnimatedSprite2D
 var players: Dictionary = {}
@@ -21,9 +22,14 @@ var execution_budget: int = 512
 
 
 func setup(graph: Dictionary, owner_node: Node, animated: AnimatedSprite2D) -> bool:
+	graph = Link.normalize(graph)
 	error = Model.validate(graph, animated.sprite_frames)
 	if not error.is_empty():
 		return false
+	for node: Dictionary in graph["nodes"]:
+		error = Link.metadata_problem(node)
+		if not error.is_empty():
+			return false
 	data = graph.duplicate(true)
 	sprite = animated
 	actor = owner_node as CharacterBody2D

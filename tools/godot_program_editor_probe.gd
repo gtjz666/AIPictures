@@ -29,7 +29,7 @@ func run() -> void:
 	var graph: GraphEdit = window.get("graph") as GraphEdit
 	assert((graph.get_node(id) as GraphNode).get_output_port_type(0) == 7)
 	var inspector: VBoxContainer = window.get("inspector") as VBoxContainer
-	var spin: SpinBox = inspector.get_child(2) as SpinBox
+	var spin: SpinBox = inspector.find_children("*", "SpinBox", true, false)[0] as SpinBox
 	assert(spin != null)
 	spin.value = 3.0
 	assert(is_instance_valid(spin) and not spin.is_queued_for_deletion())
