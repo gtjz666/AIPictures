@@ -20,7 +20,8 @@ def main():
   if families:app.setStyleSheet(app.styleSheet()+'\nQWidget { font-family: \"'+families[0]+'\"; }')
  with patch('aipictures.app.DATA',data),patch('aipictures.moss_workspace.DATA',data),patch('aipictures.gpu_watch_ui.attach'),patch.object(Window,'auto_connect_engine'),patch.object(Window,'restore_chat'),patch.object(Window,'refresh_stats'):
   w=Window();w.timer.stop();w.resize(1440,940);w.show();m=open_workspace(w);QTest.qWait(80)
-  assert 'MOSS排版' in [action.text() for action in w.menuBar().actions()]
+  assert w.workbench.design_button.text()=='画面设计' and '画面设计' in m.windowTitle()
+  w.grab().save(str(proof/'main-toolbar.png'))
   m.grab().save(str(proof/'layout-workspace.png'))
   original=m.prompt.toPlainText();m.busy=True
   called=[];w.pending=[({},dict(mode='h3_image',backend='standalone'),proof/'not-started',None)];w.h3_image_controller.start=lambda *_:called.append(True)

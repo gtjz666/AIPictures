@@ -22,13 +22,16 @@ def verify(area='layout'):
             patch.object(Window,'auto_connect_engine'),patch.object(Window,'restore_chat'),patch.object(Window,'refresh_stats'):
         root=Path(temp);w=Window();cleanup.callback(lambda:(w.close(),QTest.qWait(60)));w.timer.stop();w.resize(1440,940);w.show();QTest.qWait(50)
         b=w.workbench;vc=w.video_controller;w.intent_controller.config=None
+        assert b.design_button.text()=='画面设计' and not b.sprite_mode.isVisible()
+        b.toolbar_mode_clicked(2);assert w.generation_type.currentData()=='walk' and b.modes[2].isChecked()
+        b.toolbar_mode_clicked(1);assert w.generation_type.currentData()=='image' and b.modes[1].isChecked()
         vc.h3={'validated':True};vc.motion_settings={'validated':True};vc.long_ready=vc.edit_ready=True
-        assert [button.text() for button in b.modes]==['游戏CG','精灵图','音频']
+        assert [button.text() for button in b.modes]==['游戏CG','单张','动画帧','音频']
         assert [b.right_tabs.tabText(i) for i in range(2)]==['参考','生成'] and b.right_tabs.currentIndex()==0
         assert not b.right_tabs.isMovable() and not b.workspace.childrenCollapsible()
         assert all(not dock.isVisible() for dock in w.findChildren(QDockWidget))
         assert b.task.parentWidget()==b.canvas and not w.output_shortcut.isEnabled()
-        assert [a.text() for a in w.menuBar().actions()]==['记录','画面','采样','连接','API','MOSS排版','窗口','Godot']
+        assert [a.text() for a in w.menuBar().actions()]==['记录','画面','采样','连接','API','窗口','Godot']
         if area in ('layout','sprite'):
             image=root/'person.png';Image.new('RGB',(64,96),'purple').save(image)
             frames=[Image.new('RGB',(64,96),(80+i*20,110,180)) for i in range(8)]

@@ -39,7 +39,7 @@ class Region(QGraphicsRectItem):
 class MossWindow(QMainWindow):
  def __init__(self,window):
   super().__init__(window);self.host=window;self.busy=False;self.cancel=threading.Event();self.owner=None;self.folder=None;self.result_path=None;self.references={};self.layout_data=moss.draft();self.updating=False
-  self.setAcceptDrops(True);self.setWindowTitle('MOSS · 排版生成与参考图编辑');self.resize(1380,900)
+  self.setAcceptDrops(True);self.setWindowTitle('画面设计 · 排版生成与参考图编辑');self.resize(1380,900)
   root=QWidget();self.setCentralWidget(root);outer=QVBoxLayout(root)
   top=QHBoxLayout();outer.addLayout(top);self.mode=QComboBox();self.mode.addItem('排版生成','layout');self.mode.addItem('参考图编辑 · 社区实验','edit');top.addWidget(self.mode)
   self.width=QSpinBox();self.height=QSpinBox()

@@ -252,14 +252,16 @@ class Workbench:
     def make_toolbar(self,w):
         bar=QToolBar('创作');bar.setObjectName('creationToolbar');bar.setMovable(False);w.addToolBar(bar)
         self.group=QButtonGroup(w);self.group.setExclusive(True);self.modes=[]
-        self.category='sprite';self._category_change=False;self.category_keys=('long_video','sprite','audio');self.long_duration=6;self.sprite_duration=4
-        for index,title in enumerate(('游戏CG','精灵图','音频')):
+        self.category='sprite';self._category_change=False;self.category_keys=('long_video','sprite','sprite','audio');self.long_duration=6;self.sprite_duration=4
+        for index,title in enumerate(('游戏CG','单张','动画帧','音频')):
             b=QPushButton(title);b.setCheckable(True);b.setObjectName('modeCard');self.group.addButton(b,index);self.modes.append(b);bar.addWidget(b)
-        self.group.idClicked.connect(lambda index:self.select_category(self.category_keys[index]))
-        self.sprite_mode=QComboBox();self.sprite_mode.addItem('单张','image');self.sprite_mode.addItem('动画帧','walk');self.sprite_action=bar.addWidget(self.sprite_mode)
+        self.group.idClicked.connect(self.toolbar_mode_clicked)
+        self.sprite_mode=QComboBox();self.sprite_mode.addItem('单张','image');self.sprite_mode.addItem('动画帧','walk');self.sprite_action=bar.addWidget(self.sprite_mode);self.sprite_action.setVisible(False)
         self.sprite_mode.currentIndexChanged.connect(lambda index:self.set_sprite_mode(index))
         w.generation_type.currentIndexChanged.connect(self.sync_category)
-        self.modes[1].setChecked(True);bar.addSeparator()
+        self.modes[1].setChecked(True)
+        from .moss_workspace import open_workspace
+        self.design_button=QPushButton('画面设计');self.design_button.setObjectName('modeCard');self.design_button.clicked.connect(lambda:open_workspace(w));bar.addWidget(self.design_button);bar.addSeparator()
         from .audio_workspace import AudioWorkspace
         w.audio_controller=AudioWorkspace(w);w.tabs.addTab(w.audio_controller.page,'音频');w.tabs.tabBar().hide()
         self.creation_kind.hide();self.creation_kind_label.hide()
@@ -271,34 +273,40 @@ class Workbench:
         for title,key in [('画面','image'),('采样','sampling'),('连接','connection')]:
             w.menuBar().addAction(title,lambda checked=False,section=key:self.open_settings(section))
         w.menuBar().addAction('API',w.api_controller.open_settings)
-        from .moss_workspace import open_workspace
-        w.menuBar().addAction('MOSS排版',lambda:open_workspace(w))
         view=w.menuBar().addMenu('窗口')
         view.addAction('恢复默认布局',self.reset_layout);self.view_menu=view
+
+    def toolbar_mode_clicked(self,index):
+        if index in (1,2):
+            self.sprite_mode.setCurrentIndex(index-1)
+            self.select_category('sprite')
+        else:self.select_category(self.category_keys[index])
 
     def set_sprite_mode(self,index):
         if self._category_change:return
         if self.category!='sprite':self.select_category('sprite')
         self.window.generation_type.setCurrentIndex(index)
+        self.modes[1+index].setChecked(True)
         self.right_tabs.setCurrentWidget(self.reference_items if index==0 else self.animation)
 
     def sync_category(self,index):
         if self._category_change:return
         if self.category=='sprite':
             self.sprite_mode.blockSignals(True);self.sprite_mode.setCurrentIndex(index);self.sprite_mode.blockSignals(False)
+            self.modes[1+index].setChecked(True)
 
     def select_category(self,key):
         w=self.window
         if key not in self.category_keys:return
         if self.category=='long_video':self.long_duration=w.video_controller.seconds.value()
         elif self.category=='sprite' and w.generation_type.currentData()=='walk':self.sprite_duration=w.video_controller.seconds.value()
-        self._category_change=True;self.category=key;self.modes[self.category_keys.index(key)].setChecked(True)
+        self._category_change=True;self.category=key;self.modes[1+self.sprite_mode.currentIndex() if key=='sprite' else self.category_keys.index(key)].setChecked(True)
         w.audio_controller.player.pause();w.video_controller.player.sound.pause()
         audio=key=='audio';long=key=='long_video'
         self.image_requirements.setVisible(not long)
         self.right_tabs.setTabText(0,'角色／风格参考' if long else '单张')
         self.right_tabs.setTabText(1,'视频要求' if long else '动画帧')
-        self.sprite_action.setVisible(key=='sprite');self.creation_kind.hide()
+        self.sprite_action.setVisible(False);self.creation_kind.hide()
         if audio:
             w.audio_controller.page.addWidget(self.right_tabs)
             w.tabs.setCurrentWidget(w.audio_controller.page);w.audio_controller.left.layout().addWidget(self.task)
