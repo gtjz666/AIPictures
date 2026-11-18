@@ -5,6 +5,7 @@ const DragAsset: GDScript = preload("asset_drag.gd")
 const BlueprintWindow: GDScript = preload("blueprint_window.gd")
 const GameWindow: GDScript = preload("game_window.gd")
 const FrameworkWizard: GDScript = preload("framework_wizard.gd")
+const ASSET_FOLDERS: Array[String] = ["art/dino", "art/world", "art/ui", "audio", "generated/ali_assets"]
 var dock: VBoxContainer
 var application: LineEdit
 var kind: OptionButton
@@ -91,7 +92,34 @@ func _enter_tree() -> void:
 	dock.add_child(refresh_timer)
 	add_control_to_dock(DOCK_SLOT_RIGHT_UL, dock)
 	refresh_timer.start()
+	prepare_asset_folders()
 	refresh_assets.call_deferred()
+
+
+func prepare_asset_folders() -> void:
+	var project: DirAccess = DirAccess.open("res://")
+	if project == null:
+		status.text = "无法打开项目目录，素材文件夹未创建。"
+		return
+	var created: bool = false
+	var unavailable: PackedStringArray = []
+	for path: String in ASSET_FOLDERS:
+		if project.dir_exists(path):
+			continue
+		var parent: String = path.get_base_dir()
+		if project.is_link(path) or (not parent.is_empty() and project.is_link(parent)):
+			unavailable.append(path)
+			continue
+		if project.make_dir_recursive(path) == OK:
+			created = true
+		else:
+			unavailable.append(path)
+	if not unavailable.is_empty():
+		status.text = "无法创建素材文件夹：" + ", ".join(unavailable)
+	if created:
+		var filesystem: EditorFileSystem = EditorInterface.get_resource_filesystem()
+		if not filesystem.is_scanning():
+			filesystem.scan.call_deferred()
 
 
 func open_generator() -> void:
