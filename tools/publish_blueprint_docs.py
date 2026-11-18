@@ -8,6 +8,7 @@ from .render_game_guide import render_guide
 from .package_godot_addon import package
 
 PAGES=(
+    ('DINO_AI_ASSETS_TUTORIAL.md','小恐龙实际生图测试步骤.html','实际AI素材与完整菜单跑酷测试'),
     ('BLUEPRINT_05_PLAN.md','蓝图0.5阶段文档.html','0.5完整2D使用步骤与验收'),
     ('GODOT_BLUEPRINT_TECHNICAL.md','蓝图技术文档.html','运行架构、数据格式与兼容策略'),
     ('GODOT_BLUEPRINT_CATALOG.md','蓝图模块手册.html','71类游戏模块与13类角色模块'),

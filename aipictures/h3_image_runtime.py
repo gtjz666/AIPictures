@@ -87,12 +87,25 @@ class Session:
 
     def __exit__(self,*_):
         self.stop.set()
-        if self.owner:self.owner.close()
-        if self.watcher:self.watcher.join(timeout=1)
-        if self.child:
-            if self.child.poll() is None:self.child.wait(timeout=20)
-            write_json(self.folder/'process.json',dict(pid=self.child.pid,url=self.client.url,status='stopped',returncode=self.child.returncode),durable=True)
-        if self.log:self.log.close()
+        try:
+            if self.child and self.child.stdin and not self.child.stdin.closed:
+                try:self.child.stdin.close()
+                except OSError:pass
+            if self.owner:self.owner.close()
+            if self.watcher:self.watcher.join(timeout=1)
+            if self.child:
+                # Assignment can fail before the gate receives "go". Such a
+                # child has no job owner and must still be reaped. The same
+                # fallback covers platforms where OwnedProcessJob is a no-op.
+                if self.child.poll() is None and (os.name!='nt' or self.owner is None):
+                    self.child.terminate()
+                try:
+                    if self.child.poll() is None:self.child.wait(timeout=20)
+                except subprocess.TimeoutExpired:
+                    self.child.kill();self.child.wait(timeout=5)
+                write_json(self.folder/'process.json',dict(pid=self.child.pid,url=self.client.url,status='stopped',returncode=self.child.returncode),durable=True)
+        finally:
+            if self.log:self.log.close()
 
     def run(self,graph,*,latent=False):
         check(self.cancel);write_json(self.folder/'workflow.json',graph,durable=True)

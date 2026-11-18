@@ -204,7 +204,11 @@ class TaskEvidence:
                 if resolved!=self.folder:
                     self.offsets.clear();self.fragments.clear();self.seen.clear()
                 self.folder=resolved
-        info={k:context[k] for k in ('pid','state','stage','progress','maximum','queued_count','updated_at') if k in context}
+        fresh=bool(context) and age is not None and age<5
+        # File discovery can recover backend evidence while the GUI is absent.
+        # Never attach a week-old GUI PID/progress to that newly discovered job.
+        info={k:context[k] for k in ('pid','state','stage','progress','maximum','queued_count','updated_at') if k in context} if fresh else {}
+        info['context_source']='gui' if fresh else 'task_files'
         if self.folder: info['folder']=str(self.folder)
         if self.folder:
             for phase,result in (('native_encode','native_result'),('native_sample','native_result'),('encode','result'),('sample','result'),('decode','result')):
@@ -311,7 +315,7 @@ def serve(data: Path, *, interval: float = 1., timeout: float = 1.5,
                 summary['oom_reports']+=hit['kind']=='allocation_oom_reported'
                 journal.write('task_error',**hit)
             summary.update(last_sample=sample,heartbeat=datetime.now().astimezone().isoformat(),context=context)
-            write_json(state,summary)
+            write_json(state,summary,durable=True)
             # No second request is sent while a driver call is outstanding.
             if sample.get('status')=='probe_exited':break
             time.sleep(max(0,interval-(time.monotonic()-tick)))
@@ -354,6 +358,8 @@ def start(data: Path) -> dict:
 def report(folder: Path) -> dict:
     result=dict(folder=str(folder),samples=0,query_errors=0,reported_oom=[],other_cuda_errors=[],
                 peak_used_bytes={},last_sample=None,graceful_stop=False,damaged_lines=0,
+                first_sample=None,last_context=None,backend_timeline=[],min_available_ram_bytes=None,
+                peak_commit_bytes=0,peak_commit_limit_bytes=None,
                 conclusion='高占用不等于OOM；没有OOM报错也不能排除采样间的瞬时分配失败。')
     for path in sorted(folder.glob('samples_*.jsonl')):
         with path.open(encoding='utf-8',errors='replace') as stream:
@@ -361,7 +367,17 @@ def report(folder: Path) -> dict:
                 try:row=json.loads(line)
                 except ValueError:result['damaged_lines']+=1;continue
                 if row.get('event')=='sample':
+                    if result['first_sample'] is None:result['first_sample']=row
                     result['last_sample']=row
+                    memory=row.get('host_memory',{})
+                    available=memory.get('physical_available_bytes')
+                    if type(available) is int and available>=0:
+                        previous=result['min_available_ram_bytes']
+                        if previous is None or available<previous:
+                            result.update(min_available_ram_bytes=available,min_available_ram_time=row.get('time'))
+                    commit=memory.get('commit_total_bytes')
+                    if type(commit) is int and commit>result['peak_commit_bytes']:
+                        result.update(peak_commit_bytes=commit,peak_commit_limit_bytes=memory.get('commit_limit_bytes'),peak_commit_time=row.get('time'))
                     if row.get('status')=='ok':
                         result['samples']+=1
                         for device in row['devices']:
@@ -372,10 +388,31 @@ def report(folder: Path) -> dict:
                     result[key].append(row)
                     if len(result[key])>1000:result[key].pop(0)
                 elif row.get('event')=='stopped':result['graceful_stop']=True
+                elif row.get('event')=='task_context':
+                    context=row.get('context',{});result['last_context']=context
+                    entry=dict(time=row.get('time'),folder=context.get('folder'),
+                        context_is_stale=context.get('context_is_stale'),
+                        phases={k:context[k] for k in ('native_encode','native_sample','encode','sample','decode') if k in context},
+                        backend_processes=context.get('backend_processes',[]))
+                    result['backend_timeline'].append(entry)
+                    if len(result['backend_timeline'])>256:result['backend_timeline'].pop(0)
     if not result['graceful_stop']:
         result['session_note']='运行中或缺少正常停止尾记；不能仅据此认定整机崩溃。'
     write_json(folder/'report.json',result,durable=True)
     return result
+
+
+def report_session(root: Path) -> Path | None:
+    """Recover from a missing/torn status file without overwriting its evidence."""
+    root=Path(root).resolve();value=read_json(root/'current.json')
+    candidate=Path(value['folder']).resolve() if isinstance(value.get('folder'),str) and value['folder'] else None
+    if candidate and candidate.parent==root and candidate.is_dir() and any(candidate.glob('samples_*.jsonl')):
+        return candidate
+    try:
+        choices=[p for p in root.iterdir() if p.is_dir() and not p.is_symlink() and not p.is_junction()
+                 and any(p.glob('samples_*.jsonl'))]
+        return max(choices,key=lambda p:max(f.stat().st_mtime for f in p.glob('samples_*.jsonl'))) if choices else None
+    except OSError:return None
 
 
 def main():
@@ -398,8 +435,8 @@ def main():
         if value and running(root):write_json(root/'stop.json',dict(session=value['session']),durable=True)
         value=dict(stop_requested=True,session=value.get('session'))
     elif args.action=='report':
-        selected=args.session or Path(read_json(root/'current.json').get('folder',''))
-        if not selected.resolve().is_relative_to(root) or not selected.is_dir():
+        selected=args.session or report_session(root)
+        if selected is None or not selected.resolve().is_relative_to(root) or not selected.is_dir():
             parser.error('找不到此目录下的显存记录，请先启动或用--session指定已有会话目录。')
         value=report(selected)
     else:value=dict(running=running(root),**read_json(root/'current.json'))

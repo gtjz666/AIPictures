@@ -6,6 +6,8 @@
 
 建议按以下顺序阅读：
 
+首次实际生成素材搭建跑酷，请先看[小恐龙完整菜单与AI素材测试步骤](DINO_AI_ASSETS_TUTORIAL.md)：从单张参考、透明动画帧、声音到0.5原生菜单的具体接入，不需要重建项目。
+
 1. [0.5使用步骤与验收范围](BLUEPRINT_05_PLAN.md)
 2. [完整技术文档：数据格式、执行语义与兼容策略](GODOT_BLUEPRINT_TECHNICAL.md)
 3. [全部模块与参数：71类游戏／13类角色](GODOT_BLUEPRINT_CATALOG.md)

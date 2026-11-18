@@ -43,13 +43,15 @@ def test_appended_log_fragments_and_redaction(tmp_path):
 
 def test_stale_context_cannot_hide_new_task_or_read_outside_cache(tmp_path):
     old=tmp_path/'videos/old';old.mkdir(parents=True)
-    write_json(tmp_path/'gpu-watch-context.json',dict(folder=str(old),state='running'))
+    write_json(tmp_path/'gpu-watch-context.json',dict(folder=str(old),state='running',pid=99999,progress=80))
     os.utime(tmp_path/'gpu-watch-context.json',(1,1))
     current=tmp_path/'videos/new';current.mkdir()
     os.utime(current,(time.time()+1,time.time()+1))
     evidence=TaskEvidence(tmp_path)
     assert evidence.task()['folder']==str(current.resolve())
-    assert evidence.task()['context_is_stale']
+    context=evidence.task()
+    assert context['context_is_stale'] and context['context_source']=='task_files'
+    assert not any(k in context for k in ('pid','progress','state'))
     write_json(tmp_path/'gpu-watch-context.json',dict(folder=str(tmp_path.parent/'private')))
     other=TaskEvidence(tmp_path);other.task();assert other.folder is None
 
@@ -207,3 +209,44 @@ def test_host_commit_and_ram_are_read_without_loading_cuda():
     assert value['status']=='ok'
     assert 0<value['physical_available_bytes']<=value['physical_total_bytes']
     assert 0<value['commit_total_bytes']<=value['commit_limit_bytes']
+
+
+def test_report_recovers_nul_status_and_keeps_phase_and_ram_evidence(tmp_path):
+    from aipictures.gpu_watch import report_session
+    root=tmp_path/'gpu-watch';session=root/'20261118_170205_session'
+    journal=Journal(session)
+    journal.write('sample',status='ok',devices=[dict(uuid='gpu',used_bytes=100)],
+                  host_memory=dict(physical_available_bytes=200,commit_total_bytes=300,commit_limit_bytes=600))
+    journal.write('task_context',context=dict(context_is_stale=True,folder='task',decode=dict(state='completed'),
+                  backend_processes=[dict(phase='image_decoding',alive=False)]))
+    journal.write('sample',status='ok',devices=[dict(uuid='gpu',used_bytes=50)],
+                  host_memory=dict(physical_available_bytes=400,commit_total_bytes=250,commit_limit_bytes=600))
+    journal.close()
+    damaged=root/'current.json';damaged.write_bytes(b'\0'*100)
+    assert report_session(root)==session.resolve()
+    result=report(session)
+    assert result['min_available_ram_bytes']==200 and result['peak_commit_bytes']==300
+    assert result['peak_commit_limit_bytes']==600
+    assert result['first_sample']['devices'][0]['used_bytes']==100
+    assert result['last_sample']['devices'][0]['used_bytes']==50
+    assert result['backend_timeline'][0]['backend_processes'][0]['alive'] is False
+    assert result['last_context']['decode']['state']=='completed'
+    assert not result['graceful_stop'] and damaged.read_bytes()==b'\0'*100
+
+
+def test_report_session_ignores_external_status_path(tmp_path):
+    from aipictures.gpu_watch import report_session
+    root=tmp_path/'gpu-watch';outside=tmp_path/'unrelated'
+    outside.mkdir();(outside/'samples_000.jsonl').write_text('')
+    write_json(root/'current.json',dict(folder=str(outside)))
+    assert report_session(root) is None
+
+
+def test_report_recovery_uses_last_sample_not_later_analysis_time(tmp_path):
+    from aipictures.gpu_watch import report_session
+    root=tmp_path/'gpu-watch';old=root/'old';new=root/'new'
+    for folder,stamp in ((old,100),(new,200)):
+        folder.mkdir(parents=True);path=folder/'samples_000.jsonl';path.touch();os.utime(path,(stamp,stamp))
+    # Inspecting an old session today changes its folder's mtime, not the event time.
+    (old/'report.json').write_text('{}')
+    assert report_session(root)==new.resolve()

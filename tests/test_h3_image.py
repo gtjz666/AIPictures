@@ -109,6 +109,22 @@ def test_cancelled_private_startup_releases_only_owned_process(tmp_path):
     assert json.loads((session.folder/'process.json').read_text())['status']=='stopped'
 
 
+def test_failed_job_assignment_reaps_gated_child_and_closes_log(tmp_path):
+    import sys
+    from aipictures.h3_image_runtime import Session
+    source=tmp_path/'source';source.mkdir()
+    # The gate must never let this module run when process ownership fails.
+    (source/'main.py').write_text("from pathlib import Path;Path('unexpected').touch()")
+    session=Session(dict(python=sys.executable,source=str(source),model_paths='unused'),
+                    tmp_path/'owned',threading.Event(),lambda *_:None)
+    with patch('aipictures.h3_image_runtime.OwnedProcessJob',side_effect=OSError('job assignment denied')):
+        with pytest.raises(OSError,match='job assignment denied'):
+            with session:raise AssertionError('must not start')
+    assert session.child.poll() is not None and session.log.closed
+    assert session.child.stdin.closed and not (source/'unexpected').exists()
+    assert json.loads((session.folder/'process.json').read_text())['status']=='stopped'
+
+
 def test_actual_qt_gallery_binding_and_generation_gate():
     import os,subprocess,sys
     result=subprocess.run([sys.executable,'-m','tools.verify_h3_image_ui'],cwd=Path(__file__).parents[1],
