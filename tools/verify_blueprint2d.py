@@ -20,6 +20,22 @@ def main():
         if args.only not in ('all',name) and not (args.only=='services' and name=='world'):continue
         run(args.godot,project,proof/(name+'.log'),'--script','res://'+name+'_probe.gd','--fixed-fps','60','--quit-after','1500')
         assert (project/(name+'-proof.json')).exists()
+        if name=='framework':
+            # Exercise actual initial scene loading, not only add_child after
+            # the SceneTree is already idle (which hides the root-busy error).
+            shutil.copy2('tools/godot_framework_startup_probe.gd',project/'startup_probe.gd')
+            config=project/'project.godot';original=config.read_text('utf-8')
+            assert '[autoload]' not in original
+            config.write_text(original+'\n[autoload]\nStartupProbe="*res://startup_probe.gd"\n','utf-8')
+            try:
+                for preset,scene in (('runner','MainMenu'),('runner','Game'),('platformer','Game')):
+                    folders=list(project.glob('framework_'+preset+'_*'))
+                    assert len(folders)==1
+                    name_on_disk=folders[0].name
+                    run(args.godot,project,proof/('startup-'+preset+'-'+scene+'.log'),
+                        'res://'+name_on_disk+'/'+scene+'.tscn','--fixed-fps','60','--quit-after','900')
+                    assert (project/('startup_'+preset+'_'+scene+'.json')).exists()
+            finally:config.write_text(original,'utf-8')
     if args.only not in ('all','editor'):return
     editor=project/'addons/ali_2d_proof';editor.mkdir()
     shutil.copy2('tools/godot_blueprint2d_editor_probe.gd',editor/'plugin.gd')

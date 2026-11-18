@@ -73,6 +73,11 @@ func settings(kind: String) -> Dictionary:
 func _ready() -> void:
 	if Engine.is_editor_hint():
 		return
+	initialize_game.call_deferred()
+
+
+func initialize_game() -> void:
+	if not is_inside_tree(): return
 	debug_source_signature = Library.signature(game_blueprint)
 	var prepared: Dictionary = {"data": compiled_blueprint} if not compiled_blueprint.is_empty() and compiled_signature == Library.signature(game_blueprint) else Library.compile(game_blueprint)
 	var problem: String = str(prepared.get("error", ""))

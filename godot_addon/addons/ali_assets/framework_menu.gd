@@ -17,6 +17,12 @@ var transient: Array[Control] = []
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	if menu_kind in ["pause", "over"]: hide()
+	initialize_menu.call_deferred()
+
+
+func initialize_menu() -> void:
+	if not is_inside_tree(): return
 	service = Services.obtain(get_tree(),framework,str(framework.get("key","ali_game")),Services)
 	voice = AudioStreamPlayer.new()
 	voice.process_mode = Node.PROCESS_MODE_ALWAYS

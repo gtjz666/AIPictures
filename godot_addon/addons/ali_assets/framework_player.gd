@@ -28,7 +28,10 @@ func _ready() -> void:
 
 
 func bind_services() -> void:
+	if not is_inside_tree(): return
 	if game.has_method("settings"):
+		if not game.get("initialized"): await get_tree().process_frame
+		if not is_inside_tree() or not is_instance_valid(game) or not game.get("initialized"): return
 		var bus: Node = game.get("services").get("bus") as Node
 		bus.call("subscribe",self,"project:"+str(game.get("services").get("key")),"restarted",func(_data: Variant) -> void: position = start_position; velocity = Vector2.ZERO; hp = 100.0)
 
