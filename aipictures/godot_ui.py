@@ -1,8 +1,10 @@
 """Godot connection and explicit, draggable component exports."""
 import json,re
+from tempfile import TemporaryDirectory
 from pathlib import Path
 from PySide6.QtCore import Qt,QMimeData,QUrl,QPoint
 from PySide6.QtGui import QDrag,QDesktopServices
+from shiboken6 import isValid
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QPushButton,
     QFileDialog,QComboBox,QSpinBox,QTableWidget,QTableWidgetItem,QApplication,QInputDialog)
 from .godot_assets import project_root,install_addon,export_asset,ACTIONS
@@ -11,7 +13,7 @@ from .storage import write_json
 
 class DragSceneButton(QPushButton):
     def __init__(self):
-        super().__init__('拖入Godot场景');self.scene=None;self.origin=QPoint();self.setEnabled(False)
+        super().__init__('拖入 Godot 蓝图或场景');self.scene=None;self.origin=QPoint();self.setEnabled(False)
 
     def mousePressEvent(self,event):
         self.origin=event.position().toPoint();super().mousePressEvent(event)
@@ -23,8 +25,9 @@ class DragSceneButton(QPushButton):
 
 
 class GodotExportDialog(QDialog):
-    def __init__(self,controller,*,frames=None,image=None,audio=None,fps=8,parent=None):
-        super().__init__(parent or controller.window);self.controller=controller;self.frames=list(frames or []);self.image=image;self.audio=audio;self.result=None;self.closed=False;self.busy=False;self.extra_animations={}
+    def __init__(self,controller,*,frames=None,image=None,audio=None,fps=8,parent=None,source=None,transparent=False,loop=True):
+        super().__init__(parent or controller.window);self.controller=controller;self.frames=list(frames or []);self.image=image;self.audio=audio;self.result=None;self.busy=False;self.extra_animations={}
+        self.source=source;self.transparent=transparent;self.loop=loop
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose);self.setWindowTitle('Godot组件导出');self.resize(580,570)
         layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form)
         row=QHBoxLayout();self.project=QLineEdit(str(controller.project or ''));row.addWidget(self.project,1)
@@ -54,8 +57,8 @@ class GodotExportDialog(QDialog):
         layout.addWidget(self.range_note);layout.addWidget(self.ranges)
         self.sound_path=QLineEdit();self.sound_path.setPlaceholderText('可选：关联已生成的脚步声WAV／OGG／MP3')
         row=QHBoxLayout();row.addWidget(self.sound_path,1);self.sound_button=QPushButton('关联脚步声…');self.sound_button.clicked.connect(self.choose_audio);row.addWidget(self.sound_button);layout.addLayout(row)
-        self.status=QLabel('导出到项目后拖入场景。角色默认WASD移动、Shift奔跑、Space跳跃、J攻击；可在Godot内修改键位。');self.status.setWordWrap(True);layout.addWidget(self.status)
-        self.export=QPushButton('导出组件到项目');self.export.clicked.connect(self.save);layout.addWidget(self.export)
+        self.status=QLabel('准备好后，将组件拖到 Godot 蓝图的模块或素材槽。');self.status.setWordWrap(True);layout.addWidget(self.status)
+        self.export=QPushButton('准备拖入 Godot');self.export.clicked.connect(self.save);layout.addWidget(self.export)
         row=QHBoxLayout();self.drag=DragSceneButton();row.addWidget(self.drag,1);self.reveal=QPushButton('打开位置');self.reveal.setEnabled(False);self.reveal.clicked.connect(self.reveal_result);row.addWidget(self.reveal);layout.addLayout(row)
         self.preset.currentIndexChanged.connect(self.update_preset);self.update_preset()
 
@@ -103,35 +106,60 @@ class GodotExportDialog(QDialog):
             if name in animations:raise ValueError('附加动作与基础动作同名，请清除附加动作或更换预设。')
             animations[name]=frames
         audio=self.sound_path.text().strip() if key in ('two_way','four_way','platformer') else self.audio
-        return dict(project=self.project.text(),name=self.asset_name.text(),preset=key,animations=animations,image=self.image,audio=audio or None,fps=self.rate.value(),output_height=self.pixel_height.value())
+        return dict(project=self.project.text(),name=self.asset_name.text(),preset=key,animations=animations,image=self.image,audio=audio or None,fps=self.rate.value(),output_height=self.pixel_height.value(),loop=self.loop)
 
     def save(self):
         w=self.controller.window
-        if w.current or w.preparing:self.status.setText('请等当前任务完成后导出。');return
+        if self.busy or w.export_tasks.busy or w.cache_busy:
+            self.status.setText('已有导出或缓存清理正在进行。');return
         try:
             options=self.options();project_root(options['project'])
         except (ValueError,OSError) as exc:self.status.setText(str(exc));return
         self.busy=True;self.export.setEnabled(False);self.drag.setEnabled(False);self.reveal.setEnabled(False)
-        w.preparing=True;w.prepare_cancel.clear();w.task_display.start();w.progress.setRange(0,0);self.status.setText('正在导出Godot组件…')
+        self.status.setText('正在导出Godot组件…')
+        source,transparent=self.source,self.transparent
+        frame_keys=list(dict.fromkeys(key for frames in options['animations'].values() for key in frames if type(key) is int))
+        source_paths=[options['image'],options['audio']]
+        source_paths.extend(key for frames in options['animations'].values() for key in frames if type(key) is not int)
+        if source:
+            source_paths.extend([source.manifest, source.data.get('source_manifest'), source.native, *source.paths, *source.processed])
+
+        def run(cancel,emit):
+            if not source:return export_asset(**options,cancel=cancel)
+            from .selected_frames import prepare_frame
+            from .background import release_session
+            with TemporaryDirectory(prefix='ali-selected-') as temp:
+                prepared={}
+                try:
+                    for position,index in enumerate(frame_keys,1):
+                        emit('selection_stage',{'message':f'准备所选帧 {position}/{len(frame_keys)}…'})
+                        cached=source.processed[index] if index<len(source.processed) else None
+                        frame,_=prepare_frame(source.image(index),transparent,cancel,cached=cached)
+                        path=Path(temp)/f'{index}.png'
+                        frame.save(path);prepared[index]=path
+                        emit('selection_progress',{'value':position,'max':len(frame_keys)})
+                finally:
+                    if transparent:release_session()
+                clips={clip:[prepared.get(key,key) for key in keys] for clip,keys in options['animations'].items()}
+                emit('selection_stage',{'message':'正在将素材写入 Godot 项目…'})
+                return export_asset(**dict(options,animations=clips),cancel=cancel)
+
         def done(kind,data):
-            if kind not in ('result','error','cancelled'):return
-            self.busy=False;w.preparing=False;w.task_display.finish('completed' if kind=='result' else 'failed' if kind=='error' else 'cancelled');w.generation_type_changed()
+            self.busy=False
             if kind=='result':
-                self.result=data;self.controller.connect_project(options['project']);w.status.setText('Godot组件已导出。')
-            else:w.status.setText(str(data))
-            if self.closed:return
+                self.result=data
+                try:self.controller.connect_project(options['project'])
+                except (OSError,ValueError):pass
+            if not isValid(self) or not self.isVisible():return
             self.export.setEnabled(True)
             if kind=='result':
                 self.drag.scene=Path(data['scene']);self.drag.setEnabled(True);self.reveal.setEnabled(True)
-                self.status.setText('已导出。可从这里拖入Godot场景，也可在插件中拖入组件。')
+                self.status.setText('已存入当前项目。按住下方按钮，拖到 Godot 蓝图模块或素材槽。')
             else:self.status.setText(str(data))
-        w.launch(lambda emit:export_asset(**options,cancel=w.prepare_cancel),done)
 
-    def closeEvent(self,event):
-        self.closed=True
-        if self.busy:self.controller.window.prepare_cancel.set()
-        super().closeEvent(event)
-
+        if not w.export_tasks.submit('导出 Godot 组件',source_paths,run,done,popup=True):
+            self.busy=False;self.export.setEnabled(True)
+            self.status.setText('已有导出或缓存清理正在进行。')
 
 class GodotController:
     def __init__(self,window):
@@ -170,7 +198,7 @@ class GodotController:
         if not manifest:self.window.status.setText('请先生成或打开完整动画。');return
         open_selection(self.window,manifest)
 
-    def frames(self,paths,fps,parent=None):return self.show(frames=paths,fps=fps,parent=parent)
+    def frames(self,paths,fps,**kwargs):return self.show(frames=paths,fps=fps,**kwargs)
 
     def launch_context(self,project,kind):
         if project:self.connect_project(project);self.window.setWindowTitle('AlI · '+self.project.name)

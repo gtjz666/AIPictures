@@ -6,6 +6,7 @@ const Library: GDScript = preload("game_library.gd")
 const Registry: GDScript = preload("game_registry.gd")
 const Link: GDScript = preload("resource_link.gd")
 const Slot: GDScript = preload("resource_slot.gd")
+const Drop: GDScript = preload("asset_drop.gd")
 const Groups: GDScript = preload("inspector_groups.gd")
 const ButtonPreview: GDScript = preload("button_preview.gd")
 const Browser: GDScript = preload("resource_browser.gd")
@@ -65,6 +66,7 @@ func _ready() -> void:
 	size = Vector2i(1500, 900)
 	close_requested.connect(hide)
 	window_input.connect(on_input)
+	files_dropped.connect(on_files_dropped)
 	var root: VBoxContainer = VBoxContainer.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(root)
@@ -229,6 +231,9 @@ func render(refresh: bool = true) -> void:
 		style.set_content_margin_all(8)
 		widget.add_theme_stylebox_override("titlebar", style)
 		graph.add_child(widget)
+		widget.set_drag_forwarding(Callable(),
+			func(_point: Vector2, payload: Variant) -> bool: return compatible_fields(id, Drop.from_drag(payload)).size() == 1,
+			func(_point: Vector2, payload: Variant) -> void: bind_dropped_asset(id, Drop.from_drag(payload)))
 		widget.node_selected.connect(func() -> void:
 			selected_id = id
 			navigator.select(data["nodes"].find(node))
@@ -474,6 +479,9 @@ func field_group(kind: String, name: String, type: String, field: Array) -> Stri
 func parameter(field: String, value: Variant) -> void:
 	if Model.find(data, selected_id)["params"].get(field) == value:
 		return
+	if field == "frames" and Model.find(data, selected_id)["kind"] == "runner" and not str(value).is_empty():
+		bind_runner_frames(str(value))
+		return
 	var next: Dictionary = data.duplicate(true)
 	var node: Dictionary = Model.find(next, selected_id)
 	node["params"][field] = value
@@ -482,6 +490,10 @@ func parameter(field: String, value: Variant) -> void:
 		if initial != null and not Model.Types.json_compatible(initial,str(value)): node["params"]["json"] = Model.Types.default_json(str(value))
 	if node["kind"] == "animation" and field in ["frames","animation"] and not str(value).is_empty():
 		node["params"]["mode"] = "frames" if field == "frames" else "animation"
+		if field == "frames":
+			var names: PackedStringArray = Drop.clips(Model.frames_at(str(value)))
+			if not names.is_empty() and str(node["params"]["clip"]) not in names:
+				node["params"]["clip"] = names[0]
 		if is_instance_valid(target) and str(node["params"]["target"]).is_empty():
 			var candidates: Array[Node] = target.find_children("*","AnimatedSprite2D" if field == "frames" else "AnimationPlayer",true,false)
 			if candidates.size() == 1: node["params"]["target"] = str(target.get_path_to(candidates[0]))
@@ -495,6 +507,101 @@ func parameter(field: String, value: Variant) -> void:
 				node["resources"][field] = Link.descriptor(str(value))
 	if not change("修改参数", next, field in ["value_type","mode","operation","use_from","effects_enabled","create_type","target","frames","animation"]):
 		show_inspector()
+
+
+func compatible_fields(id: String, path: String) -> Dictionary:
+	var matches: Dictionary = {}
+	var node: Dictionary = Model.find(data, id)
+	if node.is_empty() or path.is_empty():
+		return matches
+	for field: Array in Model.fields(str(node["kind"])):
+		if field[2] == "asset":
+			var candidate: String = Drop.for_slot(path, str(field[4]))
+			if Link.problem(candidate, str(field[4])).is_empty():
+				matches[field[0]] = candidate
+	return matches
+
+
+func on_files_dropped(paths: PackedStringArray) -> void:
+	if paths.size() != 1:
+		return
+	var id: String = Drop.node_at(graph, Vector2(DisplayServer.mouse_get_position()))
+	if id.is_empty():
+		return
+	var path: String = Drop.project_file(paths[0])
+	if path.is_empty():
+		message.text = "请先在 AlI 为当前 Godot 项目准备组件。"
+		return
+	var drop_target: Node = target
+	message.text = "正在导入素材…"
+	if await Drop.import_files(self) and target == drop_target:
+		bind_dropped_asset(id, path)
+
+
+func bind_dropped_asset(id: String, path: String) -> void:
+	var matches: Dictionary = compatible_fields(id, path)
+	if matches.size() != 1:
+		message.text = "这个模块没有匹配的素材槽。" if matches.is_empty() else "此模块有多个匹配素材槽，请拖到右侧对应的槽。"
+		return
+	selected_id = id
+	var field: String = str(matches.keys()[0])
+	var resource: String = matches[field]
+	parameter(field, resource)
+	show_inspector()
+
+
+func bind_runner_frames(path: String) -> void:
+	var runner: Dictionary = Model.find(data, selected_id)
+	var params: Dictionary = runner["params"]
+	var source: SpriteFrames = Model.frames_at(path)
+	var names: PackedStringArray = Drop.clips(source)
+	if names.is_empty():
+		message.text = "组件没有可播放的动画帧。"
+		return
+	var clips: Dictionary = {}
+	for field: String in ["walk", "jump", "death"]:
+		if str(params[field]) in names:
+			clips[field] = str(params[field])
+		else:
+			for name: String in names:
+				if name == field or name.begins_with(field + "_") or (field == "walk" and (name == "run" or name.begins_with("run_"))):
+					clips[field] = name
+					break
+	if clips.is_empty() and names.size() == 1:
+		clips["walk"] = names[0]
+	if clips.is_empty():
+		message.text = "请选择包含行走／奔跑、跳跃或死亡动画的组件。"
+		return
+	var next: Dictionary = data.duplicate(true)
+	var draft: Dictionary = Model.find(next, selected_id)
+	if clips.size() == 3:
+		for field: String in clips:
+			draft["params"][field] = clips[field]
+	else:
+		var existing: SpriteFrames = Model.frames_at(str(params["frames"]))
+		var merged: SpriteFrames = existing.duplicate() as SpriteFrames if existing != null else SpriteFrames.new()
+		var fallback: String = str(clips.values()[0])
+		for field: String in ["walk", "jump", "death"]:
+			var name: String = str(params[field])
+			if clips.has(field):
+				Drop.copy_clip(merged, name, source, clips[field])
+			elif not merged.has_animation(name) or merged.get_frame_count(name) == 0:
+				Drop.copy_clip(merged, name, source, fallback, true)
+		path = "res://generated/ali_assets/runner_frames_%s_%s.res" % [Time.get_ticks_usec(), randi()]
+		var error: Error = DirAccess.make_dir_recursive_absolute(path.get_base_dir())
+		if error == OK:
+			error = ResourceSaver.save(merged, path)
+		if error != OK:
+			message.text = "无法保存绑定后的动画。"
+			return
+	draft["params"]["frames"] = path
+	if not draft.has("resources"):
+		draft["resources"] = {}
+	draft["resources"]["frames"] = Link.descriptor(path)
+	if change("绑定跑酷动画", next):
+		message.text = "动画已绑定。请应用到游戏并保存场景。"
+		if clips.size() < 3 and str(params["frames"]).is_empty():
+			message.text += " 未提供的动作用静止帧占位，可继续拖入对应动画。"
 
 
 func on_input(event: InputEvent) -> void:

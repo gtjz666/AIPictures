@@ -110,7 +110,7 @@ def verify(area='layout'):
             player.load(second['manifest']);player.toggle();player.slider.setValue(60);assert player.index==60
             exported=root/'result.mp4'
             with patch.object(QFileDialog,'getSaveFileName',return_value=(str(exported),'')):player.save()
-            wait_until(lambda:not w.preparing)
+            wait_until(lambda:not w.export_tasks.busy)
             assert exported.read_bytes()==Path(two['source_video']).read_bytes()
             w.short_video.start_new();assert not w.short_video.continuation_source and vc.seconds.maximum()==8
         print(f'Unified workspace {area}: PASS (native Qt, no model inference)')

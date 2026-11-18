@@ -8,7 +8,7 @@ from aipictures.export_background import prepare,run
 from aipictures.selected_frames import read_source,export_selection
 from aipictures.workflow_library import digest
 
-def test_cutout_frames_are_ready_before_picker_and_keep_raw_export_option(tmp_path):
+def test_legacy_cutouts_can_be_reused_while_raw_export_stays_available(tmp_path):
     raw=tmp_path/'source.png';Image.new('RGB',(32,48),(150,170,190)).save(raw)
     before=raw.read_bytes();model=tmp_path/'model';model.write_bytes(b'fixture')
     folder=tmp_path/'prepared';folder.mkdir();data=dict(status='completed',fps=24,frames=[dict(image=str(raw),source_time=.5)],params=dict(seed=987))

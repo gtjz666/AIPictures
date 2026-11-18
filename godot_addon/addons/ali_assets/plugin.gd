@@ -208,6 +208,11 @@ func apply_blueprint(data: Dictionary) -> void:
 	for property: String in values:
 		undo.add_do_property(character, property, values[property])
 		undo.add_undo_property(character, property, character.get(property))
+	var sprite: AnimatedSprite2D = character.get_node_or_null("AnimatedSprite2D") as AnimatedSprite2D
+	var frames: SpriteFrames = blueprint.get("frames") as SpriteFrames
+	if sprite != null and frames != null and sprite.sprite_frames != frames:
+		undo.add_do_property(sprite, "sprite_frames", frames)
+		undo.add_undo_property(sprite, "sprite_frames", sprite.sprite_frames)
 	undo.commit_action()
 
 

@@ -29,7 +29,7 @@ def main():
         d=c.frames(frames,8);d.preset.setCurrentIndex(d.preset.findData('four_way'))
         d.save();assert not w.preparing and '有效' in d.status.text()
         for row in range(4):d.ranges.cellWidget(row,1).setValue(row*2+1);d.ranges.cellWidget(row,2).setValue(row*2+2)
-        d.export.click();wait_until(lambda:not w.preparing)
+        d.export.click();wait_until(lambda:not w.export_tasks.busy)
         assert d.result and d.drag.isEnabled() and d.drag.scene.is_file(),d.status.text()
         assert not w.task_display.clock.isActive()
         if args.proof:d.grab().save(str(args.proof/'export-dialog.png'))

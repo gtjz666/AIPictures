@@ -3,27 +3,31 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 from PySide6.QtCore import Qt,QSize,QTimer
-from PySide6.QtGui import QPixmap,QIcon
+from PySide6.QtGui import QImage,QPixmap,QIcon
+from shiboken6 import isValid
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QSplitter,QWidget,QLabel,
     QListWidget,QListWidgetItem,QPushButton,QSlider,QSpinBox,QCheckBox,QFileDialog,QApplication)
 from .transparent_preview import TransparentPreview
-from .selected_frames import read_source,export_selection
+from .selected_frames import FrameSource,export_selection
 
 
 class FrameSelectionDialog(QDialog):
     def __init__(self,window,manifest):
         super().__init__(window);self.window=window;self.manifest=Path(manifest).resolve()
-        self.data,self.paths=read_source(self.manifest);self.index=0;self.busy=False;self.closed=False
-        self.source_manifest=Path(self.data.get('source_manifest',self.manifest))
-        _,self.original_paths=read_source(self.manifest,original=True)
-        self.prepared={};self.prepared_key=None
-        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose);self.setWindowModality(Qt.WindowModality.WindowModal)
+        self.source=FrameSource(self.manifest,original=True)
+        self.data=self.source.data;self.index=0;self.busy=False;self.closed=False
+        self.exported_manifest=None
+        self.prepared={}
+        self.prepared_key=None
+        self.source_manifest=Path(self.data.get('source_manifest') or self.manifest)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.finished.connect(self.on_finished)
         self.setWindowTitle('选帧与导出');self.resize(1080,780)
         layout=QVBoxLayout(self);split=QSplitter();layout.addWidget(split,1)
         left=QWidget();lv=QVBoxLayout(left);self.preview=TransparentPreview();self.preview.setMinimumSize(260,340)
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter);self.preview.resized.connect(self.fit)
         lv.addWidget(self.preview,1);self.frame_label=QLabel();lv.addWidget(self.frame_label)
-        self.slider=QSlider(Qt.Orientation.Horizontal);self.slider.setRange(0,len(self.paths)-1)
+        self.slider=QSlider(Qt.Orientation.Horizontal);self.slider.setRange(0,self.source.count-1)
         self.slider.valueChanged.connect(self.seek);lv.addWidget(self.slider)
         controls=QHBoxLayout()
         for title,callback in [('播放完整动画',lambda:self.play(False)),('播放所选帧',lambda:self.play(True)),('选取此帧',self.pick_current)]:
@@ -33,7 +37,7 @@ class FrameSelectionDialog(QDialog):
         self.grid.setResizeMode(QListWidget.ResizeMode.Adjust);self.grid.setMovement(QListWidget.Movement.Static)
         self.grid.setIconSize(QSize(96,128));self.grid.setGridSize(QSize(126,168));split.addWidget(self.grid)
         self.grid.itemClicked.connect(self.focus_item)
-        for i in range(len(self.paths)):
+        for i in range(self.source.count):
             item=QListWidgetItem(f'第 {i+1} 帧');item.setFlags(item.flags()|Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Unchecked);self.grid.addItem(item)
         self.grid.itemChanged.connect(self.selection_changed)
@@ -49,31 +53,36 @@ class FrameSelectionDialog(QDialog):
         options.addWidget(QLabel('精灵图列数'));self.columns=QSpinBox();self.columns.setRange(1,16);self.columns.setValue(4);options.addWidget(self.columns)
         self.transparent=QCheckBox('透明背景');self.transparent.setChecked(True);options.addWidget(self.transparent)
         self.loop=QCheckBox('循环播放');self.loop.setChecked(True);options.addWidget(self.loop);options.addStretch();layout.addLayout(options)
-        self.status=QLabel()
+        self.status=QLabel('预览原始画面。勾选透明背景后，导出时只处理所选帧。')
         self.status.setWordWrap(True);layout.addWidget(self.status)
         buttons=QHBoxLayout();self.sheet_button=QPushButton('导出精灵图…');self.png_button=QPushButton('导出所选 PNG…')
         self.sheet_button.clicked.connect(lambda:self.export('sheet'));self.png_button.clicked.connect(lambda:self.export('pngs'))
         buttons.addWidget(self.sheet_button);buttons.addWidget(self.png_button)
-        self.godot_button=QPushButton('导出Godot组件…');self.godot_button.clicked.connect(self.export_godot);buttons.addWidget(self.godot_button)
+        self.godot_button=QPushButton('拖入 Godot…');self.godot_button.clicked.connect(self.export_godot);buttons.addWidget(self.godot_button)
         close=QPushButton('关闭');close.clicked.connect(self.close);buttons.addWidget(close);layout.addLayout(buttons)
         self.timer=QTimer(self);self.timer.timeout.connect(self.advance);self.playback=[];self.play_position=0
         self.slider.sliderPressed.connect(self.timer.stop)
         self.thumbnails=QTimer(self);self.thumbnails.setInterval(15);self.thumb_index=0
         self.thumbnails.timeout.connect(self.load_thumbnails);self.thumbnails.start()
         self.pixmap=QPixmap();self.seek(0);self.selection_changed()
-        self.transparent.toggled.connect(self.background_changed)
 
-    def background_changed(self,enabled):
-        self.paths=read_source(self.manifest)[1] if enabled else self.original_paths
-        self.timer.stop();self.thumb_index=0;self.thumbnails.start();self.seek(self.index)
+    def pixmap_at(self,index,thumbnail=False):
+        try:
+            image=self.source.image(index)
+            if thumbnail:image.thumbnail((96,128))
+            raw=image.tobytes()
+            return QPixmap.fromImage(QImage(raw,image.width,image.height,image.width*4,QImage.Format.Format_RGBA8888).copy())
+        except (OSError,ValueError) as exc:
+            self.status.setText('无法读取帧：'+str(exc))
+            return QPixmap()
 
     def selected(self):return [i for i in range(self.grid.count()) if self.grid.item(i).checkState()==Qt.CheckState.Checked]
 
     def seek(self,index):
         self.index=index;self.slider.blockSignals(True);self.slider.setValue(index);self.slider.blockSignals(False)
-        self.pixmap=QPixmap(str(self.paths[index]));self.fit()
+        self.pixmap=self.pixmap_at(index);self.fit()
         self.grid.setCurrentRow(index);self.grid.scrollToItem(self.grid.item(index))
-        self.frame_label.setText(f'第 {index+1} / {len(self.paths)} 帧 · {index/float(self.data["fps"]):.2f} 秒')
+        self.frame_label.setText(f'第 {index+1} / {self.source.count} 帧 · {index/float(self.data["fps"]):.2f} 秒')
 
     def fit(self):
         if hasattr(self,'pixmap') and not self.pixmap.isNull():
@@ -81,9 +90,9 @@ class FrameSelectionDialog(QDialog):
 
     def load_thumbnails(self):
         for _ in range(4):
-            if self.thumb_index==len(self.paths):self.thumbnails.stop();return
-            i=self.thumb_index;pixmap=QPixmap(str(self.paths[i]))
-            self.grid.item(i).setIcon(QIcon(pixmap.scaled(96,128,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation)))
+            if self.thumb_index==self.source.count:self.thumbnails.stop();return
+            i=self.thumb_index
+            self.grid.item(i).setIcon(QIcon(self.pixmap_at(i,thumbnail=True)))
             self.thumb_index+=1
 
     def focus_item(self,item):self.timer.stop();self.seek(self.grid.row(item))
@@ -98,15 +107,18 @@ class FrameSelectionDialog(QDialog):
 
     def selection_changed(self,*_):
         count=len(self.selected())
-        self.summary.setText(f'已选 {count} / {len(self.paths)} 帧')
+        self.summary.setText(f'已选 {count} / {self.source.count} 帧')
         for button in (self.sheet_button,self.png_button,self.godot_button):button.setEnabled(bool(count) and not self.busy)
 
     def export_godot(self):
-        if not self.busy and self.selected():self.window.godot_controller.frames([self.paths[i] for i in self.selected()],self.fps.value(),parent=self)
+        indices=self.selected()
+        if not self.busy and indices:
+            self.window.godot_controller.frames(indices,self.fps.value(),parent=self,
+                source=self.source,transparent=self.transparent.isChecked(),loop=self.loop.isChecked())
 
     def play(self,selected):
         if self.timer.isActive():self.timer.stop();return
-        self.playback=self.selected() if selected else list(range(len(self.paths)))
+        self.playback=self.selected() if selected else list(range(self.source.count))
         if not self.playback:self.status.setText('请先勾选需要播放的帧。');return
         self.play_position=0;self.seek(self.playback[0])
         rate=self.fps.value() if selected else float(self.data['fps']);self.timer.start(max(1,round(1000/rate)))
@@ -117,7 +129,7 @@ class FrameSelectionDialog(QDialog):
 
     def export(self,kind):
         w=self.window
-        if self.busy or w.current or w.preparing or w.cache_busy:self.status.setText('请等当前任务结束后再导出。');return
+        if w.export_tasks.busy or w.cache_busy:self.status.setText('已有导出或缓存清理正在进行。');return
         indices=self.selected()
         if not indices:self.status.setText('请先选取至少一帧。');return
         if kind=='sheet':
@@ -127,69 +139,47 @@ class FrameSelectionDialog(QDialog):
         if not path:return
         try:
             target=w.cache_store.validate_export(path)
-            if self.transparent.isChecked():
-                from .background import model_file
-                if not model_file().is_file():raise ValueError('透明模型尚未安装，请取消透明背景选项。')
         except (OSError,ValueError) as exc:self.status.setText(str(exc));return
         self.timer.stop();self.busy=True;self.selection_changed()
         folder=w.api_controller.data/'animations'/(datetime.now().strftime('%Y%m%d_%H%M%S_')+uuid4().hex[:8])
-        w.preparing=True;w.importing_folder=folder;w.importing_source=str(self.manifest)
-        w.prepare_cancel.clear();self.cancel=w.prepare_cancel;w.task_display.start();w.progress.setRange(0,0)
         fps,columns,matte,loop=self.fps.value(),self.columns.value(),self.transparent.isChecked(),self.loop.isChecked()
-        key=(tuple(indices),matte,tuple((self.paths[i].stat().st_mtime_ns,self.paths[i].stat().st_size) for i in indices))
-        prepared=self.prepared.copy() if key==self.prepared_key else {}
-        def event(event,data):
-            if event=='selection_stage':
-                w.status.setText(data['message'])
-                if not self.closed:self.status.setText(data['message'])
-            elif event=='selection_progress':
-                w.progress.setRange(0,100);w.progress.setValue(round(95*data['value']/data['max']))
-            elif event in ('result','error','cancelled'):
-                w.preparing=False;w.importing_folder=None;w.importing_source=None;self.busy=False
-                status={'result':'completed','error':'failed','cancelled':'cancelled'}[event]
-                w.task_display.finish(status);w.progress.setRange(0,100);w.progress.setValue(100 if event=='result' else 0)
-                if event=='result':
-                    self.prepared_key=key
-                    self.prepared={i:Path(data['manifest']).parent/f'frame_{n:03d}.png' for n,i in enumerate(indices)}
-                    w.cache_store.record_save(data['output'],kind,data['manifest']);w.load_gallery()
-                    if not self.closed:w.animation_player.load(data['manifest'])
-                    message='已导出 '+str(len(indices))+' 帧：'+data['output']
-                else:message='导出未完成：'+str(data)
-                w.status.setText(message)
-                if not self.closed:self.status.setText(message);self.selection_changed()
-                QTimer.singleShot(0,w.start_next)
-        w.launch(lambda emit:export_selection(self.manifest,indices,folder,target,kind,fps,columns,matte,loop,self.cancel,emit,prepared=prepared),event)
+        manifest=self.manifest
+        key=(tuple(indices),matte)
+        prepared=self.prepared.copy() if matte and key==self.prepared_key else {}
+        previous_preview=w.video_controller.player.manifest
+        def done(event,data):
+            self.busy=False
+            visible=not self.closed and isValid(self)
+            if event=='result':
+                self.exported_manifest=Path(data['manifest'])
+                self.prepared_key=key
+                self.prepared={index:self.exported_manifest.parent/f'frame_{position:03d}.png' for position,index in enumerate(indices)}
+                w.cache_store.record_save(data['output'],kind,data['manifest']);w.load_gallery()
+                if (visible and not w.current and previous_preview==manifest
+                    and w.video_controller.player.manifest==manifest and w.preview_role=='video'):
+                    w.animation_player.load(data['manifest'])
+                message='已导出 '+str(len(indices))+' 帧：'+data['output']
+            else:message='导出未完成：'+str(data)
+            if visible:self.status.setText(message);self.selection_changed()
+        accepted=w.export_tasks.submit('导出动画帧', [manifest,self.source_manifest,self.source.native,folder,*self.source.paths,*self.source.processed,*prepared.values()],
+            lambda cancel,emit:export_selection(manifest,indices,folder,target,kind,fps,columns,matte,loop,cancel,emit,prepared=prepared),
+            done,popup=True)
+        if accepted:self.status.setText(f'正在导出所选 {len(indices)} 帧…')
+        else:
+            self.busy=False;self.selection_changed()
+            self.status.setText('已有导出或缓存清理正在进行。')
 
-    def closeEvent(self,event):
+    def on_finished(self):
         self.closed=True;self.timer.stop();self.thumbnails.stop()
-        if self.busy:self.cancel.set()
         if getattr(self.window,'frame_selection_dialog',None) is self:self.window.frame_selection_dialog=None
-        super().closeEvent(event)
 
 
-def open_selection(window,manifest,*,prepared=False):
-    if window.current or window.preparing or window.cache_busy:
-        window.status.setText('请等当前任务结束后再选帧。');return
+def open_selection(window,manifest):
+    if window.cache_busy:return
     existing=getattr(window,'frame_selection_dialog',None)
-    if existing:existing.raise_();return
-    if not prepared:
-        from .export_background import prepare
-        manifest=Path(manifest).resolve();window.preparing=True
-        window.importing_folder=manifest.parent;window.importing_source=str(manifest)
-        window.prepare_cancel.clear();window.task_display.start();window.progress.setRange(0,0)
-        window.status.setText('正在准备透明动画帧…')
-        def event(kind,data):
-            if kind=='video_stage':window.status.setText(data['message'])
-            elif kind=='video_export_progress':window.progress.setRange(0,100);window.progress.setValue(round(95*data['value']/data['max']))
-            elif kind in ('result','error','cancelled'):
-                window.preparing=False;window.importing_folder=None;window.importing_source=None
-                window.task_display.finish({'result':'completed','error':'failed','cancelled':'cancelled'}[kind])
-                window.progress.setRange(0,100);window.progress.setValue(100 if kind=='result' else 0)
-                if kind=='result':open_selection(window,data,prepared=True)
-                else:window.status.setText('导出准备未完成，原动画保留：'+str(data))
-                QTimer.singleShot(0,window.start_next)
-        window.launch(lambda emit:prepare(manifest,window.prepare_cancel,emit),event)
-        return
+    if existing and isValid(existing):
+        if existing.manifest==Path(manifest).resolve():existing.raise_();existing.activateWindow();return existing
+        existing.close()
     try:
-        dialog=FrameSelectionDialog(window,manifest);window.frame_selection_dialog=dialog;dialog.show()
+        dialog=FrameSelectionDialog(window,manifest);window.frame_selection_dialog=dialog;dialog.show();return dialog
     except (OSError,ValueError,KeyError) as exc:window.add_chat('软件','无法打开选帧窗口：'+str(exc))

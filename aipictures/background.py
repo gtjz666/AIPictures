@@ -19,6 +19,7 @@ if SETTINGS.is_file():
     MODEL=configured['model']; MODEL_ROOT=Path(configured['root']).resolve()
 _session = None
 _lock = threading.Lock()
+_inference_lock = threading.Lock()
 
 
 def model_file(model=None,root=None):
@@ -58,8 +59,9 @@ def session(allow_download=False):
 def release_session():
     """Free the CPU inference arena before the next large ComfyUI job."""
     global _session
-    with _lock:
-        _session=None
+    with _inference_lock:
+        with _lock:
+            _session=None
 
 
 def foreground_rgba(image,cancel,anti_alias=True):
@@ -71,7 +73,9 @@ def foreground_rgba(image,cancel,anti_alias=True):
     if sum(histogram[:16])>image.width*image.height*.01 and sum(histogram[64:])>100:
         return image.copy()  # An imported transparent sprite already has a deliberate matte.
     from rembg import remove
-    alpha=remove(image.convert('RGB'),session=session(),only_mask=True).convert('L')
+    with _inference_lock:
+        if cancel.is_set():raise Cancelled('任务已取消')
+        alpha=remove(image.convert('RGB'),session=session(),only_mask=True).convert('L')
     alpha=alpha.point(lambda a:0 if a<12 else 255 if a>232 else a)
     output=image.copy()
     output.putalpha(alpha)

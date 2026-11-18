@@ -2,6 +2,7 @@
 extends VBoxContainer
 signal value_changed(path: String)
 const Link: GDScript = preload("resource_link.gd")
+const Drop: GDScript = preload("asset_drop.gd")
 const Preview: GDScript = preload("resource_preview.gd")
 var filter: String = "resource"
 var path: String = ""
@@ -56,6 +57,7 @@ func setup(kind: String, value: String) -> void:
 	picker.file_selected.connect(assign)
 	add_child(picker)
 	if Engine.is_editor_hint():
+		get_window().files_dropped.connect(on_files_dropped)
 		EditorInterface.get_resource_filesystem().filesystem_changed.connect(refresh_from_filesystem)
 		EditorInterface.get_resource_filesystem().resources_reimported.connect(func(files: PackedStringArray) -> void:
 			if path in files:
@@ -65,13 +67,24 @@ func setup(kind: String, value: String) -> void:
 
 
 func drag_path(data: Variant) -> String:
-	if not data is Dictionary:
-		return ""
-	if data.get("type") == "files" and data.get("files", []).size() == 1:
-		return str(data["files"][0])
-	if data.get("type") == "resource" and data.get("resource") is Resource:
-		return (data["resource"] as Resource).resource_path
-	return ""
+	return Drop.for_slot(Drop.from_drag(data), filter)
+
+
+func on_files_dropped(files: PackedStringArray) -> void:
+	if files.size() != 1 or not Drop.contains(self, Vector2(DisplayServer.mouse_get_position())):
+		return
+	var candidate: String = Drop.project_file(files[0])
+	if candidate.is_empty():
+		note.text = "请先在 AlI 为当前 Godot 项目准备组件。"
+		return
+	note.text = "正在导入素材…"
+	var imported: bool = await Drop.import_files(self)
+	if not is_inside_tree():
+		return
+	if imported:
+		assign(Drop.for_slot(candidate, filter))
+	else:
+		note.text = "素材导入尚未完成，请稍后重试。"
 
 
 func _can_drop_data(_at_position: Vector2, data: Variant) -> bool:

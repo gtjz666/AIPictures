@@ -92,6 +92,7 @@ class Workbench:
             self.right_tabs.addTab(self.tool_pages[key],title)
         self.task=QWidget();task_layout=QVBoxLayout(self.task);task_layout.setContentsMargins(0,3,0,0)
         task_layout.setSpacing(2);task_layout.addWidget(QLabel('当前任务'));task_layout.addWidget(w.task_display)
+        task_layout.addWidget(w.export_tasks)
         cv.addWidget(self.task)
         self.make_toolbar(w);self.reset_layout(save=False)
         w.generation_type.hide();w.animation_action.setCurrentIndex(w.animation_action.findData('custom'))

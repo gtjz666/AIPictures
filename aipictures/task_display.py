@@ -57,15 +57,36 @@ class TaskLabel(QLabel):
 
 class TaskProgress(QProgressBar):
     rangeChanged=Signal()
+    active=False
+    settled=False
+
+    def begin(self):
+        self.active=True;self.settled=False
+        self.setRange(0,100)
+        super().setValue(0)
+
+    def end(self,value):
+        self.active=False;self.settled=True
+        self.setRange(0,100)
+        super().setValue(value)
+
     def setRange(self,minimum,maximum):
+        if minimum==maximum==0 and (self.settled or (self.active and self.maximum()>0 and self.value()>0)):
+            return
         super().setRange(minimum,maximum); self.rangeChanged.emit()
+
+    def setValue(self,value):
+        if self.settled:return
+        if self.active and self.maximum()>self.minimum():
+            value=max(self.value(),min(value,self.maximum()-1))
+        super().setValue(value)
 
 
 class TaskDisplay(QWidget):
-    def __init__(self,owner):
+    def __init__(self,owner,*,export=False):
         super().__init__(owner); self.setObjectName('taskDisplay')
         layout=QHBoxLayout(self); layout.setContentsMargins(10,4,10,4)
-        self.status=TaskLabel(owner); self.percent=QLabel('0%')
+        self.status=QLabel('等待导出') if export else TaskLabel(owner); self.percent=QLabel('0%')
         self.status.setSizePolicy(QSizePolicy.Policy.Preferred,QSizePolicy.Policy.Preferred)
         self.percent.setFixedWidth(45); self.percent.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
         self.status.setMinimumWidth(150);layout.addWidget(self.status)
@@ -80,6 +101,7 @@ class TaskDisplay(QWidget):
         self.clock=QTimer(self); self.clock.setInterval(250); self.clock.timeout.connect(self.update_elapsed)
 
     def start(self):
+        self.progress.begin()
         self.started=time.monotonic(); self.finished_seconds=0.; self.stage='准备'; self.clock.start(); self.update_elapsed()
 
     def seconds(self):
@@ -87,7 +109,7 @@ class TaskDisplay(QWidget):
 
     def finish(self,status='completed'):
         self.finished_seconds=self.seconds(); self.started=None; self.clock.stop()
-        self.progress.setRange(0,100);self.progress.setValue(100 if status=='completed' else 0)
+        self.progress.end(100 if status=='completed' else 0)
         self.stage={'completed':'完成','failed':'失败','cancelled':'已取消'}.get(status,status); self.update_elapsed()
 
     def record_stage(self,text):

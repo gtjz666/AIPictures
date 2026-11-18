@@ -1009,8 +1009,11 @@ class Window(QMainWindow):
         if getattr(self,'importing_source',None):protected.append(Path(self.importing_source).parent)
         picker=getattr(self,'frame_selection_dialog',None)
         from shiboken6 import isValid
-        if picker and isValid(picker) and picker.isVisible():protected.append(getattr(picker,'source_manifest',picker.manifest).parent)
+        if picker and isValid(picker) and picker.isVisible():
+            protected.extend((picker.source_manifest.parent,picker.manifest.parent))
         elif picker:self.frame_selection_dialog=None
+        protected.extend(folder for folder in folders
+                         if any(path.is_relative_to(Path(folder).resolve()) for path in self.export_tasks.paths))
         player=getattr(getattr(self,'video_controller',None),'player',None)
         if player and player.manifest and within_any(player.manifest,folders):player.stop()
         audio=getattr(self,'audio_controller',None)
@@ -1133,6 +1136,7 @@ class Window(QMainWindow):
             self.workbench.settings.hide()
         self.intent_controller.cancel()
         self._closing=True;self.timer.stop();self.prepare_cancel.set()
+        if self.export_tasks.busy:self.export_tasks.cancel.set()
         if self.current:self.current['cancel'].set()
         client=getattr(self,'client',None)
         if self.current and 'client' in self.current:client=self.current['client']

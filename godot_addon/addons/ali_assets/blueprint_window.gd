@@ -4,6 +4,7 @@ extends Window
 signal graph_applied(data: Dictionary)
 const Link: GDScript = preload("resource_link.gd")
 const Slot: GDScript = preload("resource_slot.gd")
+const Drop: GDScript = preload("asset_drop.gd")
 const Groups: GDScript = preload("inspector_groups.gd")
 const Browser: GDScript = preload("resource_browser.gd")
 const Types: GDScript = preload("blueprint_types.gd")
@@ -32,6 +33,7 @@ var moving: bool = false
 func _init() -> void:
 	visible = false
 	force_native = true
+	files_dropped.connect(on_files_dropped)
 
 
 func _exit_tree() -> void:
@@ -183,9 +185,9 @@ func bind_character(character: Node) -> bool:
 		message.text = "请先应用或保存当前修改，再使用“打开”载入另一份蓝图。"
 		return false
 	target = character
-	frames = (target.get_node("AnimatedSprite2D") as AnimatedSprite2D).sprite_frames
 	binding_label.text = "已绑定：" + str(target.name)
 	if not dirty:
+		frames = (target.get_node("AnimatedSprite2D") as AnimatedSprite2D).sprite_frames
 		var stored: Dictionary = target.get("blueprint")
 		var mode: String = "platformer" if target.get("platformer") else "four_way" if target.get("four_way") else "two_way"
 		if stored.is_empty():
@@ -469,6 +471,10 @@ func render_node(node: Dictionary) -> void:
 	widget.add_theme_stylebox_override("titlebar_selected", selected_bar)
 	widget.position_offset = Vector2(float(node["position"][0]), float(node["position"][1]))
 	graph.add_child(widget)
+	if kind in ["animation", "sound"]:
+		widget.set_drag_forwarding(Callable(),
+			func(_point: Vector2, payload: Variant) -> bool: return not role_drop_path(id, Drop.from_drag(payload)).is_empty(),
+			func(_point: Vector2, payload: Variant) -> void: bind_dropped_asset(id, Drop.from_drag(payload)))
 	var count: int = maxi(1,maxi(Model.input_count(node),Model.output_count(node)))
 	for index: int in range(count):
 		var port: Label = Label.new()
@@ -486,6 +492,66 @@ func render_node(node: Dictionary) -> void:
 		selected_id = id
 		show_inspector())
 	widget.selected = selected_id == id
+
+
+func role_drop_path(id: String, path: String) -> String:
+	var node: Dictionary = Model.find_node(data, id)
+	if path.is_empty() or node.get("kind") not in ["animation", "sound"]:
+		return ""
+	var kind: String = "frames" if node["kind"] == "animation" else "audio"
+	var candidate: String = Drop.for_slot(path, kind)
+	return candidate if Link.problem(candidate, kind).is_empty() else ""
+
+
+func on_files_dropped(paths: PackedStringArray) -> void:
+	if paths.size() != 1:
+		return
+	var id: String = Drop.node_at(graph, Vector2(DisplayServer.mouse_get_position()))
+	if id.is_empty():
+		return
+	var path: String = Drop.project_file(paths[0])
+	if path.is_empty():
+		message.text = "请先在 AlI 为当前 Godot 项目准备组件。"
+		return
+	var character: Node = target
+	message.text = "正在导入素材…"
+	if await Drop.import_files(self) and target == character:
+		bind_dropped_asset(id, path)
+
+
+func bind_dropped_asset(id: String, path: String) -> void:
+	var candidate: String = role_drop_path(id, path)
+	if candidate.is_empty():
+		message.text = "这个模块需要对应的动画或音频资源。"
+		return
+	var node: Dictionary = Model.find_node(data, id)
+	selected_id = id
+	if node["kind"] == "sound":
+		update_parameter(id, "path", candidate)
+		return
+	if not is_instance_valid(target):
+		message.text = "请先绑定角色。"
+		return
+	var source: SpriteFrames = Link.frames(load(candidate))
+	var names: PackedStringArray = Drop.clips(source)
+	var clip: String = str(node["params"]["clip"])
+	if clip not in names:
+		if names.size() != 1:
+			message.text = "组件包含多个动作。请导出此模块需要的单个动作，或使用同名动作。"
+			return
+		clip = names[0]
+	var next_frames: SpriteFrames = frames.duplicate() as SpriteFrames if frames != null else SpriteFrames.new()
+	var local_clip: String = "%s_ali_%s" % [clip, Time.get_ticks_usec()]
+	Drop.copy_clip(next_frames, local_clip, source, clip)
+	var next: Dictionary = data.duplicate(true)
+	Model.find_node(next, id)["params"]["clip"] = local_clip
+	history.create_action("绑定角色动画")
+	history.add_do_property(self, "frames", next_frames)
+	history.add_undo_property(self, "frames", frames)
+	history.add_do_method(set_data.bind(next))
+	history.add_undo_method(set_data.bind(data.duplicate(true)))
+	history.commit_action()
+	message.text = "动画已绑定。请应用到角色并保存场景。"
 
 
 func show_inspector() -> void:

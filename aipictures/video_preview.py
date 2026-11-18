@@ -113,37 +113,17 @@ class VideoPreview(QWidget):
 
     def process_export(self,action,done):
         w=self.window
-        if w.current or w.pending or w.preparing or w.cache_busy:
-            w.status.setText('请等当前任务结束后再导出。');return
-        self.timer.stop();self.play.set_playing(False)
-        self.sound.pause()
-        w.preparing=True;w.importing_folder=self.manifest.parent;w.prepare_cancel.clear()
-        w.task_display.start();w.progress.setRange(0,0);w.status.setText('正在准备导出…')
         def event(kind,data):
-            if kind=='video_export_progress':
-                w.progress.setRange(0,100);w.progress.setValue(round(95*data['value']/data['max']))
-            elif kind=='video_stage':w.status.setText(data['message'])
-            elif kind in ('result','error','cancelled'):
-                from .engine import Cancelled
-                cancelled=kind=='cancelled' or isinstance(data,Cancelled)
-                w.preparing=False;w.importing_folder=None
-                w.task_display.finish('completed' if kind=='result' else 'cancelled' if cancelled else 'failed')
-                w.progress.setRange(0,100);w.progress.setValue(100 if kind=='result' else 0)
-                if kind=='result':done()
-                else:w.add_chat('软件','导出未完成，原动画保留：'+str(data))
-                QTimer.singleShot(0,w.start_next)
-        w.launch(lambda emit:action(w.prepare_cancel,emit),event)
+            if kind=='result':done()
+            elif kind=='error':w.add_chat('软件','导出未完成：'+str(data))
+        if not w.export_tasks.submit('导出视频', [self.manifest,self.source,self.rgb_source], action, event, popup=True):
+            w.export_tasks.status.setToolTip('已有导出或缓存清理正在进行。')
 
     def split(self):
         if self.manifest:
             self.timer.stop();self.sound.pause();self.play.set_playing(False)
             from .frame_selection import open_selection
-            manifest=self.manifest
-            if self.frames:open_selection(self.window,manifest)
-            else:
-                from .video_io import prepare_export_frames
-                self.process_export(lambda cancel,emit:prepare_export_frames(manifest,cancel,emit),
-                                    lambda:open_selection(self.window,manifest))
+            open_selection(self.window,self.manifest)
 
     def save(self):
         if not self.manifest:return

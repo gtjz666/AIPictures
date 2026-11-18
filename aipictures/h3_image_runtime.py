@@ -127,7 +127,7 @@ def generate(folder,params,cancel,emit):
             if digest(Path(row['path']))!=row['sha256']:raise ValueError('本次参考图已变化，未开始推理。')
         from .motion_native_backend import release_shared
         release_shared(params,folder=folder,cancel=cancel)
-        emit('h3_image_stage',dict(message='正在编码提示词与参考图…'))
+        emit('h3_image_stage',dict(message='正在编码提示词与参考图…', phase='encode'))
         with Session(c,folder/'encode',cancel,emit) as s:
             names=[];assets=[]
             for number,row in params['references'].items():
@@ -139,11 +139,11 @@ def generate(folder,params,cancel,emit):
             write_json(folder/'inputs.json',assets,durable=True)
             s.run(h3.encode_graph(c,params['positive'],params['width'],params['height'],names,s.info),latent=True)
             packet=s.output/'conditioning'
-        emit('h3_image_stage',dict(message='参考编码已释放，正在生成图片 · 6步…'))
+        emit('h3_image_stage',dict(message='参考编码已释放，正在生成图片 · 6步…', phase='sample'))
         with Session(c,folder/'sample',cancel,emit) as s:
             shutil.copytree(packet,s.input/'conditioning')
             s.run(h3.sample_graph(c,params['seed'],s.info),latent=True);sampled=s.output/'conditioning'
-        emit('h3_image_stage',dict(message='采样已释放，正在解码图片…'))
+        emit('h3_image_stage',dict(message='采样已释放，正在解码图片…', phase='decode'))
         with Session(c,folder/'decode',cancel,emit) as s:
             shutil.copytree(sampled,s.input/'conditioning');result=s.run(h3.decode_graph(c,s.info))
         check(cancel)

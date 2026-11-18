@@ -21,12 +21,19 @@ def main():
         assert not list(manifest.parent.rglob('*.png'))
         target=root/'export.mp4'
         with patch.object(QFileDialog,'getSaveFileName',return_value=(str(target),'')):
-            player.save();wait_until(lambda:not w.preparing)
+            player.save();wait_until(lambda:not w.export_tasks.busy)
         assert target.is_file() and not list(manifest.parent.rglob('*.png'))
-        with patch('aipictures.frame_selection.open_selection') as select:
-            player.split();wait_until(lambda:not w.preparing)
-            select.assert_called_once_with(w,manifest)
-        assert len(list(manifest.parent.rglob('*.png')))==9
+        player.split()
+        picker=w.frame_selection_dialog
+        assert picker.source.count==9 and not list(manifest.parent.rglob('*.png'))
+        picker.seek(8);picker.pick_current();picker.transparent.setChecked(False)
+        with patch.object(QFileDialog,'getExistingDirectory',return_value=str(root)):
+            picker.export('pngs');wait_until(lambda:not w.export_tasks.busy)
+        exported=list(root.glob('frames_*/*.png'))
+        assert len(exported)==1 and not list(manifest.parent.rglob('*.png'))
+        from PIL import Image
+        with Image.open(exported[0]) as image:
+            assert image.convert('RGB').tobytes()==array[8].tobytes()
         w.close();QTest.qWait(30)
     print('Lazy exact-RGB preview / complete video / explicit frame export: PASS')
 

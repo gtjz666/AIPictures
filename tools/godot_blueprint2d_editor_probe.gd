@@ -7,6 +7,7 @@ const ImportWizard: GDScript = preload("res://addons/ali_assets/asset_import_wiz
 const Preview: GDScript = preload("res://addons/ali_assets/animation_preview.gd")
 const Slot: GDScript = preload("res://addons/ali_assets/node_slot.gd")
 const Library: GDScript = preload("res://addons/ali_assets/game_library.gd")
+const Drop: GDScript = preload("res://addons/ali_assets/asset_drop.gd")
 
 
 func _enter_tree() -> void:
@@ -19,6 +20,7 @@ func run() -> void:
 	assert(ali != null)
 	ali.call("open_game_window")
 	var window: Window = ali.get("game_window") as Window
+	await test_direct_drop(window)
 	for kind: String in Model.TITLES:
 		if kind in Model.SINGLETONS: continue
 		window.call("add_module",kind)
@@ -124,6 +126,59 @@ func run() -> void:
 	window.call("focus_node","counter")
 	assert(window.get("selected_id") == "counter")
 	file = FileAccess.open("res://editor2d-proof.json",FileAccess.WRITE)
-	file.store_string(JSON.stringify({"all_new_node_inspectors":true,"typed_copy_paste_namespace_undo_redo":true,"favorites_and_typed_ports":true,"node_slot_root_validation":true,"isolated_animation_and_camera_preview_no_source_mutation":true,"native_sheet_frames_animation_tileset_import_no_overwrite":true,"debug_signature_and_error_source_location":true}))
+	file.store_string(JSON.stringify({"direct_asset_binding":true,"all_new_node_inspectors":true,"typed_copy_paste_namespace_undo_redo":true,"favorites_and_typed_ports":true,"node_slot_root_validation":true,"isolated_animation_and_camera_preview_no_source_mutation":true,"native_sheet_frames_animation_tileset_import_no_overwrite":true,"debug_signature_and_error_source_location":true}))
 	file.close()
 	window.hide()
+
+
+func test_direct_drop(window: Window) -> void:
+	var paths: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://fixtures/drop.json"))
+	assert(Drop.project_file("C:/outside/asset.tscn").is_empty())
+	assert(await Drop.import_files(self))
+	var walk: String = Drop.project_file(paths["walk"])
+	assert(walk.begins_with("res://generated/ali_assets/"))
+	assert(ResourceLoader.exists(Drop.for_slot(Drop.project_file(paths["image"]), "image"), "Texture2D"))
+	assert(ResourceLoader.exists(Drop.for_slot(Drop.project_file(paths["voice"]), "audio"), "AudioStream"))
+	var graph_data: Dictionary = window.get("data")
+	var runner: String = str(Model.by_kind(graph_data,"runner")["id"])
+	window.call("bind_dropped_asset", runner, walk)
+	var settings: Dictionary = Model.by_kind(window.get("data"), "runner")["params"]
+	var frames: SpriteFrames = Model.frames_at(settings["frames"])
+	assert(frames.get_frame_count("walk_right") == 2)
+	assert(frames.get_frame_count("jump_right") == 1 and frames.get_frame_count("death_right") == 1)
+	assert(Model.validate(window.get("data"),true).is_empty())
+	window.call("bind_dropped_asset", runner, Drop.project_file(paths["jump"]))
+	var combined: String = str(Model.by_kind(window.get("data"), "runner")["params"]["frames"])
+	assert(combined != settings["frames"])
+	frames = Model.frames_at(combined)
+	assert(frames.get_frame_count("walk_right") == 2 and frames.get_frame_count("jump_right") == 1)
+	window.get("history").undo()
+	assert(Model.by_kind(window.get("data"),"runner")["params"]["frames"] == settings["frames"])
+	var animation: Dictionary = Model.module("drop_animation","animation",130,120)
+	graph_data = window.get("data").duplicate(true)
+	graph_data["nodes"].append(animation)
+	window.call("assign",graph_data)
+	window.call("bind_dropped_asset","drop_animation",walk)
+	assert(Model.find(window.get("data"),"drop_animation")["params"]["clip"] == "walk")
+	var role_scene: PackedScene = load(Drop.project_file(paths["role"]))
+	var role: Node = role_scene.instantiate()
+	add_child(role)
+	var role_window: Window = preload("res://addons/ali_assets/blueprint_window.gd").new()
+	add_child(role_window)
+	assert(role_window.call("bind_character",role))
+	var role_data: Dictionary = role_window.get("data")
+	for node: Dictionary in role_data["nodes"]:
+		if node["kind"] != "animation":
+			continue
+		var id: String = str(node["id"])
+		role_window.call("bind_dropped_asset",id,walk)
+		var drafted: Dictionary = role_window.get("data")
+		var clip: String = str(preload("res://addons/ali_assets/blueprint_model.gd").find_node(drafted,id)["params"]["clip"])
+		var draft_frames: SpriteFrames = role_window.get("frames")
+		assert(clip.begins_with("walk_ali_") and draft_frames.get_frame_count(clip) == 2)
+		assert(not role.get_node("AnimatedSprite2D").get("sprite_frames").has_animation(clip))
+		role_window.get("history").undo()
+		assert(not role_window.get("frames").has_animation(clip))
+		break
+	role_window.queue_free()
+	role.queue_free()

@@ -67,14 +67,25 @@ class H3ImageController:
         w=self.window;cancel=threading.Event()
         w.current=dict(folder=folder,params=params,cancel=cancel,client=None)
         w.connect_button.setEnabled(False);item.setText('H3图片 · 制作中');w.task_display.start();w.progress.setRange(0,0)
+        phase='setup'
         def save(status,error=None):write_json(folder/'job.json',dict(schema_version=1,kind='image',status=status,params=params,error=error),durable=True)
         save('running')
         def event(kind,data):
+            nonlocal phase
             if kind=='h3_image_process':
                 if w.current:w.current.update(process_pid=data['pid'],owned_job=data['owner'])
-            elif kind=='h3_image_stage':w.status.setText(data['message']);w.progress.setRange(0,0)
+            elif kind=='h3_image_stage':
+                w.status.setText(data['message'])
+                phase=data.get('phase',phase)
+                if phase=='sample':
+                    w.progress.setRange(0,100);w.progress.setValue(20)
+                elif phase=='decode':
+                    w.progress.setRange(0,100);w.progress.setValue(88)
             elif kind=='progress':
-                w.progress.setRange(0,100);w.progress.setValue(round(100*data['value']/max(1,data['max'])))
+                w.progress.setRange(0,100)
+                start,end={'setup':(0,5),'encode':(5,20),'sample':(20,88),'decode':(88,97)}[phase]
+                fraction=min(1,data['value']/max(1,data['max']))
+                w.progress.setValue(round(start+(end-start)*fraction))
             elif kind in ('result','error','cancelled'):
                 status={'result':'completed','error':'failed','cancelled':'cancelled'}[kind]
                 save(status,None if kind=='result' else str(data));w.current=None;w.task_display.finish(status)

@@ -172,7 +172,9 @@ def build_studio(w):
     guide.setObjectName('muted')
     side.addStretch(); side.addWidget(guide)
     from .task_display import TaskDisplay
+    from .export_tasks import ExportTasks
     w.task_display=TaskDisplay(w); side.addWidget(w.task_display)
+    w.export_tasks=ExportTasks(w); side.addWidget(w.export_tasks)
     w.status=w.task_display.status; w.progress=w.task_display.progress
     sidebar.setMinimumWidth(210); sidebar.setMaximumWidth(270); split.addWidget(sidebar); w.inspector = sidebar
     workspace = QWidget(); cv = QVBoxLayout(workspace); cv.setContentsMargins(22, 8, 16, 6);w.workspace_layout=cv

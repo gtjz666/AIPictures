@@ -13,6 +13,8 @@ def package(output):
             if path.is_file() and path.suffix in ('.gd','.cfg'):
                 archive.write(path,'addons/ali_assets/'+path.name)
         archive.write(ADDON.parent/'docs/GODOT_ASSETS.md','README.md')
+        for name in ('GODOT_ASSETS.md','DINO_AI_ASSETS_TUTORIAL.md','TRANSPARENT_FRAME_EXPORT.md'):
+            archive.write(ADDON.parent/'docs'/name,name)
         archive.write(ADDON.parent/'docs/GODOT_BLUEPRINTS.md','GODOT_BLUEPRINTS.md')
         archive.write(ADDON.parent/'docs/GODOT_RUNNER_GUIDE.md','GODOT_RUNNER_GUIDE.md')
         from .render_game_guide import render_guide

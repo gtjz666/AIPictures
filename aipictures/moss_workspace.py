@@ -4,11 +4,12 @@ from pathlib import Path
 from PySide6.QtCore import Qt,QTimer,QRectF
 from PySide6.QtGui import QColor,QPen,QPixmap,QBrush
 from PySide6.QtWidgets import (QMainWindow,QWidget,QHBoxLayout,QVBoxLayout,QFormLayout,QSplitter,
- QComboBox,QPlainTextEdit,QSpinBox,QDoubleSpinBox,QPushButton,QLabel,QProgressBar,QFileDialog,
+ QComboBox,QPlainTextEdit,QSpinBox,QDoubleSpinBox,QPushButton,QLabel,QFileDialog,
  QMessageBox,QGraphicsView,QGraphicsScene,QGraphicsRectItem,QGraphicsSimpleTextItem,QListWidget,
  QLineEdit,QAbstractItemView)
 from . import moss_image as moss
 from .storage import DATA,new_job,write_json
+from .task_display import TaskProgress
 from .workflow_library import digest
 
 
@@ -67,7 +68,7 @@ class MossWindow(QMainWindow):
   self.steps=QSpinBox();self.steps.setRange(1,100);self.steps.setValue(25);self.cfg=QDoubleSpinBox();self.cfg.setRange(1,10);self.cfg.setValue(2.5);self.seed=QLineEdit('-1')
   controls=QHBoxLayout();form.addLayout(controls)
   for label,widget in [('步数',self.steps),('引导',self.cfg),('种子',self.seed)]:controls.addWidget(QLabel(label));controls.addWidget(widget)
-  self.progress=QProgressBar();outer.addWidget(self.progress);self.status=QLabel('可编辑布局、保存草稿或导出工作流。');self.status.setWordWrap(True);outer.addWidget(self.status)
+  self.progress=TaskProgress();outer.addWidget(self.progress);self.status=QLabel('可编辑布局、保存草稿或导出工作流。');self.status.setWordWrap(True);outer.addWidget(self.status)
   actions=QHBoxLayout();outer.addLayout(actions)
   for title,fn in [('生成图片',self.generate),('取消',lambda:self.cancel.set()),('另存结果…',self.save_result),('用于软件预览／导出',self.use_result)]:
    button=QPushButton(title);actions.addWidget(button);button.clicked.connect(fn)
@@ -207,7 +208,7 @@ class MossWindow(QMainWindow):
     sha=digest(path);target=folder/'references'/f'{n}{path.suffix.lower()}';target.parent.mkdir(exist_ok=True);shutil.copyfile(path,target)
     if digest(target)!=sha:raise ValueError('参考图在复制时变化。')
     params['references'][n]=dict(path=str(target),sha256=sha)
-   self.busy=True;self.folder=folder;self.cancel=threading.Event();self.generate_button.setEnabled(False);self.progress.setRange(0,0);self.status.setText('正在核验本次模型与输入…')
+   self.busy=True;self.folder=folder;self.cancel=threading.Event();self.generate_button.setEnabled(False);self.progress.begin();self.progress.setRange(0,0);self.status.setText('正在核验本次模型与输入…')
    def run(emit):
     from .moss_runtime import generate
     def save(status,error=None):write_json(folder/'job.json',dict(schema_version=1,kind='image',status=status,params=params,error=error),durable=True)
@@ -222,7 +223,7 @@ class MossWindow(QMainWindow):
   elif kind=='moss_stage':self.status.setText(data['message']);self.progress.setRange(0,0)
   elif kind=='progress':self.progress.setRange(0,100);self.progress.setValue(round(100*data['value']/max(1,data['max'])))
   elif kind in ['result','error','cancelled']:
-   self.busy=False;self.owner=None;self.generate_button.setEnabled(True);self.progress.setRange(0,100);self.progress.setValue(100 if kind=='result' else 0)
+   self.busy=False;self.owner=None;self.generate_button.setEnabled(True);self.progress.end(100 if kind=='result' else 0)
    if kind=='result':self.result_path=Path(data['images'][0]);self.show_result();self.status.setText('MOSS生成完成。请核对文字、布局或参考编辑效果。')
    else:self.status.setText('已取消。' if self.cancel.is_set() else str(data))
    self.host.load_gallery();QTimer.singleShot(0,self.host.start_next)

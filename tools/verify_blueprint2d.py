@@ -1,5 +1,6 @@
 """Isolated native acceptance for the complete 2D framework; no model inference."""
 import argparse
+import json
 import shutil
 from pathlib import Path
 from .verify_godot_game import setup,run
@@ -37,12 +38,23 @@ def main():
                     assert (project/('startup_'+preset+'_'+scene+'.json')).exists()
             finally:config.write_text(original,'utf-8')
     if args.only not in ('all','editor'):return
+    from aipictures.godot_assets import export_asset
+    fixture=project/'fixtures'
+    clips=[fixture/'sky.png',fixture/'sky.png']
+    assets={
+        'walk':export_asset(project,'drop_walk','animated',{'walk':clips}),
+        'jump':export_asset(project,'drop_jump','animated',{'jump':clips[:1]}),
+        'role':export_asset(project,'drop_role','two_way',{'walk_right':clips}),
+        'image':export_asset(project,'drop_image','image',image=fixture/'sky.png'),
+        'voice':export_asset(project,'drop_sound','audio',audio=fixture/'tone.wav'),
+    }
+    (fixture/'drop.json').write_text(json.dumps({key:value['scene'] for key,value in assets.items()}),'utf-8')
     editor=project/'addons/ali_2d_proof';editor.mkdir()
     shutil.copy2('tools/godot_blueprint2d_editor_probe.gd',editor/'plugin.gd')
     (editor/'plugin.cfg').write_text('[plugin]\nname="2D acceptance"\ndescription="Proof only"\nauthor="AlI"\nversion="1"\nscript="plugin.gd"\n','utf-8')
     config=project/'project.godot';original=config.read_text('utf-8')
     config.write_text(original.replace('"res://addons/ali_assets/plugin.cfg")','"res://addons/ali_assets/plugin.cfg", "res://addons/ali_2d_proof/plugin.cfg")'),'utf-8')
-    try:run(args.godot,project,proof/'editor2d.log','--editor','--fixed-fps','60','--quit-after','500')
+    try:run(args.godot,project,proof/'editor2d.log','--editor','--max-fps','120','--quit-after','1200')
     finally:config.write_text(original,'utf-8')
     assert (project/'editor2d-proof.json').exists(),'Editor acceptance did not complete'
     print('Native 2D framework acceptance: PASS')

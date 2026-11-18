@@ -31,9 +31,7 @@ def main():
         w.video_controller.player.slider.setValue(len(data['frames'])-1);w.video_controller.player.advance()
         assert w.video_controller.player.index==0
         w.grab().save(str(root/'unified-loop-seed.png'))
-        open_selection(w,source,prepared=a.opaque)
-        deadline=time.monotonic()+3600
-        while w.preparing and time.monotonic()<deadline:app.processEvents();QTest.qWait(30)
+        open_selection(w,source)
         picker=w.frame_selection_dialog
         picker.transparent.setChecked(not a.opaque)
         assert picker.selected()==[]
@@ -42,8 +40,8 @@ def main():
         sheet=root/'picked.png';started=time.monotonic()
         with patch.object(QFileDialog,'getSaveFileName',return_value=(str(sheet),'PNG')):picker.export('sheet')
         deadline=time.monotonic()+300
-        while w.preparing and time.monotonic()<deadline:app.processEvents();QTest.qWait(30)
-        if w.preparing or not sheet.exists():raise ValueError(picker.status.text())
+        while w.export_tasks.busy and time.monotonic()<deadline:app.processEvents();QTest.qWait(30)
+        if w.export_tasks.busy or not sheet.exists():raise ValueError(picker.status.text())
         meta=json.loads(sheet.with_suffix('.json').read_text('utf-8'))
         assert meta['source_indices']==indices and meta['seed']==data['params']['seed']
         manifest=w.animation_player.manifest;assets=json.loads(manifest.read_text('utf-8'))
@@ -62,9 +60,9 @@ def main():
         for index in (0,2):subset.grid.item(index).setCheckState(Qt.CheckState.Checked)
         with patch.object(QFileDialog,'getExistingDirectory',return_value=str(root)):subset.export('pngs')
         deadline=time.monotonic()+60
-        while w.preparing and time.monotonic()<deadline:app.processEvents();QTest.qWait(20)
-        if w.preparing:raise ValueError('PNG导出尚未完成。')
-        output=json.loads(w.animation_player.manifest.read_text('utf-8'))['output']
+        while w.export_tasks.busy and time.monotonic()<deadline:app.processEvents();QTest.qWait(20)
+        if w.export_tasks.busy:raise ValueError('PNG导出尚未完成。')
+        output=json.loads(subset.exported_manifest.read_text('utf-8'))['output']
         assert len(list(Path(output).glob('*.png')))==2
         subset.close();w.grab().save(str(root/'selected-assets.png'));w.close()
         report={'passed':True,'real_cached_animation':str(source),'new_gpu_inference':False,'selected_source_indices':indices,
