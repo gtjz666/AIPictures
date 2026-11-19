@@ -35,7 +35,7 @@ def main():
         picker=w.frame_selection_dialog;assert not picker.selected() and matte.call_count==0
         assert not w.export_tasks.busy and not list(source.glob('*.png'))
         assert np.array_equal(np.array(picker.source.image(1).convert('RGB')),images[1])
-        picker.seek(1);picker.pick_current();picker.grab().save(str(root/'frame-picker.png'))
+        picker.grid.item(1).setCheckState(Qt.CheckState.Checked);picker.grab().save(str(root/'frame-picker.png'))
         target=root/'sheet.png'
         with patch.object(QFileDialog,'getSaveFileName',return_value=(str(target),'PNG')):picker.export('sheet')
         wait(lambda:not w.export_tasks.busy)

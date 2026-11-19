@@ -5,6 +5,7 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 from PIL import Image
+from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QFileDialog
 from aipictures.app import Window,create_application
@@ -41,7 +42,7 @@ def main():
         source=root/'sequence';source.mkdir()
         sequence=source/'sequence.json';write_json(sequence,dict(status='completed',fps=8,frames=[dict(image=str(p)) for p in frames]))
         picker=FrameSelectionDialog(w,sequence);picker.show()
-        picker.seek(2);picker.pick_current();picker.seek(5);picker.pick_current()
+        for index in (2,5):picker.grid.item(index).setCheckState(Qt.CheckState.Checked)
         picker.transparent.setChecked(False)
         clip=root/'walk.zip'
         with patch.object(QFileDialog,'getSaveFileName',return_value=(str(clip),'ZIP')):

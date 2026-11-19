@@ -2,6 +2,7 @@
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
+from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QFileDialog
 from aipictures.app import Window,create_application
@@ -26,7 +27,8 @@ def main():
         player.split()
         picker=w.frame_selection_dialog
         assert picker.source.count==9 and not list(manifest.parent.rglob('*.png'))
-        picker.seek(8);picker.pick_current();picker.transparent.setChecked(False)
+        picker.grid.item(8).setCheckState(Qt.CheckState.Checked)
+        picker.transparent.setChecked(False)
         with patch.object(QFileDialog,'getExistingDirectory',return_value=str(root)):
             picker.export('pngs');wait_until(lambda:not w.export_tasks.busy)
         exported=list(root.glob('frames_*/*.png'))

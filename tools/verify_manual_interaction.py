@@ -36,7 +36,7 @@ def main():
         picker.transparent.setChecked(not a.opaque)
         assert picker.selected()==[]
         for index in indices:picker.grid.item(index).setCheckState(Qt.CheckState.Checked)
-        picker.seek(20);QTest.qWait(500);picker.grab().save(str(root/'manual-frame-selection.png'))
+        QTest.qWait(500);picker.focus_selected(picker.selected_strip.item(1));picker.grab().save(str(root/'manual-frame-selection.png'))
         sheet=root/'picked.png';started=time.monotonic()
         with patch.object(QFileDialog,'getSaveFileName',return_value=(str(sheet),'PNG')):picker.export('sheet')
         deadline=time.monotonic()+300

@@ -111,10 +111,32 @@ def main():
         picker=w.frame_selection_dialog;QTest.qWait(30)
         picker.copy_seed.click();assert app.clipboard().text()=='987654321'
         assert picker.selected()==[] and not picker.sheet_button.isEnabled()
-        picker.seek(4);assert '第 5 / 9 帧' in picker.frame_label.text();picker.pick_current()
+        assert not picker.play_selected.isEnabled() and picker.selected_strip.isHidden() and picker.index is None
+        picker.grid.item(4).setCheckState(Qt.CheckState.Checked)
+        assert not picker.timer.isActive() and '所选第 1 / 1 帧 · 原第 5 帧' in picker.frame_label.text()
         picker.grid.item(1).setCheckState(Qt.CheckState.Checked);picker.grid.item(8).setCheckState(Qt.CheckState.Checked)
         assert picker.selected()==[1,4,8]
-        picker.play(True);picker.timer.stop();picker.play_position=2;picker.advance();assert picker.index==1
+        assert [picker.selected_strip.item(i).data(Qt.ItemDataRole.UserRole) for i in range(3)]==[1,4,8]
+        assert picker.timer.isActive() and picker.index==8 and '暂停' in picker.play_selected.text()
+        picker.fps.setValue(10)
+        assert picker.timer.interval()==100
+        picker.advance();assert picker.index==1
+        picker.advance();assert picker.index==4 and '所选第 2 / 3 帧' in picker.frame_label.text()
+        picker.play_selected.click();assert not picker.timer.isActive()
+        picker.selected_strip.itemClicked.emit(picker.selected_strip.item(2))
+        assert picker.index==8 and '原第 9 帧' in picker.frame_label.text()
+        picker.play_selected.click();picker.advance();assert picker.index==1
+        picker.grid.item(1).setCheckState(Qt.CheckState.Unchecked)
+        assert picker.index==4 and picker.selected_strip.count()==2
+        picker.loop.setChecked(False)
+        picker.advance();assert picker.index==8
+        picker.advance();assert not picker.timer.isActive()
+        picker.check_all(False)
+        assert picker.index is None and picker.preview.pixmap().isNull()
+        assert picker.selected_strip.isHidden() and not picker.play_selected.isEnabled()
+        for index in (4,8):picker.grid.item(index).setCheckState(Qt.CheckState.Checked)
+        picker.grid.item(1).setCheckState(Qt.CheckState.Checked)
+        picker.loop.setChecked(True)
         picker.transparent.setChecked(False)
         sheet=root/'chosen.png'
         with patch.object(QFileDialog,'getSaveFileName',return_value=(str(sheet),'PNG')):picker.export('sheet')
