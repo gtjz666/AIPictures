@@ -45,7 +45,8 @@ def main():
         source=root/'sequence';source.mkdir()
         sequence=source/'sequence.json';write_json(sequence,dict(status='completed',fps=8,frames=[dict(image=str(p)) for p in frames]))
         picker=FrameSelectionDialog(w,sequence);picker.show()
-        for index in (2,5):picker.grid.item(index).setCheckState(Qt.CheckState.Checked)
+        assert not picker.png_button.isEnabled() and not picker.sheet_button.isEnabled()
+        for index in (5,2):picker.grid.item(index).setCheckState(Qt.CheckState.Checked)
         picker.transparent.setChecked(False)
         sheet=root/'walk.png'
         with patch.object(QFileDialog,'getSaveFileName',return_value=(str(sheet),'PNG')):
@@ -61,6 +62,22 @@ def main():
         with Image.open(sheet) as image:
             assert image.size==(32,24) and image.getpixel((16,0))==(100,70,90,255)
         assert sorted(p.name for p in root.glob('walk.*'))==['walk.json','walk.png']
+        existing=root/'frame_000.png'
+        existing.write_bytes(b'user-file')
+        with patch.object(QFileDialog,'getExistingDirectory',return_value=str(root)):
+            picker.png_button.click()
+            assert not picker.png_button.isEnabled() and not picker.sheet_button.isEnabled()
+            wait_until(lambda:not w.export_tasks.busy)
+        sequence_folder=picker.output_path
+        assert sequence_folder.parent==root.resolve() and existing.read_bytes()==b'user-file'
+        assert sorted(p.name for p in sequence_folder.iterdir())==['animation.json','frame_000.png','frame_001.png']
+        assert json.loads((sequence_folder/'animation.json').read_text('utf-8'))['source_indices']==[2,5]
+        with Image.open(sheet) as atlas:
+            for i,expected in enumerate((40,100)):
+                with Image.open(sequence_folder/f'frame_{i:03d}.png') as image:
+                    assert image.getpixel((0,0))==(expected,70,90,255)
+                    assert image.tobytes()==atlas.crop((i*16,0,(i+1)*16,24)).tobytes()
+        assert w.export_tasks.percent.text()=='100%' and picker.reveal.isEnabled()
         picker.close();QTest.qWait(40)
         application=root/'app';(application/'aipictures').mkdir(parents=True);(application/'aipictures/app.py').write_text('')
         python=application/'.venv/Scripts/python.exe';python.parent.mkdir(parents=True);python.write_bytes(b'installer-test-only')
@@ -68,8 +85,8 @@ def main():
         (addon/'plugin.gd').write_text('# user edit')
         install_addon(project,application)
         assert any(p.read_text('utf-8')=='# user edit' for p in (project/'.aipictures').glob('addon_backup_*/plugin.gd'))
-        if args.proof:write_json(args.proof/'acceptance.json',dict(actual_qt=True,frames_exported=True,four_direction_mapping=True,portable_sprite_sheet=True,percentage_rows=True,export_popup_without_bar=True,project_launch_context=True,plugin_backup=True,model_inference=False))
-    print('Qt Godot context / project component / sprite sheet / safe install: PASS')
+        if args.proof:write_json(args.proof/'acceptance.json',dict(actual_qt=True,frames_exported=True,four_direction_mapping=True,portable_sprite_sheet=True,numbered_png_sequence=True,percentage_rows=True,export_popup_without_bar=True,project_launch_context=True,plugin_backup=True,model_inference=False))
+    print('Qt Godot context / project component / PNG sequence / sprite sheet / safe install: PASS')
 
 
 if __name__=='__main__':main()

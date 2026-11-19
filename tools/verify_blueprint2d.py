@@ -59,7 +59,8 @@ def main():
     source.write_text(json.dumps(dict(status='completed',fps=8,frames=[dict(image=name) for name in ['frame2.png','frame10.png']])),'utf-8')
     sheet=proof/'movement.png'
     export_selection(source,[0,1],proof/'frame-cache',sheet,'sheet',8,2,False,False,threading.Event(),lambda *_:None)
-    assets.update(sheet={'scene':str(sheet)},frames={'scene':str(input_dir)})
+    sequence=export_selection(source,[1,0],proof/'png-cache',proof,'pngs',9,2,False,False,threading.Event(),lambda *_:None)
+    assets.update(sheet={'scene':str(sheet)},frames={'scene':str(input_dir)},png_sequence={'scene':sequence['output']})
     (fixture/'drop.json').write_text(json.dumps({key:value['scene'] for key,value in assets.items()}),'utf-8')
     editor=project/'addons/ali_2d_proof';editor.mkdir()
     shutil.copy2('tools/godot_blueprint2d_editor_probe.gd',editor/'plugin.gd')

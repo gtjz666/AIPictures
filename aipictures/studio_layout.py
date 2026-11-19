@@ -168,7 +168,7 @@ def build_studio(w):
     import_animation=QPushButton('导入动画…');import_animation.clicked.connect(lambda:w.video_controller.import_file());side.addWidget(import_animation)
     bone = QPushButton('骨骼研究…'); bone.clicked.connect(w.open_motion_editor); side.addWidget(bone);w.research_bones_button=bone;bone.hide()
     edit = QPushButton('高级工作流…'); edit.clicked.connect(lambda: w.tabs.setCurrentIndex(1)); side.addWidget(edit)
-    guide=QLabel('选择类型 → 添加素材\n描述需求 → 生成预览\n满意后另存图片或导出精灵图'); guide.setWordWrap(True)
+    guide=QLabel('选择类型 → 添加素材\n描述需求 → 生成预览\n满意后另存图片或选帧导出'); guide.setWordWrap(True)
     guide.setObjectName('muted')
     side.addStretch(); side.addWidget(guide)
     from .task_display import TaskDisplay

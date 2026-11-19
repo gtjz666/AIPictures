@@ -19,7 +19,7 @@ class AnimationPlayer(QWidget):
         self.physics=QCheckBox('游戏位移预览');self.physics.setToolTip('仅在预览中平移跳跃帧。导出 PNG 不烘焙轨迹，由游戏引擎控制角色移动。')
         self.physics.toggled.connect(lambda _:self.seek(self.index));layout.addWidget(self.physics);self.physics.hide()
         self.preview_loop=QCheckBox('循环');self.preview_loop.setChecked(True);layout.addWidget(self.preview_loop)
-        export = QPushButton('选帧与导出精灵图…'); export.clicked.connect(self.select_frames); layout.addWidget(export)
+        export = QPushButton('选帧与导出…'); export.clicked.connect(self.select_frames); layout.addWidget(export)
         self.timer = QTimer(self); self.timer.timeout.connect(self.advance)
 
     def load(self,path):

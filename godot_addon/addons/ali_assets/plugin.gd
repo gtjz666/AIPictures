@@ -93,6 +93,7 @@ func _enter_tree() -> void:
 	dock.add_child(refresh_timer)
 	add_control_to_dock(DOCK_SLOT_RIGHT_UL, dock)
 	scene_changed.connect(sync_scene)
+	scene_saved.connect(sync_saved_scene)
 	refresh_timer.start()
 	prepare_asset_folders()
 	refresh_assets.call_deferred()
@@ -178,6 +179,7 @@ func refresh_assets() -> void:
 
 func _exit_tree() -> void:
 	scene_changed.disconnect(sync_scene)
+	scene_saved.disconnect(sync_saved_scene)
 	if is_instance_valid(game_window):
 		game_window.queue_free()
 	if is_instance_valid(blueprint):
@@ -234,6 +236,11 @@ func open_game_window() -> void:
 
 func sync_initial_scene() -> void:
 	if is_inside_tree(): sync_scene(EditorInterface.get_edited_scene_root())
+
+
+func sync_saved_scene(_path: String) -> void:
+	if is_instance_valid(game_window):
+		game_window.call("bind_scene", EditorInterface.get_edited_scene_root())
 
 
 func sync_scene(root: Node) -> void:

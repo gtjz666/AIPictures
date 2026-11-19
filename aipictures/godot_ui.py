@@ -154,7 +154,7 @@ class GodotController:
         try:self.project=project_root(json.loads((window.api_controller.data/'godot-project.json').read_text('utf-8'))['project'])
         except (OSError,ValueError,KeyError):pass
         menu=window.menuBar().addMenu('Godot');menu.addAction('连接项目／安装插件…',self.install)
-        menu.addAction('选帧与导出精灵图…',self.animation);menu.addAction('导出当前音频组件…',self.audio)
+        menu.addAction('选帧与导出…',self.animation);menu.addAction('导出当前音频组件…',self.audio)
 
     def connect_project(self,path):
         self.project=project_root(path);write_json(self.window.api_controller.data/'godot-project.json',dict(project=str(self.project)))

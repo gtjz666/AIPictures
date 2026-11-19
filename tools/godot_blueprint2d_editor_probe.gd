@@ -234,6 +234,14 @@ func test_scene_canvas(ali: Node, window: Window) -> void:
 	var generic: Dictionary = TrackIO.read(PackedStringArray([inputs["frames"]]))
 	assert(not generic.has("error"),str(generic.get("error","")))
 	assert(generic["frames"].get_frame_texture(generic["clip"],0).get_image().get_pixel(0,0).r > 0.5)
+	var png_sequence: Dictionary = TrackIO.read(PackedStringArray([inputs["png_sequence"]]))
+	assert(not png_sequence.has("error"),str(png_sequence.get("error","")))
+	var numbered_frames: SpriteFrames = png_sequence["frames"]
+	var numbered_clip: String = png_sequence["clip"]
+	assert(numbered_frames.get_frame_count(numbered_clip) == 2)
+	assert(numbered_frames.get_animation_speed(numbered_clip) == 9 and not numbered_frames.get_animation_loop(numbered_clip))
+	assert(numbered_frames.get_frame_texture(numbered_clip,0).get_image().get_pixel(0,0).a < 0.6)
+	assert(numbered_frames.get_frame_texture(numbered_clip,1).get_image().get_pixel(0,0).g > 0.6)
 	window.call("import_track","movement",PackedStringArray([inputs["sheet"]]))
 	var track: VBoxContainer = window.get("frame_track")
 	assert(track.visible and track.get("fps").value == 8)
@@ -295,6 +303,7 @@ func test_scene_canvas(ali: Node, window: Window) -> void:
 	call_module["params"]["path"] = Library.GLOBAL_FUNCTIONS.path_join("GlobalWalk.json")
 	assert(not Library.compile(outside).has("error"))
 	search.text = ""
+	await test_scene_switching(window)
 	window.call("bind_scene",null)
 
 
@@ -344,3 +353,47 @@ func test_canvas_layout(window: Window) -> void:
 	window.get("history").call("undo")
 	assert(window.get("data")["nodes"].is_empty())
 	window.size = original_size
+
+
+func test_scene_switching(window: Window) -> void:
+	var scene_menu: MenuButton = window.get("scene_menu")
+	var popup: PopupMenu = scene_menu.get_popup()
+	window.call("add_module", "number")
+	var draft_id: String = window.get("selected_id")
+	assert("SceneTwo" in scene_menu.text)
+	scene_menu.show_popup()
+	await get_tree().process_frame
+	assert(popup.visible)
+	var first: int = -1
+	var second: int = -1
+	for index: int in range(popup.item_count):
+		match popup.get_item_metadata(index):
+			"res://SceneOne.tscn": first = index
+			"res://SceneTwo.tscn": second = index
+	assert(first >= 0 and second >= 0 and popup.is_item_checked(second))
+	popup.hide()
+	popup.index_pressed.emit(first)
+	await get_tree().create_timer(0.3).timeout
+	assert(EditorInterface.get_edited_scene_root().scene_file_path == "res://SceneOne.tscn")
+	assert("SceneOne" in scene_menu.text and not Model.find(window.get("data"),"movement").is_empty())
+	assert(Model.find(window.get("data"),draft_id).is_empty())
+	popup.index_pressed.emit(second)
+	await get_tree().create_timer(0.3).timeout
+	assert("SceneTwo" in scene_menu.text and Model.find(window.get("data"),draft_id)["kind"] == "number")
+	assert(Model.find(window.get("data"),"movement").is_empty())
+	scene_menu.show_popup()
+	await get_tree().process_frame
+	var open_item: int = popup.item_count - 1
+	assert(popup.get_item_text(open_item) == "打开其他场景…")
+	popup.hide()
+	popup.index_pressed.emit(open_item)
+	var picker: FileDialog = window.get("chooser")
+	assert(window.get("operation") == "open_scene" and picker.file_mode == FileDialog.FILE_MODE_OPEN_FILE)
+	var Builder: GDScript = preload("res://addons/ali_assets/game_builder.gd")
+	var other: String = "res://SceneThree.tscn"
+	assert(Builder.create_canvas(other).is_empty() and other not in EditorInterface.get_open_scenes())
+	picker.hide()
+	picker.file_selected.emit(other)
+	await get_tree().create_timer(0.3).timeout
+	assert(EditorInterface.get_edited_scene_root().scene_file_path == other)
+	assert("SceneThree" in scene_menu.text and window.get("data")["nodes"].is_empty())

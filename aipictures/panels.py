@@ -37,7 +37,7 @@ class AssetsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle('素材与生成记录'); self.resize(820, 600)
         layout = QVBoxLayout(self)
-        hint=QLabel('生成结果先放入本地缓存。需要长期保留时点“另存为”或“导出精灵图”，自行选择保存地址。')
+        hint=QLabel('生成结果先放入本地缓存。需要长期保留时使用“另存为”或“选帧与导出”，自行选择保存地址。')
         hint.setWordWrap(True); layout.addWidget(hint)
         tabs = QTabWidget(); self.tabs=tabs; layout.addWidget(tabs, 1)
         self.cache_buttons=[]

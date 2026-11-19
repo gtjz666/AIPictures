@@ -99,6 +99,7 @@ def export_selection(manifest: Path,indices: list[int],folder: Path,target: Path
     save()
     try:
         size=None
+        number_width=max(3,len(str(len(indices)-1)))
         for position,index in enumerate(indices):
             check()
             original=source.metadata(index)
@@ -116,8 +117,9 @@ def export_selection(manifest: Path,indices: list[int],folder: Path,target: Path
             if seed is not None:pnginfo.add_text('Seed',str(seed))
             pnginfo.add_text('SourceFrame',str(original.get('source_frame',index)+1))
             pnginfo.add_text('SelectionFrame',str(index+1))
-            image.save(folder/f'frame_{position:03d}.png',pnginfo=pnginfo)
-            record['frames'].append({'index':position,'image':f'frame_{position:03d}.png','stage':'用户选取',
+            filename=f'frame_{position:0{number_width}d}.png'
+            image.save(folder/filename,pnginfo=pnginfo)
+            record['frames'].append({'index':position,'image':filename,'stage':'用户选取',
                 'source_index':index,'source_frame':original.get('source_frame',index),
                 'source_time':original.get('source_time',index/float(data['fps']))})
             emit('selection_progress',{'value':position+1,'max':len(indices)});save()
@@ -127,7 +129,7 @@ def export_selection(manifest: Path,indices: list[int],folder: Path,target: Path
         canvas=(columns*size[0],rows*size[1])
         # PNG sequences can be arbitrarily long; only a huge assembled preview is omitted.
         make_sheet=canvas[0]*canvas[1]<=64_000_000 and max(canvas)<=32768
-        if kind=='sheet' and not make_sheet:raise ValueError('精灵图过大，请减少所选帧数或分成多张精灵图。')
+        if kind=='sheet' and not make_sheet:raise ValueError('精灵图过大，请减少所选帧数或导出 PNG 序列。')
         rects=[]
         for i,frame in enumerate(record['frames']):
             rects.append(dict(frame,rect={'x':i%columns*size[0],'y':i//columns*size[1],'w':size[0],'h':size[1]}))

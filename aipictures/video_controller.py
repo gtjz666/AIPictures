@@ -312,7 +312,7 @@ class VideoController:
                     try:self.player.load(data['manifest'])
                     except (OSError,ValueError,KeyError) as exc:w.add_chat('软件','动画已生成，但预览读取失败：'+str(exc),job=str(folder))
                     w.load_gallery()
-                    w.add_chat('软件','完整预览已就绪。素材可通过「选帧与导出精灵图…」保存。',job=str(folder))
+                    w.add_chat('软件','完整预览已就绪。素材可通过「选帧与导出…」保存。',job=str(folder))
                 else:
                     w.add_chat('软件','完整动画'+('已取消：' if kind=='cancelled' else '失败：')+str(data),job=str(folder))
                     w.load_gallery()

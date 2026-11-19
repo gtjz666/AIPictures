@@ -30,7 +30,7 @@ var sidebar: PanelContainer
 var inspector_scroll: ScrollContainer
 var inspector: VBoxContainer
 var message: Label
-var target_label: Label
+var scene_menu: MenuButton
 var target: Node
 var selected_id: String = ""
 var scene_key: String = ""
@@ -109,11 +109,19 @@ func _ready() -> void:
 		apply_button.disabled = true
 	var options: HBoxContainer = HBoxContainer.new()
 	root.add_child(options)
-	target_label = Label.new()
-	target_label.text = "尚未打开场景"
-	target_label.custom_minimum_size.x = 160
-	target_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	options.add_child(target_label)
+	if function_mode:
+		var context: Label = Label.new()
+		context.text = "场景  " + str(target.name) if is_instance_valid(target) else "函数"
+		options.add_child(context)
+	else:
+		scene_menu = MenuButton.new()
+		scene_menu.custom_minimum_size.x = 210
+		scene_menu.clip_text = true
+		options.add_child(scene_menu)
+		update_scene_caption()
+		var popup: PopupMenu = scene_menu.get_popup()
+		scene_menu.about_to_popup.connect(refresh_scene_menu)
+		popup.index_pressed.connect(select_scene)
 	empty_hint = Label.new()
 	empty_hint.text = "右键画布或点「添加模块」开始。"
 	options.add_child(empty_hint)
@@ -799,12 +807,59 @@ func bind_selection() -> void:
 	bind_scene(root)
 
 
+func update_scene_caption() -> void:
+	if not is_instance_valid(target):
+		scene_menu.text = "场景  ·  未打开  ▾"
+		scene_menu.tooltip_text = "切换场景"
+		return
+	var path: String = target.scene_file_path
+	scene_menu.text = "场景  ·  " + (str(target.name) + "（未保存）" if path.is_empty() else path.get_file().get_basename()) + "  ▾"
+	scene_menu.tooltip_text = "切换场景" if path.is_empty() else path
+
+
+func refresh_scene_menu() -> void:
+	var menu: PopupMenu = scene_menu.get_popup()
+	menu.clear()
+	var current_path: String = target.scene_file_path if is_instance_valid(target) else ""
+	for path: String in EditorInterface.get_open_scenes():
+		if path.is_empty(): continue
+		var index: int = menu.item_count
+		menu.add_radio_check_item(path.trim_prefix("res://"))
+		menu.set_item_metadata(index, path)
+		menu.set_item_checked(index, path == current_path)
+	if menu.item_count > 0: menu.add_separator()
+	menu.add_item("打开其他场景…")
+
+
+func select_scene(index: int) -> void:
+	var path: Variant = scene_menu.get_popup().get_item_metadata(index)
+	if path is String:
+		open_blueprint_scene(path)
+	else:
+		choose("open_scene")
+
+
+func open_blueprint_scene(path: String) -> void:
+	if not path.begins_with("res://") or not path.get_extension().to_lower() in ["tscn", "scn"] or not ResourceLoader.exists(path, "PackedScene"):
+		message.text = "找不到该场景，请选择当前项目中的 Godot 场景文件。"
+		return
+	if not is_instance_valid(target) or target.scene_file_path != path:
+		EditorInterface.open_scene_from_path(path)
+
+
 func bind_scene(root: Node) -> void:
-	if function_mode or (target == root and (is_instance_valid(root) or scene_key.is_empty())): return
+	if function_mode: return
+	var next_key: String = root.scene_file_path if is_instance_valid(root) else ""
+	if is_instance_valid(root) and next_key.is_empty(): next_key = "instance:%d" % root.get_instance_id()
+	if target == root and scene_key == next_key: return
+	if is_instance_valid(root) and target == root:
+		scene_drafts.erase(scene_key)
+		scene_key = next_key
+		update_scene_caption()
+		return
 	if dirty and not scene_key.is_empty(): scene_drafts[scene_key] = data.duplicate(true)
 	target = root
-	scene_key = root.scene_file_path if is_instance_valid(root) else ""
-	if is_instance_valid(root) and scene_key.is_empty(): scene_key = "instance:%d" % root.get_instance_id()
+	scene_key = next_key
 	history.clear_history()
 	selected_id = ""
 	close_palette()
@@ -813,16 +868,13 @@ func bind_scene(root: Node) -> void:
 	var stored: Dictionary = runtime.get("game_blueprint") if is_instance_valid(runtime) else Model.empty_scene(scene_key)
 	if scene_drafts.has(scene_key): stored = scene_drafts[scene_key]
 	var problem: String = Model.validate(stored)
-	if not problem.is_empty():
-		message.text = problem
-		return
-	data = Link.normalize(stored)
+	data = Link.normalize(stored) if problem.is_empty() else Model.empty_scene(scene_key)
 	if is_instance_valid(root) and str(data.get("scope","")).is_empty(): data["scope"] = scene_key.sha256_text().left(24)
-	dirty = scene_drafts.has(scene_key)
-	target_label.text = "场景  " + str(root.name) if is_instance_valid(root) else "尚未打开场景"
-	target_label.tooltip_text = target_label.text
-	if apply_button != null: apply_button.disabled = not is_instance_valid(root)
+	dirty = problem.is_empty() and scene_drafts.has(scene_key)
+	update_scene_caption()
+	apply_button.disabled = not is_instance_valid(root) or not problem.is_empty()
 	render()
+	message.text = problem
 
 
 func apply_game() -> void:
@@ -857,11 +909,16 @@ func apply_game() -> void:
 
 func choose(kind: String) -> void:
 	operation = kind
-	var scene_file: bool = kind == "new_canvas"
+	chooser.title = "选择文件"
+	var scene_file: bool = kind in ["new_canvas", "open_scene"]
 	var scoped_function: bool = kind in ["local_function","global_function"]
-	chooser.file_mode = FileDialog.FILE_MODE_SAVE_FILE if scene_file or scoped_function or kind in ["save","new_script"] else FileDialog.FILE_MODE_OPEN_FILE
+	chooser.file_mode = FileDialog.FILE_MODE_SAVE_FILE if kind == "new_canvas" or scoped_function or kind in ["save","new_script"] else FileDialog.FILE_MODE_OPEN_FILE
 	chooser.filters = PackedStringArray(["*.tscn ; Godot 场景"]) if scene_file else PackedStringArray(["*.json ; 蓝图／函数"]) if scoped_function or kind in ["save","load"] else PackedStringArray(["*.gd ; 自定义脚本"])
-	if scene_file: chooser.current_file = "new_scene.tscn"
+	if kind == "new_canvas": chooser.current_file = "new_scene.tscn"
+	elif kind == "open_scene":
+		chooser.title = "打开场景"
+		chooser.filters = PackedStringArray(["*.tscn, *.scn ; Godot 场景"])
+		chooser.current_file = ""
 	elif scoped_function:
 		var folder: String = function_folder(kind == "global_function")
 		if folder.is_empty() or DirAccess.make_dir_recursive_absolute(folder) != OK:
@@ -878,7 +935,9 @@ func file_selected(path: String) -> void:
 	if not path.begins_with("res://") or ".." in path:
 		message.text = "请选择当前项目内位置。"
 		return
-	if operation == "new_canvas":
+	if operation == "open_scene":
+		open_blueprint_scene(path)
+	elif operation == "new_canvas":
 		var problem: String = Builder.create_canvas(path)
 		if not problem.is_empty():
 			message.text = problem

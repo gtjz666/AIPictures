@@ -72,8 +72,11 @@ class FrameSelectionDialog(QDialog):
         self.loop=QCheckBox('循环播放');self.loop.setChecked(True);options.addWidget(self.loop);options.addStretch();layout.addLayout(options)
         self.status=QLabel('透明背景在导出时处理。')
         self.status.setWordWrap(True);layout.addWidget(self.status)
-        buttons=QHBoxLayout();self.sheet_button=QPushButton('导出精灵图…')
-        self.sheet_button.clicked.connect(self.export);buttons.addWidget(self.sheet_button)
+        buttons=QHBoxLayout()
+        self.png_button=QPushButton('导出 PNG 序列…')
+        self.png_button.clicked.connect(lambda:self.export('pngs'));buttons.addWidget(self.png_button)
+        self.sheet_button=QPushButton('导出精灵图…')
+        self.sheet_button.clicked.connect(lambda:self.export('sheet'));buttons.addWidget(self.sheet_button)
         self.output_path=None
         self.reveal=QPushButton('打开导出位置');self.reveal.setEnabled(False);self.reveal.clicked.connect(self.reveal_export);buttons.addWidget(self.reveal)
         close=QPushButton('关闭');close.clicked.connect(self.close);buttons.addWidget(close);layout.addLayout(buttons)
@@ -165,7 +168,8 @@ class FrameSelectionDialog(QDialog):
         self.selected_strip.setVisible(bool(count))
         self.summary.setText(f'所选帧 {count} / {self.source.count}' if count else '勾选要预览和导出的帧')
         self.play_selected.setEnabled(count>1)
-        self.sheet_button.setEnabled(bool(count) and not self.busy)
+        for button in (self.png_button,self.sheet_button):
+            button.setEnabled(bool(count) and not self.busy)
 
     def reveal_export(self):
         if self.output_path:
@@ -207,14 +211,19 @@ class FrameSelectionDialog(QDialog):
             return
         self.show_selected((self.play_position+1)%len(self.playback))
 
-    def export(self):
+    def export(self,kind='sheet'):
         w=self.window
         if w.export_tasks.busy or w.cache_busy:self.status.setText('已有导出或缓存清理正在进行。');return
         indices=self.selected()
         if not indices:self.status.setText('请先选取至少一帧。');return
-        path,_=QFileDialog.getSaveFileName(self,'保存精灵图与切片说明','sprite_sheet.png','PNG (*.png)')
+        if kind=='pngs':
+            title='导出 PNG 序列'
+            path=QFileDialog.getExistingDirectory(self,'选择 PNG 序列保存位置（将创建新文件夹）')
+        else:
+            title='导出精灵图'
+            path,_=QFileDialog.getSaveFileName(self,'保存精灵图与切片说明','sprite_sheet.png','PNG (*.png)')
+            if path:path=str(Path(path).with_suffix('.png'))
         if not path:return
-        path=str(Path(path).with_suffix('.png'))
         try:
             target=w.cache_store.validate_export(path)
         except (OSError,ValueError) as exc:self.status.setText(str(exc));return
@@ -232,8 +241,8 @@ class FrameSelectionDialog(QDialog):
                 self.exported_manifest=Path(data['manifest'])
                 self.output_path=Path(data['output'])
                 self.prepared_key=key
-                self.prepared={index:self.exported_manifest.parent/f'frame_{position:03d}.png' for position,index in enumerate(indices)}
-                w.cache_store.record_save(data['output'],'sheet',data['manifest']);w.load_gallery()
+                self.prepared={row['source_index']:self.exported_manifest.parent/row['image'] for row in data['metadata']['frames']}
+                w.cache_store.record_save(data['output'],kind,data['manifest']);w.load_gallery()
                 if (visible and not w.current and previous_preview==manifest
                     and w.video_controller.player.manifest==manifest and w.preview_role=='video'):
                     w.animation_player.load(data['manifest'])
@@ -242,8 +251,8 @@ class FrameSelectionDialog(QDialog):
             if visible:
                 self.reveal.setEnabled(self.output_path is not None)
                 self.status.setText(message);self.selection_changed()
-        accepted=w.export_tasks.submit('导出精灵图', [manifest,self.source_manifest,self.source.native,folder,*self.source.paths,*self.source.processed,*prepared.values()],
-            lambda cancel,emit:export_selection(manifest,indices,folder,target,'sheet',fps,columns,matte,loop,cancel,emit,prepared=prepared),
+        accepted=w.export_tasks.submit(title, [manifest,self.source_manifest,self.source.native,folder,*self.source.paths,*self.source.processed,*prepared.values()],
+            lambda cancel,emit:export_selection(manifest,indices,folder,target,kind,fps,columns,matte,loop,cancel,emit,prepared=prepared),
             done,popup=True)
         if accepted:self.status.setText(f'正在导出所选 {len(indices)} 帧…')
         else:
