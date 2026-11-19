@@ -26,6 +26,8 @@ var graph: GraphEdit
 var frame_track: VBoxContainer
 var runner_action: OptionButton
 var empty_hint: Label
+var sidebar: PanelContainer
+var inspector_scroll: ScrollContainer
 var inspector: VBoxContainer
 var message: Label
 var target_label: Label
@@ -46,7 +48,7 @@ var operation: String = ""
 var pending_field: String = ""
 var capture_field: String = ""
 var dirty: bool = false
-var palette: Window
+var palette: VBoxContainer
 var search: LineEdit
 var results: ItemList
 var palette_source: String = ""
@@ -80,9 +82,14 @@ func _ready() -> void:
 	close_requested.connect(hide)
 	window_input.connect(on_input)
 	files_dropped.connect(on_files_dropped)
+	var margins: MarginContainer = MarginContainer.new()
+	add_child(margins)
+	margins.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	for side: String in ["left", "top", "right", "bottom"]:
+		margins.add_theme_constant_override("margin_" + side, 10)
 	var root: VBoxContainer = VBoxContainer.new()
-	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(root)
+	root.add_theme_constant_override("separation", 8)
+	margins.add_child(root)
 	var toolbar: HBoxContainer = HBoxContainer.new()
 	root.add_child(toolbar)
 	if not function_mode: button(toolbar, "新建基础场景…",func() -> void: choose("new_canvas"))
@@ -104,8 +111,16 @@ func _ready() -> void:
 	root.add_child(options)
 	target_label = Label.new()
 	target_label.text = "尚未打开场景"
-	target_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	options.add_child(target_label,1)
+	target_label.custom_minimum_size.x = 160
+	target_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	options.add_child(target_label)
+	empty_hint = Label.new()
+	empty_hint.text = "右键画布或点「添加模块」开始。"
+	options.add_child(empty_hint)
+	message = Label.new()
+	message.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	options.add_child(message)
 	navigator = OptionButton.new()
 	navigator.custom_minimum_size.x = 210
 	navigator.tooltip_text = "快速选择并定位模块"
@@ -118,10 +133,6 @@ func _ready() -> void:
 			if child is GraphNode:
 				(child as GraphNode).selected = str(child.name) == selected_id)
 	options.add_child(navigator)
-	empty_hint = Label.new()
-	empty_hint.text = "右键画布或点击「添加模块」开始。若动画要播放，请把事件的执行线连到播放端口。"
-	empty_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(empty_hint)
 	var split: HSplitContainer = HSplitContainer.new()
 	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(split)
@@ -141,15 +152,25 @@ func _ready() -> void:
 			if widget is GraphNode: Model.find(move_draft,str(widget.name))["position"] = [widget.position_offset.x,widget.position_offset.y]
 		if move_draft != data: change("移动所选模块",move_draft)
 		move_draft = {})
+	graph.node_deselected.connect(func(node: Node) -> void:
+		if str(node.name) == selected_id:
+			clear_deselected_module.call_deferred(selected_id))
 	graph.popup_request.connect(func(at: Vector2) -> void: open_palette("", 0, at))
 	graph.connection_to_empty.connect(func(source: StringName, port: int, at: Vector2) -> void: open_palette(str(source), port, at))
 	split.add_child(graph)
-	var scroll: ScrollContainer = ScrollContainer.new()
-	scroll.custom_minimum_size.x = 320
+	sidebar = PanelContainer.new()
+	sidebar.custom_minimum_size.x = 320
+	sidebar.hide()
+	split.add_child(sidebar)
+	var sidebar_content: VBoxContainer = VBoxContainer.new()
+	sidebar.add_child(sidebar_content)
+	inspector_scroll = ScrollContainer.new()
+	inspector_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sidebar_content.add_child(inspector_scroll)
 	inspector = VBoxContainer.new()
 	inspector.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(inspector)
-	split.add_child(scroll)
+	inspector_scroll.add_child(inspector)
+	setup_palette(sidebar_content)
 	runner_action = OptionButton.new()
 	for value: String in ["跑步／走路","跳跃","死亡"]: runner_action.add_item(value)
 	runner_action.item_selected.connect(func(_index: int) -> void: show_inspector())
@@ -159,15 +180,11 @@ func _ready() -> void:
 	frame_track.hide()
 	root.add_child(frame_track)
 	frame_track.connect("clip_saved", track_saved)
-	message = Label.new()
-	message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	root.add_child(message)
 	chooser = FileDialog.new()
 	chooser.access = FileDialog.ACCESS_RESOURCES
 	chooser.force_native = true
 	chooser.file_selected.connect(file_selected)
 	add_child(chooser)
-	setup_palette()
 	if Engine.is_editor_hint(): favorites = EditorInterface.get_editor_settings().get_project_metadata("ali_assets","favorites",[])
 	debug_timer = Timer.new()
 	debug_timer.wait_time = 0.5
@@ -258,6 +275,7 @@ func render(refresh: bool = true) -> void:
 		style.set_content_margin_all(8)
 		widget.add_theme_stylebox_override("titlebar", style)
 		graph.add_child(widget)
+		widget.selected = id == selected_id
 		widget.set_drag_forwarding(Callable(),
 			func(_point: Vector2, payload: Variant) -> bool: return TrackIO.acceptable(TrackIO.from_payload(payload)) if kind in ["animation","runner"] else compatible_fields(id, Drop.from_drag(payload)).size() == 1,
 			func(_point: Vector2, payload: Variant) -> void:
@@ -291,8 +309,33 @@ func render(refresh: bool = true) -> void:
 			(widget.get_child(0).get_child(0) as Label).text = "选择此模块配置参数"
 	for edge: Dictionary in data["edges"]:
 		graph.connect_node(str(edge["from"]), int(edge.get("from_port", 0)), str(edge["to"]), int(edge.get("to_port", 0)))
+	if palette.visible:
+		if not palette_source.is_empty() and Model.find(data, palette_source).is_empty():
+			close_palette()
+		else:
+			filter_palette()
 	if refresh:
 		show_inspector()
+
+
+func clear_deselected_module(id: String) -> void:
+	if selected_id != id or not graph.is_inside_tree():
+		return
+	var widget: GraphNode = graph.get_node_or_null(NodePath(id)) as GraphNode
+	if widget != null and widget.selected:
+		return
+	selected_id = ""
+	for child: Node in graph.get_children():
+		if child is GraphNode and child.selected:
+			selected_id = str(child.name)
+			break
+	navigator.select(data["nodes"].find(Model.find(data, selected_id)))
+	show_inspector()
+
+
+func update_sidebar(has_selection: bool) -> void:
+	inspector_scroll.visible = has_selection and not palette.visible
+	sidebar.visible = has_selection or palette.visible
 
 
 func show_inspector() -> void:
@@ -300,6 +343,7 @@ func show_inspector() -> void:
 		inspector.remove_child(child)
 		child.queue_free()
 	var node: Dictionary = Model.find(data, selected_id)
+	update_sidebar(not node.is_empty())
 	var runner: bool = node.get("kind") == "runner"
 	var display_track: bool = node.get("kind") == "animation" or runner
 	frame_track.visible = display_track
@@ -708,7 +752,10 @@ func on_input(event: InputEvent) -> void:
 				parameter(capture_field, event.physical_keycode if event.physical_keycode != 0 else event.keycode)
 			capture_field = ""
 			get_viewport().set_input_as_handled()
-		elif event.ctrl_pressed and event.keycode == KEY_Z:
+		elif palette.visible and event.keycode == KEY_ESCAPE:
+			close_palette()
+			get_viewport().set_input_as_handled()
+		elif event.ctrl_pressed and event.keycode == KEY_Z and not search.has_focus():
 			history.redo() if event.shift_pressed else history.undo()
 			get_viewport().set_input_as_handled()
 
@@ -760,6 +807,8 @@ func bind_scene(root: Node) -> void:
 	if is_instance_valid(root) and scene_key.is_empty(): scene_key = "instance:%d" % root.get_instance_id()
 	history.clear_history()
 	selected_id = ""
+	close_palette()
+	message.text = ""
 	var runtime: Node = Builder.scene_runtime(root)
 	var stored: Dictionary = runtime.get("game_blueprint") if is_instance_valid(runtime) else Model.empty_scene(scene_key)
 	if scene_drafts.has(scene_key): stored = scene_drafts[scene_key]
@@ -771,6 +820,7 @@ func bind_scene(root: Node) -> void:
 	if is_instance_valid(root) and str(data.get("scope","")).is_empty(): data["scope"] = scene_key.sha256_text().left(24)
 	dirty = scene_drafts.has(scene_key)
 	target_label.text = "场景  " + str(root.name) if is_instance_valid(root) else "尚未打开场景"
+	target_label.tooltip_text = target_label.text
 	if apply_button != null: apply_button.disabled = not is_instance_valid(root)
 	render()
 
@@ -882,35 +932,37 @@ func file_selected(path: String) -> void:
 		parameter(pending_field, path)
 
 
-func setup_palette() -> void:
-	palette = Window.new()
-	palette.visible = false
-	palette.force_native = true
-	palette.title = "搜索模块 · 可输入名称或类别"
-	palette.close_requested.connect(palette.hide)
-	var box: VBoxContainer = VBoxContainer.new()
-	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	palette.add_child(box)
+func setup_palette(parent: VBoxContainer) -> void:
+	palette = VBoxContainer.new()
+	palette.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	palette.hide()
+	parent.add_child(palette)
+	var header: HBoxContainer = HBoxContainer.new()
+	palette.add_child(header)
+	var heading: Label = Label.new()
+	heading.text = "添加模块"
+	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(heading)
+	button(header, "关闭", close_palette).tooltip_text = "关闭搜索（Esc）"
 	search = LineEdit.new()
-	search.placeholder_text = "例如：状态、生命、事件、场景、变量"
+	search.placeholder_text = "输入模块名称或类别"
 	search.text_changed.connect(func(_text: String) -> void: filter_palette())
 	search.text_submitted.connect(func(_text: String) -> void:
 		if results.item_count > 0:
 			add_palette_item(0))
-	box.add_child(search)
+	palette.add_child(search)
 	results = ItemList.new()
 	results.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	results.item_activated.connect(add_palette_item)
-	box.add_child(results)
+	palette.add_child(results)
 	var only: CheckBox = CheckBox.new()
 	only.text = "只显示收藏模块"
 	only.toggled.connect(func(value: bool) -> void: favorites_only = value; filter_palette())
-	box.add_child(only)
-	button(box, "添加所选模块", func() -> void:
+	palette.add_child(only)
+	button(palette, "添加所选模块", func() -> void:
 		var selected: PackedInt32Array = results.get_selected_items()
 		if not selected.is_empty():
 			add_palette_item(selected[0]))
-	add_child(palette)
 
 
 func open_palette(source: String = "", port: int = 0, at: Vector2 = Vector2.ZERO) -> void:
@@ -919,8 +971,17 @@ func open_palette(source: String = "", port: int = 0, at: Vector2 = Vector2.ZERO
 	palette_position = (graph.scroll_offset + (at if at != Vector2.ZERO else Vector2(120, 120))) / graph.zoom
 	search.text = ""
 	filter_palette()
-	palette.popup_centered(Vector2i(540, 580))
+	palette.show()
+	update_sidebar(not Model.find(data, selected_id).is_empty())
 	search.grab_focus()
+
+
+func close_palette() -> void:
+	var was_open: bool = palette.visible
+	palette_source = ""
+	palette.hide()
+	update_sidebar(not Model.find(data, selected_id).is_empty())
+	if was_open: graph.grab_focus()
 
 
 func filter_palette() -> void:
@@ -980,10 +1041,12 @@ func add_palette_item(index: int) -> void:
 			if Model.port_type({"nodes":[node]}, id, port, false) == Model.port_type(data, palette_source, palette_port, true):
 				next["edges"].append({"from": palette_source, "from_port": palette_port, "to": id, "to_port": port})
 				break
-	if change("添加并连接模块", next):
+	if change("添加模块" if palette_source.is_empty() else "添加并连接模块", next):
+		var widget: GraphNode = graph.get_node_or_null(NodePath(id)) as GraphNode
+		if widget != null: widget.selected = true
 		selected_id = id
+		close_palette()
 		show_inspector()
-		palette.hide()
 
 
 func check_graph() -> void:

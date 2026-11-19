@@ -217,6 +217,7 @@ func test_scene_canvas(ali: Node, window: Window) -> void:
 	var runtime: Node = Builder.scene_runtime(root)
 	assert(runtime != null and runtime.get("game_blueprint")["nodes"].is_empty())
 	assert(window.get("data")["nodes"].is_empty() and window.get("data")["edges"].is_empty())
+	await test_canvas_layout(window)
 	var actor: Node2D = Node2D.new()
 	actor.name = "Object"
 	root.add_child(actor)
@@ -295,3 +296,51 @@ func test_scene_canvas(ali: Node, window: Window) -> void:
 	assert(not Library.compile(outside).has("error"))
 	search.text = ""
 	window.call("bind_scene",null)
+
+
+func test_canvas_layout(window: Window) -> void:
+	var graph: GraphEdit = window.get("graph")
+	var original_size: Vector2i = window.size
+	for viewport_size: Vector2i in [Vector2i(1100,700),Vector2i(1580,930)]:
+		window.size = viewport_size
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var rect: Rect2 = graph.get_global_rect()
+		assert(absf(rect.end.x - (window.size.x - 10)) <= 1.0, str(rect))
+		assert(absf(rect.end.y - (window.size.y - 10)) <= 1.0, str(rect))
+	var sidebar: PanelContainer = window.get("sidebar")
+	var palette: VBoxContainer = window.get("palette")
+	var search: LineEdit = window.get("search")
+	var inspector_scroll: ScrollContainer = window.get("inspector_scroll")
+	var results: ItemList = window.get("results")
+	assert(not sidebar.visible and not inspector_scroll.visible)
+	window.call("open_palette")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	assert(palette.is_visible_in_tree() and palette.get_window() == window and search.has_focus())
+	assert(sidebar.get_global_rect().position.x >= graph.get_global_rect().end.x)
+	assert(not inspector_scroll.visible and graph.size.x < window.size.x - 20)
+	search.text = "数字常量"
+	window.call("filter_palette")
+	assert(results.item_count == 1 and results.get_item_metadata(0) == "number")
+	search.text_submitted.emit(search.text)
+	await get_tree().process_frame
+	assert(not palette.visible and inspector_scroll.is_visible_in_tree())
+	var module_id: String = window.get("selected_id")
+	var widget: GraphNode = graph.get_node(NodePath(module_id))
+	assert(widget.selected and Model.find(window.get("data"),module_id)["kind"] == "number")
+	window.call("open_palette", module_id, 0, Vector2(310,160))
+	assert(palette.visible and not inspector_scroll.visible)
+	var esc: InputEventKey = InputEventKey.new()
+	esc.keycode = KEY_ESCAPE
+	esc.pressed = true
+	window.call("on_input", esc)
+	assert(not palette.visible and inspector_scroll.visible)
+	widget.selected = false
+	graph.node_deselected.emit(widget)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	assert(not sidebar.visible and is_equal_approx(graph.size.x, window.size.x - 20.0))
+	window.get("history").call("undo")
+	assert(window.get("data")["nodes"].is_empty())
+	window.size = original_size
