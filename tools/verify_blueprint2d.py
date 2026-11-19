@@ -66,9 +66,12 @@ def main():
     (editor/'plugin.cfg').write_text('[plugin]\nname="2D acceptance"\ndescription="Proof only"\nauthor="AlI"\nversion="1"\nscript="plugin.gd"\n','utf-8')
     config=project/'project.godot';original=config.read_text('utf-8')
     config.write_text(original.replace('"res://addons/ali_assets/plugin.cfg")','"res://addons/ali_assets/plugin.cfg", "res://addons/ali_2d_proof/plugin.cfg")'),'utf-8')
-    try:run(args.godot,project,proof/'editor2d.log','--editor','--max-fps','120','--quit-after','1200')
+    try:
+        run(args.godot,project,proof/'editor2d.log','--editor','--max-fps','120','--quit-after','1200')
+        assert (project/'editor2d-proof.json').exists(),'Editor acceptance did not complete'
+        run(args.godot,project,proof/'canvas-autoload.log','--editor','res://SceneOne.tscn','--max-fps','120','--quit-after','600')
+        assert (project/'canvas-autoload-proof.json').is_file()
     finally:config.write_text(original,'utf-8')
-    assert (project/'editor2d-proof.json').exists(),'Editor acceptance did not complete'
     shutil.copy2('tools/godot_canvas_runtime_probe.gd',project/'canvas_runtime_probe.gd')
     run(args.godot,project,proof/'canvas-runtime.log','--script','res://canvas_runtime_probe.gd','--max-fps','120','--quit-after','500')
     assert (project/'canvas-runtime-proof.json').is_file()

@@ -18,8 +18,25 @@ func run() -> void:
 	await get_tree().create_timer(0.3).timeout
 	var ali: Node = get_tree().get_first_node_in_group("ali_assets_editor")
 	assert(ali != null)
+	if FileAccess.file_exists("res://editor2d-proof.json"):
+		var reopened: Window = ali.get("game_window") as Window
+		assert(reopened != null and reopened.visible)
+		var root: Node = EditorInterface.get_edited_scene_root()
+		assert(root != null and root.scene_file_path == "res://SceneOne.tscn" and reopened.get("target") == root)
+		assert(Model.find(reopened.get("data"),"movement")["params"]["mode"] == "frames")
+		var proof: FileAccess = FileAccess.open("res://canvas-autoload-proof.json",FileAccess.WRITE)
+		proof.store_string("{\"saved_graph_opened_automatically\":true}")
+		proof.close()
+		get_tree().quit.call_deferred()
+		return
+	var dock: Control = ali.get("dock")
+	for button: Node in dock.find_children("*","BaseButton",false,false):
+		assert(not "模板" in button.get("text"))
 	ali.call("open_game_window")
 	var window: Window = ali.get("game_window") as Window
+	var menu: PopupMenu = window.get("tools_menu").get_popup()
+	for index: int in range(menu.item_count):
+		assert(not "模板" in menu.get_item_text(index))
 	await test_scene_canvas(ali,window)
 	window.call("assign",Model.preset())
 	await test_direct_drop(window)
@@ -190,11 +207,13 @@ func test_scene_canvas(ali: Node, window: Window) -> void:
 	var Builder: GDScript = preload("res://addons/ali_assets/game_builder.gd")
 	var TrackIO: GDScript = preload("res://addons/ali_assets/frame_track_io.gd")
 	var inputs: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://fixtures/drop.json"))
+	window.hide()
 	window.set("operation","new_canvas")
 	window.call("file_selected","res://SceneOne.tscn")
 	await get_tree().create_timer(0.3).timeout
 	var root: Node = EditorInterface.get_edited_scene_root()
 	assert(root != null and root.scene_file_path == "res://SceneOne.tscn")
+	assert(window.visible and window.get("target") == root)
 	var runtime: Node = Builder.scene_runtime(root)
 	assert(runtime != null and runtime.get("game_blueprint")["nodes"].is_empty())
 	assert(window.get("data")["nodes"].is_empty() and window.get("data")["edges"].is_empty())

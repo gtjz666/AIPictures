@@ -53,8 +53,9 @@ func run() -> void:
 	window.call("file_selected", "res://saved_game_blueprint.json")
 	var json: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://saved_game_blueprint.json"))
 	assert(json == JSON.parse_string(JSON.stringify(data)))
-	window.set("operation", "scene")
-	window.call("file_selected", "res://kit_from_editor.tscn")
+	var builder: GDScript = preload("res://addons/ali_assets/game_builder.gd")
+	assert(builder.create_scene(data,"res://kit_from_editor.tscn").is_empty())
+	EditorInterface.open_scene_from_path("res://kit_from_editor.tscn")
 	assert(FileAccess.file_exists("res://kit_from_editor.tscn"))
 	assert(str(ProjectSettings.get_setting("application/run/main_scene","")) != "res://kit_from_editor.tscn")
 	await get_tree().create_timer(0.5).timeout

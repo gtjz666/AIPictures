@@ -85,7 +85,7 @@ func _ready() -> void:
 	add_child(root)
 	var toolbar: HBoxContainer = HBoxContainer.new()
 	root.add_child(toolbar)
-	if not function_mode: button(toolbar, "新建蓝图场景…",func() -> void: choose("new_canvas"))
+	if not function_mode: button(toolbar, "新建基础场景…",func() -> void: choose("new_canvas"))
 	button(toolbar, "+ 添加模块…", func() -> void: open_palette())
 	button(toolbar, "撤销", func() -> void: history.undo())
 	button(toolbar, "重做", func() -> void: history.redo())
@@ -179,8 +179,8 @@ func _ready() -> void:
 
 func setup_tools() -> void:
 	var menu: PopupMenu = tools_menu.get_popup()
-	var entries: Array[String] = ["编译检查","执行记录","导入蓝图 JSON…","备份蓝图 JSON…","新建空白函数…","将选中保存为局部函数…","将选中保存为全局函数…","动画／图集工具…","资源预览…","旧模板：横版跑酷…","旧模板：通用2D…"]
-	var actions: Array[Callable] = [check_graph,show_debug,func() -> void: choose("load"),func() -> void: choose("save"),open_function,func() -> void: save_module(false),func() -> void: save_module(true),open_import_wizard,open_resource_browser,func() -> void: choose("runner_template"),func() -> void: choose("2d_template")]
+	var entries: Array[String] = ["编译检查","执行记录","导入蓝图 JSON…","备份蓝图 JSON…","新建空白函数…","将选中保存为局部函数…","将选中保存为全局函数…","动画／图集工具…","资源预览…"]
+	var actions: Array[Callable] = [check_graph,show_debug,func() -> void: choose("load"),func() -> void: choose("save"),open_function,func() -> void: save_module(false),func() -> void: save_module(true),open_import_wizard,open_resource_browser]
 	for index: int in range(entries.size()):
 		if not function_mode or index in [0,7,8]: menu.add_item(entries[index],index)
 	menu.id_pressed.connect(func(id: int) -> void: actions[id].call())
@@ -807,7 +807,7 @@ func apply_game() -> void:
 
 func choose(kind: String) -> void:
 	operation = kind
-	var scene_file: bool = kind in ["new_canvas","runner_template","2d_template","scene"]
+	var scene_file: bool = kind == "new_canvas"
 	var scoped_function: bool = kind in ["local_function","global_function"]
 	chooser.file_mode = FileDialog.FILE_MODE_SAVE_FILE if scene_file or scoped_function or kind in ["save","new_script"] else FileDialog.FILE_MODE_OPEN_FILE
 	chooser.filters = PackedStringArray(["*.tscn ; Godot 场景"]) if scene_file else PackedStringArray(["*.json ; 蓝图／函数"]) if scoped_function or kind in ["save","load"] else PackedStringArray(["*.gd ; 自定义脚本"])
@@ -828,8 +828,8 @@ func file_selected(path: String) -> void:
 	if not path.begins_with("res://") or ".." in path:
 		message.text = "请选择当前项目内位置。"
 		return
-	if operation in ["new_canvas","runner_template","2d_template","scene"]:
-		var problem: String = Builder.create_canvas(path) if operation == "new_canvas" else Builder.create_scene(Model.preset() if operation == "runner_template" else Model.scene_preset() if operation == "2d_template" else data,path)
+	if operation == "new_canvas":
+		var problem: String = Builder.create_canvas(path)
 		if not problem.is_empty():
 			message.text = problem
 			return

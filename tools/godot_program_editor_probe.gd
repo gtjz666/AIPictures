@@ -66,8 +66,9 @@ func run() -> void:
 	var function_path: String = Library.GLOBAL_FUNCTIONS.path_join("editor_task.json")
 	window.call("file_selected", function_path)
 	assert(Library.read_module(function_path).has("data"))
-	window.set("operation", "scene")
-	window.call("file_selected", "res://generic_from_editor.tscn")
+	var builder: GDScript = preload("res://addons/ali_assets/game_builder.gd")
+	assert(builder.create_scene(window.get("data"),"res://generic_from_editor.tscn").is_empty())
+	EditorInterface.open_scene_from_path("res://generic_from_editor.tscn")
 	await get_tree().create_timer(0.5).timeout
 	var root: Node = EditorInterface.get_edited_scene_root()
 	assert(root != null and "compiled_blueprint" in root)

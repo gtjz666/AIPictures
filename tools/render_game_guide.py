@@ -11,7 +11,13 @@ def render_guide(source,*,title='AlI 小恐龙式游戏制作指南',navigation_
     def inline(text):
         text=html.escape(text)
         text=re.sub(r'`([^`]+)`',r'<code>\1</code>',text)
-        for filename,label in {'GODOT_BLUEPRINT_CATALOG.md':'蓝图模块手册.html','GODOT_BLUEPRINT_TECHNICAL.md':'蓝图技术文档.html','BLUEPRINT_05_PLAN.md':'蓝图0.5阶段文档.html'}.items():
+        guides = {'GODOT_BLUEPRINT_CATALOG.md':'蓝图模块手册.html',
+                  'GODOT_BLUEPRINT_TECHNICAL.md':'蓝图技术文档.html',
+                  'BLUEPRINT_05_PLAN.md':'蓝图0.5阶段文档.html',
+                  'GODOT_SCENE_BLUEPRINT_GUIDE.md':'场景蓝图教程.html',
+                  'DINO_AI_ASSETS_TUTORIAL.md':'小恐龙实际生图测试步骤.html',
+                  'GODOT_ASSETS.md':'素材导出指南.html'}
+        for filename,label in guides.items():
             text=re.sub(r'\[([^]\n]+)\]\('+re.escape(filename)+r'\)',lambda match:'<a href="'+label+'">'+match[1]+'</a>',text)
         text=re.sub(r'\[([^]\n]+)\]\((https?://[^ )]+)\)',r'<a href="\2">\1</a>',text)
         return re.sub(r'\*\*([^*]+)\*\*',r'<strong>\1</strong>',text)

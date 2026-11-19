@@ -4,7 +4,6 @@ extends EditorPlugin
 const DragAsset: GDScript = preload("asset_drag.gd")
 const BlueprintWindow: GDScript = preload("blueprint_window.gd")
 const GameWindow: GDScript = preload("game_window.gd")
-const FrameworkWizard: GDScript = preload("framework_wizard.gd")
 const Builder: GDScript = preload("game_builder.gd")
 const Model: GDScript = preload("game_model.gd")
 const Access: GDScript = preload("blueprint_access.gd")
@@ -20,7 +19,7 @@ var known_catalog: PackedStringArray = []
 var catalog_initialized: bool = false
 var blueprint: Window
 var game_window: Window
-var framework_wizard: Window
+var edited_scene_id: int = 0
 
 
 
@@ -34,12 +33,11 @@ func _enter_tree() -> void:
 	edit_scene.pressed.connect(open_game_window)
 	dock.add_child(edit_scene)
 	var create_scene: Button = Button.new()
-	create_scene.text = "新建蓝图场景…"
+	create_scene.text = "新建基础场景…"
 	create_scene.pressed.connect(func() -> void:
 		open_game_window()
 		game_window.call("choose","new_canvas"))
 	dock.add_child(create_scene)
-	scene_changed.connect(sync_scene)
 	var settings: CheckButton = CheckButton.new()
 	settings.text = "生成器设置"
 	dock.add_child(settings)
@@ -75,13 +73,6 @@ func _enter_tree() -> void:
 	open_button.text = "打开生成窗口"
 	open_button.pressed.connect(open_generator)
 	dock.add_child(open_button)
-	var examples: MenuButton = MenuButton.new()
-	examples.text = "示例模板"
-	examples.get_popup().add_item("创建旧版 2D 游戏框架…",0)
-	examples.get_popup().id_pressed.connect(func(_id: int) -> void:
-		if not is_instance_valid(framework_wizard): framework_wizard = FrameworkWizard.new(); dock.add_child(framework_wizard)
-		framework_wizard.popup_centered())
-	dock.add_child(examples)
 	set_process_input(true)
 	status = Label.new()
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -101,9 +92,11 @@ func _enter_tree() -> void:
 	refresh_timer.timeout.connect(refresh_assets)
 	dock.add_child(refresh_timer)
 	add_control_to_dock(DOCK_SLOT_RIGHT_UL, dock)
+	scene_changed.connect(sync_scene)
 	refresh_timer.start()
 	prepare_asset_folders()
 	refresh_assets.call_deferred()
+	sync_initial_scene.call_deferred()
 
 
 func prepare_asset_folders() -> void:
@@ -185,7 +178,6 @@ func refresh_assets() -> void:
 
 func _exit_tree() -> void:
 	scene_changed.disconnect(sync_scene)
-	if is_instance_valid(framework_wizard): framework_wizard.queue_free()
 	if is_instance_valid(game_window):
 		game_window.queue_free()
 	if is_instance_valid(blueprint):
@@ -227,17 +219,34 @@ func apply_blueprint(data: Dictionary) -> void:
 	undo.commit_action()
 
 
-func open_game_window() -> void:
+func ensure_game_window() -> void:
 	if not is_instance_valid(game_window):
 		game_window = GameWindow.new()
 		dock.add_child(game_window)
 		game_window.connect("game_applied", apply_game)
+
+
+func open_game_window() -> void:
+	ensure_game_window()
 	game_window.call("bind_selection")
 	game_window.popup_centered(Vector2i(1500, 900))
 
 
+func sync_initial_scene() -> void:
+	if is_inside_tree(): sync_scene(EditorInterface.get_edited_scene_root())
+
+
 func sync_scene(root: Node) -> void:
+	var next_id: int = root.get_instance_id() if is_instance_valid(root) else 0
+	var switched: bool = next_id != edited_scene_id
+	edited_scene_id = next_id
+	var runtime: Node = Builder.scene_runtime(root)
+	var data: Variant = runtime.get("game_blueprint") if is_instance_valid(runtime) else null
+	var opens_canvas: bool = switched and data is Dictionary and data.get("template") == "canvas"
+	if opens_canvas: ensure_game_window()
 	if is_instance_valid(game_window): game_window.call("bind_scene",root)
+	if opens_canvas and not game_window.visible:
+		game_window.popup_centered(Vector2i(1500, 900))
 
 
 func apply_game(target: Node, data: Dictionary) -> void:
