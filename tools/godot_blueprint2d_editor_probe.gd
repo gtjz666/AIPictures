@@ -233,7 +233,7 @@ func test_scene_canvas(ali: Node, window: Window) -> void:
 	var generic: Dictionary = TrackIO.read(PackedStringArray([inputs["frames"]]))
 	assert(not generic.has("error"),str(generic.get("error","")))
 	assert(generic["frames"].get_frame_texture(generic["clip"],0).get_image().get_pixel(0,0).r > 0.5)
-	window.call("import_track","movement",PackedStringArray([inputs["clip"]]))
+	window.call("import_track","movement",PackedStringArray([inputs["sheet"]]))
 	var track: VBoxContainer = window.get("frame_track")
 	assert(track.visible and track.get("fps").value == 8)
 	track.call("move_frame",1)

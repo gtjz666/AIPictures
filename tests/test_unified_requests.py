@@ -88,11 +88,12 @@ def test_new_segment_is_one_backend_call_and_preserves_all_delivered_previous_pi
         generate(second,params,threading.Event(),lambda *_:None)
 
 
-def test_native_progress_finishes_its_busy_animation():
+def test_task_progress_always_displays_a_percentage():
     from aipictures.task_display import TaskDisplay
     from PySide6.QtWidgets import QWidget,QApplication
     app=QApplication.instance() or QApplication([])
     parent=QWidget();progress=TaskDisplay(parent);progress.start();progress.progress.setRange(0,0)
+    assert progress.percent.text()=='0%' and progress.progress.maximum()==100
     progress.finish('completed')
-    assert progress.progress.maximum()==100 and progress.progress.value()==100 and not progress.clock.isActive()
+    assert progress.percent.text()=='100%' and progress.started is None
     parent.close()

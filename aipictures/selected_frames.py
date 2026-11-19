@@ -6,7 +6,6 @@ import threading
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
-from zipfile import ZIP_STORED, ZipFile
 from PIL import Image,PngImagePlugin
 from .engine import Cancelled
 from .storage import write_json
@@ -81,7 +80,7 @@ def export_selection(manifest: Path,indices: list[int],folder: Path,target: Path
     data=source.data
     indices=sorted(set(indices))
     if not indices or any(type(i) is not int or not 0<=i<source.count for i in indices):raise ValueError('请至少选取一帧有效图片。')
-    if kind not in ('clip','sheet','pngs') or not 1<=fps<=60 or not 1<=columns<=16:raise ValueError('导出类型、帧率或列数无效。')
+    if kind not in ('sheet','pngs') or not 1<=fps<=60 or not 1<=columns<=16:raise ValueError('导出类型、帧率或列数无效。')
     if folder.exists():raise ValueError('素材缓存目录已存在，请使用新任务。')
     if target in source.paths or target == source.native or target.is_relative_to(manifest.parent):raise ValueError('请导出到源动画目录以外的位置。')
     if kind=='sheet' and target.with_suffix('.json').exists():raise ValueError('同名JSON说明已存在，请选择新的文件名。')
@@ -128,7 +127,7 @@ def export_selection(manifest: Path,indices: list[int],folder: Path,target: Path
         canvas=(columns*size[0],rows*size[1])
         # PNG sequences can be arbitrarily long; only a huge assembled preview is omitted.
         make_sheet=canvas[0]*canvas[1]<=64_000_000 and max(canvas)<=32768
-        if kind=='sheet' and not make_sheet:raise ValueError('精灵图过大，请减少所选帧数，或选择导出独立PNG。')
+        if kind=='sheet' and not make_sheet:raise ValueError('精灵图过大，请减少所选帧数或分成多张精灵图。')
         rects=[]
         for i,frame in enumerate(record['frames']):
             rects.append(dict(frame,rect={'x':i%columns*size[0],'y':i//columns*size[1],'w':size[0],'h':size[1]}))
@@ -136,7 +135,7 @@ def export_selection(manifest: Path,indices: list[int],folder: Path,target: Path
             'padding':0,'fps':fps,'loop':loop,'seed':seed,'frame_count':len(indices),'frames':rects,
             'source_manifest_sha256':record['source_manifest_sha256'],'source_indices':indices,'sampling':'manual'}
         exports={'columns':columns,'rows':rows,'cell_size':list(size),'loop':loop}
-        if make_sheet and kind!='clip':
+        if make_sheet:
             sheet=Image.new('RGBA',canvas)
             try:
                 for row in rects:
@@ -148,19 +147,7 @@ def export_selection(manifest: Path,indices: list[int],folder: Path,target: Path
             finally:sheet.close()
             write_json(folder/'sprite_sheet.json',metadata);exports.update(sprite_sheet='sprite_sheet.png',metadata='sprite_sheet.json')
         check()
-        if kind=='clip':
-            temporary=target.with_name(target.name+'.'+uuid4().hex+'.tmp')
-            try:
-                with ZipFile(temporary,'w',compression=ZIP_STORED) as archive:
-                    archive.writestr('animation.json',json.dumps(dict(metadata,clip=target.stem),ensure_ascii=False))
-                    for row in record['frames']:
-                        check()
-                        archive.write(folder/row['image'],row['image'])
-                check()
-                temporary.replace(target)
-            finally:temporary.unlink(missing_ok=True)
-            saved=target
-        elif kind=='sheet':
+        if kind=='sheet':
             temporary=target.with_name(target.name+'.'+uuid4().hex+'.tmp')
             try:
                 shutil.copyfile(folder/'sprite_sheet.png',temporary)

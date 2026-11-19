@@ -48,7 +48,7 @@ def main():
             prepared=w.generation_intent.current();assert prepared and not prepared['english'],w.status.text()
             assert prepared['positive']==case['requirement'] and prepared['manual']
             assert not w.current and not w.pending
-            assert not w.task_display.clock.isActive() and w.progress.maximum()==100
+            assert w.task_display.started is None and w.progress.maximum()==100
             write_json(root/(case['id']+'-prepared.json'),prepared);w.grab().save(str(root/(case['id']+'-prompt-ui.png')))
             print('GENERATING',case['id'],flush=True)
             before=set((data/'jobs').glob('*/job.json')) if (data/'jobs').exists() else set()
@@ -63,7 +63,7 @@ def main():
                 process=json.loads((path.parent/n/'process.json').read_text('utf-8'));assert process['status']=='stopped'
                 assert process['returncode'] is not None
             assert all(digest(Path(p))==sha for p,sha in originals.items())
-            assert not w.task_display.clock.isActive() and w.progress.maximum()==100 and w.progress.value()==100
+            assert w.task_display.started is None and w.progress.maximum()==100 and w.progress.value()==100
             assert w.output==result['images'][0]
             shutil.copyfile(w.output,root/(case['id']+'-output.png'));w.grab().save(str(root/(case['id']+'-result-ui.png')))
             rows.append(dict(id=case['id'],job=str(path),result=result,original_hashes=originals,actual_qt=True,actual_models=True,manual_prompt=True,assistant_used=False,shared_engine_required=False))

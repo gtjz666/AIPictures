@@ -60,7 +60,7 @@ def main():
                     state['phase']='extract'
                     player.split();picker=window.frame_selection_dialog
                     for i in range(8):picker.grid.item(round(i*(len(player.frames)-1)/7)).setCheckState(Qt.CheckState.Checked)
-                    with patch.object(QFileDialog,'getSaveFileName',return_value=(str(root/'picked_sheet.png'),'PNG')):picker.export('sheet')
+                    with patch.object(QFileDialog,'getSaveFileName',return_value=(str(root/'picked_sheet.png'),'PNG')):picker.export()
                     assert window.preparing
                 elif state['phase']=='extract':
                     manifest=window.animation_player.manifest

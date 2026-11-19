@@ -154,7 +154,7 @@ class GodotController:
         try:self.project=project_root(json.loads((window.api_controller.data/'godot-project.json').read_text('utf-8'))['project'])
         except (OSError,ValueError,KeyError):pass
         menu=window.menuBar().addMenu('Godot');menu.addAction('连接项目／安装插件…',self.install)
-        menu.addAction('导出当前图片组件…',self.image);menu.addAction('选帧与导出动画…',self.animation);menu.addAction('导出当前音频组件…',self.audio)
+        menu.addAction('选帧与导出精灵图…',self.animation);menu.addAction('导出当前音频组件…',self.audio)
 
     def connect_project(self,path):
         self.project=project_root(path);write_json(self.window.api_controller.data/'godot-project.json',dict(project=str(self.project)))
@@ -170,10 +170,6 @@ class GodotController:
     def show(self,**kwargs):
         self.dialog=GodotExportDialog(self,**kwargs);self.dialog.show();self.dialog.raise_();return self.dialog
 
-    def image(self):
-        if not self.window.output:self.window.status.setText('请先生成或打开成品图片。');return
-        return self.show(image=self.window.output)
-
     def audio(self):
         audio=self.window.audio_controller.audio
         if not audio:self.window.status.setText('请先生成或打开音频。');return
@@ -181,9 +177,12 @@ class GodotController:
 
     def animation(self):
         from .frame_selection import open_selection
-        manifest=self.window.video_controller.player.manifest
-        if not manifest:self.window.status.setText('请先生成或打开完整动画。');return
-        open_selection(self.window,manifest)
+        w=self.window
+        player=w.video_controller.player if w.preview_role=='video' else w.animation_player
+        if not player.isVisible() or not player.manifest:
+            w.status.setText('请先生成或打开要选帧的素材。')
+            return
+        open_selection(w,player.manifest)
 
     def frames(self,paths,fps,**kwargs):return self.show(frames=paths,fps=fps,**kwargs)
 

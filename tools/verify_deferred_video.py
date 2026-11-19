@@ -24,20 +24,21 @@ def main():
         with patch.object(QFileDialog,'getSaveFileName',return_value=(str(target),'')):
             player.save();wait_until(lambda:not w.export_tasks.busy)
         assert target.is_file() and not list(manifest.parent.rglob('*.png'))
-        player.split()
+        assert not player.is_cg
+        player.extract.click()
         picker=w.frame_selection_dialog
         assert picker.source.count==9 and not list(manifest.parent.rglob('*.png'))
         picker.grid.item(8).setCheckState(Qt.CheckState.Checked)
         picker.transparent.setChecked(False)
-        with patch.object(QFileDialog,'getExistingDirectory',return_value=str(root)):
-            picker.export('pngs');wait_until(lambda:not w.export_tasks.busy)
-        exported=list(root.glob('frames_*/*.png'))
-        assert len(exported)==1 and not list(manifest.parent.rglob('*.png'))
+        sheet=root/'sprite.png'
+        with patch.object(QFileDialog,'getSaveFileName',return_value=(str(sheet),'PNG')):
+            picker.sheet_button.click();wait_until(lambda:not w.export_tasks.busy)
+        assert sheet.with_suffix('.json').is_file() and not list(manifest.parent.rglob('*.png'))
         from PIL import Image
-        with Image.open(exported[0]) as image:
+        with Image.open(sheet) as image:
             assert image.convert('RGB').tobytes()==array[8].tobytes()
         w.close();QTest.qWait(30)
-    print('Lazy exact-RGB preview / complete video / explicit frame export: PASS')
+    print('Lazy exact-RGB preview / complete video / sprite sheet export: PASS')
 
 
 if __name__=='__main__':main()

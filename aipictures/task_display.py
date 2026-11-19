@@ -1,8 +1,8 @@
-"""Task name, progress and monotonic elapsed time, independent of worker events."""
+"""Task name and determinate progress rows with internal timing for job records."""
 import time
 import re
 from PySide6.QtWidgets import QWidget,QHBoxLayout,QLabel,QProgressBar,QSizePolicy,QMessageBox
-from PySide6.QtCore import Qt,QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtCore import Signal
 
 
@@ -60,6 +60,10 @@ class TaskProgress(QProgressBar):
     active=False
     settled=False
 
+    def __init__(self, *, determinate=False):
+        super().__init__()
+        self.determinate=determinate
+
     def begin(self):
         self.active=True;self.settled=False
         self.setRange(0,100)
@@ -71,7 +75,7 @@ class TaskProgress(QProgressBar):
         super().setValue(value)
 
     def setRange(self,minimum,maximum):
-        if minimum==maximum==0 and (self.settled or (self.active and self.maximum()>0 and self.value()>0)):
+        if minimum==maximum==0 and (self.determinate or self.settled or (self.active and self.maximum()>0 and self.value()>0)):
             return
         super().setRange(minimum,maximum); self.rangeChanged.emit()
 
@@ -89,28 +93,26 @@ class TaskDisplay(QWidget):
         self.status=QLabel('等待导出') if export else TaskLabel(owner); self.percent=QLabel('0%')
         self.status.setSizePolicy(QSizePolicy.Policy.Preferred,QSizePolicy.Policy.Preferred)
         self.percent.setFixedWidth(45); self.percent.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
-        self.status.setMinimumWidth(150);layout.addWidget(self.status)
-        self.progress=TaskProgress(); self.progress.setRange(0,100); self.progress.setValue(0)
+        self.status.setFixedWidth(156);layout.addWidget(self.status)
+        self.progress=TaskProgress(determinate=True); self.progress.setRange(0,100); self.progress.setValue(0)
         self.progress.setMinimumWidth(0)
         self.progress.setTextVisible(False); self.progress.setMaximumHeight(5); layout.addWidget(self.progress,1);layout.addWidget(self.percent)
         self.progress.valueChanged.connect(self.update_percent); self.progress.rangeChanged.connect(self.update_percent)
-        self.elapsed=QLabel('00:00'); self.elapsed.setObjectName('muted'); layout.addWidget(self.elapsed)
         self.detail=QLabel(self);self.detail.hide()
         self.setMaximumHeight(40)
         self.started=None; self.finished_seconds=0.; self.stage='准备'
-        self.clock=QTimer(self); self.clock.setInterval(250); self.clock.timeout.connect(self.update_elapsed)
 
     def start(self):
         self.progress.begin()
-        self.started=time.monotonic(); self.finished_seconds=0.; self.stage='准备'; self.clock.start(); self.update_elapsed()
+        self.started=time.monotonic(); self.finished_seconds=0.; self.stage='准备'
 
     def seconds(self):
         return max(0.,time.monotonic()-self.started) if self.started is not None else self.finished_seconds
 
     def finish(self,status='completed'):
-        self.finished_seconds=self.seconds(); self.started=None; self.clock.stop()
+        self.finished_seconds=self.seconds(); self.started=None
         self.progress.end(100 if status=='completed' else 0)
-        self.stage={'completed':'完成','failed':'失败','cancelled':'已取消'}.get(status,status); self.update_elapsed()
+        self.stage={'completed':'完成','failed':'失败','cancelled':'已取消'}.get(status,status)
 
     def record_stage(self,text):
         self.detail.setText(text[:220])
@@ -124,12 +126,6 @@ class TaskDisplay(QWidget):
             (('采样','推理','模型处理','动作生成','节点'),'模型推理'),(('排队','等待引擎'),'等待引擎'),
             (('参考','骨骼','准备','描述'),'准备素材')):
             if any(word in text for word in words): self.stage=label; break
-        self.update_elapsed()
-
-    def update_elapsed(self):
-        seconds=int(self.seconds()); hours,remaining=divmod(seconds,3600); minutes,seconds=divmod(remaining,60)
-        duration=f'{hours:02d}:{minutes:02d}:{seconds:02d}' if hours else f'{minutes:02d}:{seconds:02d}'
-        self.elapsed.setText(duration)
 
     def update_percent(self,*_):
         p=self.progress

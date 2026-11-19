@@ -41,7 +41,7 @@
 
 函数用可编译子图表示。局部函数放在带场景作用域的目录，全局函数放在 `res://blueprints/global`。构建时校验其可见范围，全局函数无法引用局部函数。修改后，调用方重新应用即可使用新编译结果。
 
-AlI 的动画 ZIP 包含顺序 PNG 与 `animation.json`。在 Godot 动画轴调整后保存为项内 `SpriteFrames`，再由通用动画模块通过执行线播放。查看[场景蓝图教程](GODOT_SCENE_BLUEPRINT_GUIDE.md)。
+AlI 导出精灵图 PNG 与同名 JSON，记录每个切片的矩形、顺序、FPS 和循环。Godot 动画轴读取这对文件，调整后保存为项目内的 `SpriteFrames`，再由通用动画模块通过执行线播放。查看[场景蓝图教程](GODOT_SCENE_BLUEPRINT_GUIDE.md)。
 
 ## 类型、属性与事件
 

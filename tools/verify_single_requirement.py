@@ -50,7 +50,7 @@ def main():
             frozen=json.loads(json.dumps(params));intent.editor().setPlainText(brief+'改为新的要求。')
             assert intent.current()['positive']==brief+'改为新的要求。' and params==frozen
             intent.editor().setPlainText(brief)
-            assert not w.preparing and not w.current and not w.pending and not w.task_display.clock.isActive()
+            assert not w.preparing and not w.current and not w.pending and w.task_display.started is None
             if args.proof:w.grab().save(str(args.proof/(category+'-'+str(mode)+'.png')))
             proofs.append(dict(category=category,mode=mode,prompt=brief,manual_only=True))
         w.workbench.select_category('sprite');w.workbench.sprite_mode.setCurrentIndex(0)

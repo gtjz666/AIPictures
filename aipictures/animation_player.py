@@ -19,10 +19,7 @@ class AnimationPlayer(QWidget):
         self.physics=QCheckBox('游戏位移预览');self.physics.setToolTip('仅在预览中平移跳跃帧。导出 PNG 不烘焙轨迹，由游戏引擎控制角色移动。')
         self.physics.toggled.connect(lambda _:self.seek(self.index));layout.addWidget(self.physics);self.physics.hide()
         self.preview_loop=QCheckBox('循环');self.preview_loop.setChecked(True);layout.addWidget(self.preview_loop)
-        export = QPushButton('选帧导出…'); export.clicked.connect(self.select_frames); layout.addWidget(export)
-        self.pixel_export = QPushButton('导出像素素材…')
-        self.pixel_export.setToolTip('像素捕捉、锚点归一化、共享调色板和精灵图；不混合前后帧，原始帧保留。')
-        self.pixel_export.clicked.connect(self.export_pixels); layout.addWidget(self.pixel_export)
+        export = QPushButton('选帧与导出精灵图…'); export.clicked.connect(self.select_frames); layout.addWidget(export)
         self.timer = QTimer(self); self.timer.timeout.connect(self.advance)
 
     def load(self,path):
@@ -104,10 +101,6 @@ class AnimationPlayer(QWidget):
             self.window.cache_store.record_save(target,'animation',self.manifest); self.window.load_gallery()
             self.window.add_chat('软件','已导出素材包：'+str(target))
         except (OSError,ValueError) as exc: QMessageBox.warning(self,'导出失败',str(exc))
-
-    def export_pixels(self):
-        from .sprite_export import start_export
-        start_export(self)
 
     def select_frames(self):
         if self.manifest:

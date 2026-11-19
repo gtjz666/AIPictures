@@ -38,7 +38,7 @@ def main():
         for index in indices:picker.grid.item(index).setCheckState(Qt.CheckState.Checked)
         QTest.qWait(500);picker.focus_selected(picker.selected_strip.item(1));picker.grab().save(str(root/'manual-frame-selection.png'))
         sheet=root/'picked.png';started=time.monotonic()
-        with patch.object(QFileDialog,'getSaveFileName',return_value=(str(sheet),'PNG')):picker.export('sheet')
+        with patch.object(QFileDialog,'getSaveFileName',return_value=(str(sheet),'PNG')):picker.export()
         deadline=time.monotonic()+300
         while w.export_tasks.busy and time.monotonic()<deadline:app.processEvents();QTest.qWait(30)
         if w.export_tasks.busy or not sheet.exists():raise ValueError(picker.status.text())

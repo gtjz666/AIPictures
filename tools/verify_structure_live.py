@@ -66,7 +66,7 @@ def main():
         assert evidence['subject_preparation']['cache_hit'] and evidence['subject_preparation']['device']=='cpu'
         result=json.loads((jobs[0].parent/'result.json').read_text('utf-8'))
         assert all(digest(Path(p))==sha for p,sha in originals.items())
-        assert not w.task_display.clock.isActive() and w.progress.maximum()==100
+        assert w.task_display.started is None and w.progress.maximum()==100
         w.grab().save(str(root/'result-ui.png'))
         write_json(root/'acceptance.json',dict(actual_qt=True,actual_prompt_model=True,actual_image_model=True,
             separate_buttons=True,geometry_not_captioned=True,adapter_survives_queue=True,depth_worker_exited=True,

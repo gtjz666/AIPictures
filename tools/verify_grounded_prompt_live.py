@@ -38,7 +38,7 @@ def main():
             assert submit.call_count==0
         value=w.generation_intent.current();assert value,w.status.text()
         assert standalone(value['positive']) and value['negative']=='' and value['source']['requirement']==requirement
-        assert w.workbench.prompt_output.toPlainText()==value['positive'] and not w.task_display.clock.isActive() and w.progress.maximum()==100
+        assert w.workbench.prompt_output.toPlainText()==value['positive'] and w.task_display.started is None and w.progress.maximum()==100
         assert not w.generation_intent.intercept()
         w.grab().save(str(root/'prompt-ui.png'))
         refs=w.reference_chat.references();positive=value.get('english',{}).get('positive') or value['positive']

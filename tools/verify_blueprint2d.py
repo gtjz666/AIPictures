@@ -51,15 +51,15 @@ def main():
     import threading
     from PIL import Image
     from aipictures.selected_frames import export_selection
-    # AlI's actual animation export, located outside res://.
+    # AlI's actual sprite sheet export, located outside res://.
     input_dir=proof/'external_frames';input_dir.mkdir()
     for name,color in [('frame10.png',(30,200,40,255)),('frame2.png',(200,30,40,128))]:
         Image.new('RGBA',(12,16),color).save(input_dir/name)
     source=input_dir/'input.json'
     source.write_text(json.dumps(dict(status='completed',fps=8,frames=[dict(image=name) for name in ['frame2.png','frame10.png']])),'utf-8')
-    clip=proof/'movement.zip'
-    export_selection(source,[0,1],proof/'frame-cache',clip,'clip',8,2,False,False,threading.Event(),lambda *_:None)
-    assets.update(clip={'scene':str(clip)},frames={'scene':str(input_dir)})
+    sheet=proof/'movement.png'
+    export_selection(source,[0,1],proof/'frame-cache',sheet,'sheet',8,2,False,False,threading.Event(),lambda *_:None)
+    assets.update(sheet={'scene':str(sheet)},frames={'scene':str(input_dir)})
     (fixture/'drop.json').write_text(json.dumps({key:value['scene'] for key,value in assets.items()}),'utf-8')
     editor=project/'addons/ali_2d_proof';editor.mkdir()
     shutil.copy2('tools/godot_blueprint2d_editor_probe.gd',editor/'plugin.gd')

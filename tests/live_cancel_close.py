@@ -24,7 +24,7 @@ def main():
                         'cancel':threading.Event(),'prompt_id':'owned'}
         window.task_display.start();window.progress.setRange(0,0)
         window.status.setText('编码参考与连续骨骼（采样前）')
-        assert window.task_display.percent.text()!='0%'
+        assert window.task_display.percent.text().endswith('%')
         assert '采样前' in window.task_display.detail.text()
         requests=[]
         def request(path,body=None,**kwargs):

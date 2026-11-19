@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QFileDialog,QProgressDialog,QPushButton
+from PySide6.QtWidgets import QDialog,QFileDialog,QProgressBar,QPushButton
 from aipictures.app import Window,create_application
 from aipictures.engine import ComfyClient
 from aipictures.seed_controls import copy_seed
@@ -49,11 +49,12 @@ def verify_parallel_export(w,app,root):
             for index in (1,3):picker.grid.item(index).setCheckState(Qt.CheckState.Checked)
             target=root/'parallel.png'
             with patch.object(QFileDialog,'getSaveFileName',return_value=(str(target),'PNG')):
-                picker.export('sheet')
+                picker.export()
             deadline=time.monotonic()+5
             while not entered.is_set() and time.monotonic()<deadline:QTest.qWait(10)
             assert entered.is_set() and w.export_tasks.busy
-            assert any(dialog.isVisible() for dialog in w.findChildren(QProgressDialog))
+            popup=next(d for d in w.findChildren(QDialog) if d.windowTitle()=='正在导出')
+            assert popup.isVisible() and not popup.findChildren(QProgressBar)
             assert w.current['cancel'] is generation_cancel and w.progress.value()==99
             assert w.export_tasks.cancel is not generation_cancel
             w.task_display.finish()
@@ -139,7 +140,7 @@ def main():
         picker.loop.setChecked(True)
         picker.transparent.setChecked(False)
         sheet=root/'chosen.png'
-        with patch.object(QFileDialog,'getSaveFileName',return_value=(str(sheet),'PNG')):picker.export('sheet')
+        with patch.object(QFileDialog,'getSaveFileName',return_value=(str(sheet),'PNG')):picker.export()
         deadline=time.monotonic()+15
         while w.export_tasks.busy and time.monotonic()<deadline:app.processEvents();QTest.qWait(10)
         assert not w.export_tasks.busy and sheet.is_file(),picker.status.text()

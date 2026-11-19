@@ -1,11 +1,9 @@
 """Explicit pixel asset options and nearest-neighbour sheet preview."""
-import json
 import zipfile
-from pathlib import Path
 
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QHBoxLayout, QLabel,
-    QSpinBox, QComboBox, QLineEdit, QPushButton, QCheckBox, QDialogButtonBox, QFileDialog, QMessageBox)
+    QSpinBox, QComboBox, QLineEdit, QPushButton, QCheckBox, QDialogButtonBox, QFileDialog)
 
 from sprite_pipeline import PipelineConfig
 
@@ -70,42 +68,6 @@ class SpriteExportDialog(QDialog):
             pixel_size=self.grid.currentData(), palette_size=self.palette.value(), alpha_threshold=self.threshold.value(),
             anchor=self.anchor.text().strip() or None, seed=self.manifest.get('seed'), fps=self.manifest['fps'],
             padding=self.padding.value(), columns=self.columns.value() or None, allow_scale=self.allow_scale.isChecked()).validate()
-
-
-def start_export(player):
-    window = player.window
-    if not player.manifest or window.cache_busy: return
-    try:
-        manifest_path = Path(player.manifest)
-        manifest = json.loads(manifest_path.read_text('utf-8'))
-        dialog = SpriteExportDialog(window, manifest)
-        if dialog.exec() != QDialog.DialogCode.Accepted: return
-        config = dialog.configuration()
-        path, _ = QFileDialog.getSaveFileName(window, '保存像素素材包', 'pixel-sprites.zip', 'ZIP (*.zip)')
-        if not path: return
-        target = window.cache_store.validate_export(path)
-    except (OSError, ValueError, KeyError) as exc:
-        QMessageBox.warning(window, '像素导出配置', str(exc)); return
-    from .sprite_assets import export_pixel_assets
-    window.cache_busy = True; window.assets_dialog.set_cache_busy(True)
-    player.pixel_export.setEnabled(False)
-    window.status.setText('正在捕捉像素与拼图…')
-    def done(kind, data):
-        if kind == 'sprite_progress':
-            stage, current, total = data
-            titles = {'snap':'像素捕捉', 'normalize':'锚点归一化', 'palette':'调色板对齐', 'assemble':'拼图'}
-            window.status.setText(f'{titles.get(stage, stage)} {current}/{total}')
-            return
-        if kind not in ('result', 'error'): return
-        window.cache_busy = False; window.assets_dialog.set_cache_busy(False); player.pixel_export.setEnabled(True)
-        if kind == 'error':
-            window.status.setText('像素导出失败'); QMessageBox.warning(window, '像素导出失败', str(data)); return
-        window.cache_store.record_save(target, 'pixel_sprite', manifest_path); window.load_gallery()
-        window.status.setText('像素素材已保存，结构验收通过')
-        window.add_chat('软件', f'已保存 {data["frame_count"]} 帧像素素材、精灵图、metadata 和验收报告：{target}')
-        show_preview(window, target, data['report'])
-    window.launch(lambda emit: export_pixel_assets(manifest_path, target, config,
-        lambda stage, current, total: emit('sprite_progress', (stage, current, total))), done)
 
 
 def show_preview(window, target, report):

@@ -37,7 +37,7 @@ def main():
         assert np.array_equal(np.array(picker.source.image(1).convert('RGB')),images[1])
         picker.grid.item(1).setCheckState(Qt.CheckState.Checked);picker.grab().save(str(root/'frame-picker.png'))
         target=root/'sheet.png'
-        with patch.object(QFileDialog,'getSaveFileName',return_value=(str(target),'PNG')):picker.export('sheet')
+        with patch.object(QFileDialog,'getSaveFileName',return_value=(str(target),'PNG')):picker.export()
         wait(lambda:not w.export_tasks.busy)
         assert target.is_file(),picker.status.text()
         assert matte.call_count==1 and w.export_tasks.progress.value()==100
@@ -53,11 +53,14 @@ def main():
                 with Image.open(derived.parent/row['image']) as im:assert sheet.crop((r['x'],r['y'],r['x']+r['w'],r['y']+r['h'])).tobytes()==im.tobytes()
         picker.transparent.setChecked(False);picker.grab().save(str(root/'original-picker.png'))
         picker.check_all(True)
-        with patch.object(QFileDialog,'getExistingDirectory',return_value=str(root)):picker.export('pngs')
+        raw_sheet=root/'original_sheet.png'
+        with patch.object(QFileDialog,'getSaveFileName',return_value=(str(raw_sheet),'PNG')):picker.export()
         wait(lambda:not w.export_tasks.busy)
-        raw_export=json.loads(picker.exported_manifest.read_text('utf-8'))
-        for i,p in enumerate(sorted(Path(raw_export['output']).glob('*.png'))):
-            with Image.open(p) as im:assert im.getchannel('A').getextrema()==(255,255) and np.array_equal(np.array(im.convert('RGB')),images[i])
+        raw_metadata=json.loads(raw_sheet.with_suffix('.json').read_text('utf-8'))
+        with Image.open(raw_sheet) as image:
+            for i,row in enumerate(raw_metadata['frames']):
+                r=row['rect'];im=image.crop((r['x'],r['y'],r['x']+r['w'],r['y']+r['h']))
+                assert im.getchannel('A').getextrema()==(255,255) and np.array_equal(np.array(im.convert('RGB')),images[i])
         picker.close();app.processEvents();w.video_controller.player.load(manifest);w.video_controller.player.timer.stop()
         w.video_controller.player.split()
         assert w.frame_selection_dialog is not None and matte.call_count==1

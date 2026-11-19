@@ -45,6 +45,9 @@ class VideoPreview(QWidget):
             with av.open(str(self.source)) as container:self.has_audio=bool(container.streams.audio)
         playable=self.audio_source if self.audio_source and self.audio_source.is_file() else self.source
         self.sound.setSource(QUrl.fromLocalFile(str(playable)) if self.has_audio else QUrl())
+        kind=data.get('params',{}).get('creation_kind')
+        self.is_cg=self.has_audio or kind in ('short_video','long_video','long_video_edit')
+        self.extract.setText('导出…' if self.is_cg else '选帧与导出精灵图…')
         self.fps=float(data['fps']);self.index=0
         if hasattr(self.window,'short_video'):self.window.short_video.continue_video(self.manifest)
         from .seed_controls import from_folder
@@ -66,7 +69,7 @@ class VideoPreview(QWidget):
             w.preview_path=str(self.rgb_source)
         w.output=None;w.preview_role='video';w.preview.set_clickable(False)
         w.image_save.hide();w.image_reuse.hide()
-        w.caption.setText('视频预览 · 导出可分别保存音频与画面' if self.has_audio else '完整动画预览 · 导出可自主选择动画帧');w.fit_preview()
+        w.caption.setText('视频预览 · 导出可分别保存音频与画面' if self.has_audio else '视频预览' if self.is_cg else '完整动画预览 · 选帧后可导出精灵图');w.fit_preview()
         self.label.setText(f'{index+1}/{self.count} · {index/self.fps:.2f}s')
         if self.has_audio and abs(self.sound.position()-round(index/self.fps*1000))>120:
             self.sound.setPosition(round(index/self.fps*1000))
@@ -102,13 +105,17 @@ class VideoPreview(QWidget):
         self.stop();self.manifest=None;self.source=None;self.frames=[];self.rgb_source=None;self.count=0
 
     def choose_export(self):
+        if not self.manifest:return
+        if not self.is_cg:
+            self.split()
+            return
         menu=QMenu(self)
         menu.addAction('完整视频…',self.save)
         if self.has_audio:
             menu.addAction('仅画面（无声视频）…',lambda:self.export_tracks('video'))
             menu.addAction('仅音频（WAV）…',lambda:self.export_tracks('audio'))
             menu.addAction('音画分别导出…',lambda:self.export_tracks('both'))
-        menu.addAction('动画帧／精灵图…',self.split)
+        menu.addAction('选帧与导出精灵图…',self.split)
         menu.exec(self.extract.mapToGlobal(self.extract.rect().bottomLeft()))
 
     def process_export(self,action,done):
