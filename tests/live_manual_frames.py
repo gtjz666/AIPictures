@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QDialog,QFileDialog,QProgressBar,QPushButton
+from PySide6.QtWidgets import QDialog,QFileDialog,QPushButton
 from aipictures.app import Window,create_application
 from aipictures.engine import ComfyClient
 from aipictures.seed_controls import copy_seed
@@ -53,8 +53,8 @@ def verify_parallel_export(w,app,root):
             deadline=time.monotonic()+5
             while not entered.is_set() and time.monotonic()<deadline:QTest.qWait(10)
             assert entered.is_set() and w.export_tasks.busy
-            popup=next(d for d in w.findChildren(QDialog) if d.windowTitle()=='正在导出')
-            assert popup.isVisible() and not popup.findChildren(QProgressBar)
+            assert not any(d.windowTitle()=='正在导出' for d in w.findChildren(QDialog))
+            assert w.export_tasks.cancel_button.isVisible()
             assert w.current['cancel'] is generation_cancel and w.progress.value()==99
             assert w.export_tasks.cancel is not generation_cancel
             w.task_display.finish()
@@ -70,6 +70,24 @@ def verify_parallel_export(w,app,root):
         with Image.open(target) as sheet:
             assert sheet.getpixel((0,0))==(80,80,80,96)
             assert sheet.getpixel((16,0))==(160,160,160,96)
+        assert not w.export_tasks.cancel_button.isVisible()
+        picker.check_all(False)
+        picker.grid.item(0).setCheckState(Qt.CheckState.Checked)
+        entered.clear();release.clear()
+        cancelled_target=root/'cancelled.png'
+        with patch('aipictures.background.foreground_rgba',side_effect=matte):
+            with patch.object(QFileDialog,'getSaveFileName',return_value=(str(cancelled_target),'PNG')):
+                picker.export()
+            deadline=time.monotonic()+5
+            while not entered.is_set() and time.monotonic()<deadline:QTest.qWait(10)
+            assert entered.is_set() and w.export_tasks.cancel_button.isVisible()
+            w.export_tasks.cancel_button.click()
+            assert w.export_tasks.cancel.is_set() and not w.export_tasks.cancel_button.isEnabled()
+            release.set()
+            deadline=time.monotonic()+5
+            while w.export_tasks.busy and time.monotonic()<deadline:QTest.qWait(10)
+        assert not w.export_tasks.busy and not w.export_tasks.cancel_button.isVisible()
+        assert not cancelled_target.exists() and not generation_cancel.is_set()
         picker.close();app.processEvents()
     finally:
         release.set()

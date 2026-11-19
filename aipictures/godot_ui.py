@@ -144,7 +144,7 @@ class GodotExportDialog(QDialog):
                 self.status.setText('已存入当前项目。可从 Godot 文件系统使用该组件。')
             else:self.status.setText(str(data))
 
-        if not w.export_tasks.submit('导出 Godot 组件',source_paths,run,done,popup=True):
+        if not w.export_tasks.submit('导出 Godot 组件',source_paths,run,done):
             self.busy=False;self.export.setEnabled(True)
             self.status.setText('已有导出或缓存清理正在进行。')
 

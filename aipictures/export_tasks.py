@@ -2,7 +2,7 @@
 from pathlib import Path
 from threading import Event
 
-from PySide6.QtWidgets import QDialog, QLabel, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QPushButton
 
 from .task_display import TaskDisplay
 
@@ -13,12 +13,22 @@ class ExportTasks(TaskDisplay):
         self.window = window
         self.cancel = None
         self.paths = ()
+        self.cancel_button = QPushButton('取消导出')
+        self.cancel_button.clicked.connect(self.cancel_export)
+        self.layout().insertWidget(1, self.cancel_button)
+        self.cancel_button.hide()
 
     @property
     def busy(self):
         return self.cancel is not None
 
-    def submit(self, title, paths, action, done, *, popup=False):
+    def cancel_export(self):
+        if self.cancel is not None:
+            self.cancel.set()
+            self.cancel_button.setEnabled(False)
+            self.status.setText('正在取消导出…')
+
+    def submit(self, title, paths, action, done):
         if self.busy or self.window.cache_busy or self.window._closing:
             return False
         self.cancel = cancel = Event()
@@ -26,26 +36,12 @@ class ExportTasks(TaskDisplay):
         self.start()
         self.status.setText(title + ' · 正在导出')
         self.status.setToolTip('')
-        dialog = None
-        if popup:
-            dialog = QDialog(self.window)
-            dialog.setWindowTitle('正在导出')
-            layout = QVBoxLayout(dialog)
-            message = QLabel(title + '…')
-            message.setWordWrap(True)
-            message.setMinimumWidth(260)
-            layout.addWidget(message)
-            cancel_button = QPushButton('取消导出')
-            layout.addWidget(cancel_button)
-            cancel_button.clicked.connect(dialog.reject)
-            dialog.rejected.connect(cancel.set)
-            dialog.show()
+        self.cancel_button.setEnabled(True)
+        self.cancel_button.show()
 
         def event(kind, data):
             if kind in ('selection_stage', 'video_stage'):
                 self.status.setToolTip(data['message'])
-                if dialog and dialog.isVisible():
-                    message.setText(data['message'])
             elif kind in ('selection_progress', 'video_export_progress'):
                 percent = min(95, round(95 * data['value'] / max(1, data['max'])))
                 self.progress.setRange(0, 100)
@@ -55,11 +51,8 @@ class ExportTasks(TaskDisplay):
                 self.paths = ()
                 self.finish({'result': 'completed', 'error': 'failed', 'cancelled': 'cancelled'}[kind])
                 self.status.setText(title + {'result': ' · 完成', 'error': ' · 失败', 'cancelled': ' · 已取消'}[kind])
-                if kind != 'result':
-                    self.status.setToolTip(str(data))
-                if dialog:
-                    dialog.hide()
-                    dialog.deleteLater()
+                self.status.setToolTip('' if kind == 'result' else str(data))
+                self.cancel_button.hide()
                 done(kind, data)
 
         self.window.launch(lambda emit: action(cancel, emit), event)

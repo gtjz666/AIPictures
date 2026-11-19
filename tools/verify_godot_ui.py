@@ -7,7 +7,7 @@ from unittest.mock import patch
 from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QDialog,QFileDialog,QProgressBar,QPushButton
+from PySide6.QtWidgets import QDialog,QFileDialog
 from aipictures.app import Window,create_application
 from aipictures.godot_assets import install_addon
 from aipictures.storage import write_json
@@ -25,7 +25,7 @@ def main():
         w=Window();stack.callback(lambda:(w.close(),QTest.qWait(40)));w.timer.stop();w.resize(1440,940);w.show();QTest.qWait(40)
         for row in (w.task_display,w.export_tasks):
             assert row.isVisible() and row.percent.text()=='0%'
-            assert row.layout().count()==3
+            assert sum(row.layout().itemAt(i).widget().isVisible() for i in range(row.layout().count()))==3
         c=w.godot_controller;c.launch_context(project,'sfx')
         assert c.project==project and w.workbench.category=='audio' and w.audio_controller.kind.currentData()=='sfx'
         c.launch_context(project,'animation');assert w.generation_type.currentData()=='walk'
@@ -51,11 +51,10 @@ def main():
         sheet=root/'walk.png'
         with patch.object(QFileDialog,'getSaveFileName',return_value=(str(sheet),'PNG')):
             picker.sheet_button.click()
-            popup=next(d for d in w.findChildren(QDialog) if d.windowTitle()=='正在导出')
-            assert popup.isVisible() and not popup.findChildren(QProgressBar)
-            assert any(button.text()=='取消导出' for button in popup.findChildren(QPushButton))
+            assert not any(d.windowTitle()=='正在导出' for d in w.findChildren(QDialog))
+            assert w.export_tasks.cancel_button.isVisible() and w.export_tasks.cancel_button.isEnabled()
             wait_until(lambda:not w.export_tasks.busy)
-        assert w.export_tasks.percent.text()=='100%'
+        assert w.export_tasks.percent.text()=='100%' and not w.export_tasks.cancel_button.isVisible()
         assert picker.reveal.isEnabled() and picker.output_path==sheet.resolve(),picker.status.text()
         metadata=json.loads(sheet.with_suffix('.json').read_text('utf-8'))
         assert metadata['sheet']==sheet.name and metadata['source_indices']==[2,5]
@@ -85,7 +84,7 @@ def main():
         (addon/'plugin.gd').write_text('# user edit')
         install_addon(project,application)
         assert any(p.read_text('utf-8')=='# user edit' for p in (project/'.aipictures').glob('addon_backup_*/plugin.gd'))
-        if args.proof:write_json(args.proof/'acceptance.json',dict(actual_qt=True,frames_exported=True,four_direction_mapping=True,portable_sprite_sheet=True,numbered_png_sequence=True,percentage_rows=True,export_popup_without_bar=True,project_launch_context=True,plugin_backup=True,model_inference=False))
+        if args.proof:write_json(args.proof/'acceptance.json',dict(actual_qt=True,frames_exported=True,four_direction_mapping=True,portable_sprite_sheet=True,numbered_png_sequence=True,percentage_rows=True,export_without_popup=True,project_launch_context=True,plugin_backup=True,model_inference=False))
     print('Qt Godot context / project component / PNG sequence / sprite sheet / safe install: PASS')
 
 

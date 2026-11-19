@@ -123,7 +123,7 @@ class VideoPreview(QWidget):
         def event(kind,data):
             if kind=='result':done()
             elif kind=='error':w.add_chat('软件','导出未完成：'+str(data))
-        if not w.export_tasks.submit('导出视频', [self.manifest,self.source,self.rgb_source], action, event, popup=True):
+        if not w.export_tasks.submit('导出视频', [self.manifest,self.source,self.rgb_source], action, event):
             w.export_tasks.status.setToolTip('已有导出或缓存清理正在进行。')
 
     def split(self):

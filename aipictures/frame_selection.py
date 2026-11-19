@@ -253,7 +253,7 @@ class FrameSelectionDialog(QDialog):
                 self.status.setText(message);self.selection_changed()
         accepted=w.export_tasks.submit(title, [manifest,self.source_manifest,self.source.native,folder,*self.source.paths,*self.source.processed,*prepared.values()],
             lambda cancel,emit:export_selection(manifest,indices,folder,target,kind,fps,columns,matte,loop,cancel,emit,prepared=prepared),
-            done,popup=True)
+            done)
         if accepted:self.status.setText(f'正在导出所选 {len(indices)} 帧…')
         else:
             self.busy=False;self.selection_changed()
