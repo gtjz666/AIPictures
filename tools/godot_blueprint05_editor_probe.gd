@@ -43,12 +43,12 @@ func run() -> void:
 	assert(Model.find(window.get("data"), "button_test")["params"]["normal_texture"] == files["files"][0])
 	var legacy: Node = Node.new()
 	var legacy_script: GDScript = GDScript.new()
-	legacy_script.source_code = "extends Node\nconst API_VERSION: int = 4\n@export var compiled_blueprint: Dictionary = {}\n"
+	legacy_script.source_code = "extends Node\nconst API_VERSION: int = 4\n@export var game_blueprint: Dictionary = {}\n@export var compiled_blueprint: Dictionary = {}\n"
 	assert(legacy_script.reload() == OK)
 	legacy.set_script(legacy_script)
 	window.set("target", legacy)
 	window.call("apply_game")
-	assert((window.get("message") as Label).text.contains("旧运行模块"))
+	assert((window.get("message") as Label).text.contains("旧版运行模块"))
 	legacy.free()
 	window.set("target", null)
 	# Collapsing and rebuilding preserves the editor-project preference.

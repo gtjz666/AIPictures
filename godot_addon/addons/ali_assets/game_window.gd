@@ -19,20 +19,33 @@ const ImportWizard: GDScript = preload("asset_import_wizard.gd")
 const AnimationPreview: GDScript = preload("animation_preview.gd")
 const ParameterLibrary: GDScript = preload("subgraph_library.gd")
 const TilePicker: GDScript = preload("tile_picker.gd")
-var data: Dictionary = Model.preset()
+const FrameTrack: GDScript = preload("frame_track.gd")
+const TrackIO: GDScript = preload("frame_track_io.gd")
+var data: Dictionary = Model.empty_scene()
 var graph: GraphEdit
+var frame_track: VBoxContainer
+var runner_action: OptionButton
+var empty_hint: Label
 var inspector: VBoxContainer
 var message: Label
 var target_label: Label
 var target: Node
-var selected_id: String = "session"
+var selected_id: String = ""
+var scene_key: String = ""
+var scene_drafts: Dictionary = {}
+var function_mode: bool = false
+var function_path: String = ""
+var function_entry: Dictionary = {"node":"function_start","port":0}
+var function_exit: Dictionary = {"node":"function_return","port":0}
+var function_type: String = "parameter_module"
+var tools_menu: MenuButton
+var apply_button: Button
 var history: UndoRedo = UndoRedo.new()
 var chooser: FileDialog
 var operation: String = ""
 var pending_field: String = ""
 var capture_field: String = ""
 var dirty: bool = false
-var startup: CheckBox
 var palette: Window
 var search: LineEdit
 var results: ItemList
@@ -61,7 +74,7 @@ func _exit_tree() -> void:
 
 
 func _ready() -> void:
-	title = "AlI · 游戏蓝图工作台"
+	title = "AlI · 场景蓝图"
 	min_size = Vector2i(1100, 700)
 	size = Vector2i(1500, 900)
 	close_requested.connect(hide)
@@ -72,46 +85,27 @@ func _ready() -> void:
 	add_child(root)
 	var toolbar: HBoxContainer = HBoxContainer.new()
 	root.add_child(toolbar)
-	button(toolbar, "新建横版跳跃模板", func() -> void: change("新建模板", Model.preset()))
-	button(toolbar, "新建通用2D模板", func() -> void: change("新建通用模板", Model.scene_preset()))
-	button(toolbar, "+ 搜索模块…", func() -> void: open_palette())
-	var combos: MenuButton = MenuButton.new()
-	combos.text = "+ 常用组合 ▾"
-	combos.get_popup().add_item("生命值／受伤／恢复／死亡（J／K）", 0)
-	combos.get_popup().add_item("状态机／攻击冷却示例（F）", 1)
-	combos.get_popup().id_pressed.connect(func(index: int) -> void: change("添加常用组合", Model.add_combo(data, "health" if index == 0 else "fsm")))
-	toolbar.add_child(combos)
+	if not function_mode: button(toolbar, "新建蓝图场景…",func() -> void: choose("new_canvas"))
+	button(toolbar, "+ 添加模块…", func() -> void: open_palette())
 	button(toolbar, "撤销", func() -> void: history.undo())
 	button(toolbar, "重做", func() -> void: history.redo())
-	button(toolbar, "打开蓝图…", func() -> void: choose("load"))
-	button(toolbar, "保存蓝图…", func() -> void: choose("save"))
-	var tools: HBoxContainer = HBoxContainer.new()
-	root.add_child(tools)
-	toolbar = tools
-	button(toolbar, "编译检查", check_graph)
-	button(toolbar, "保存所选为子图…", save_module)
-	button(toolbar, "执行记录", show_debug)
-	button(toolbar, "动画／图集导入…", func() -> void:
-		var wizard: Window = ImportWizard.new()
-		add_child(wizard)
-		wizard.popup_centered())
-	button(toolbar, "复制", copy_selected)
-	button(toolbar, "粘贴", paste_nodes)
-	button(toolbar, "资源预览…", func() -> void:
-		var browser: Window = Browser.new()
-		add_child(browser)
-		browser.popup_centered())
-	button(toolbar, "创建游戏场景…", func() -> void: choose("scene"))
-	button(toolbar, "绑定当前游戏", bind_selection)
-	button(toolbar, "应用到游戏", apply_game)
+	tools_menu = MenuButton.new()
+	tools_menu.text = "工具"
+	toolbar.add_child(tools_menu)
+	setup_tools()
+	if function_mode:
+		if not function_path.is_empty(): button(toolbar,"保存修改",func() -> void: save_function(function_path.begins_with(Library.GLOBAL_FUNCTIONS + "/"),true))
+		button(toolbar,"保存局部函数…",func() -> void: save_function(false))
+		button(toolbar,"保存全局函数…",func() -> void: save_function(true))
+	else:
+		apply_button = button(toolbar, "应用到场景", apply_game)
+		apply_button.disabled = true
 	var options: HBoxContainer = HBoxContainer.new()
 	root.add_child(options)
-	startup = CheckBox.new()
-	startup.text = "创建后设为项目启动场景"
-	options.add_child(startup)
 	target_label = Label.new()
-	target_label.text = "未绑定 · 模板已连好，先创建场景，再按F6运行。"
-	options.add_child(target_label)
+	target_label.text = "尚未打开场景"
+	target_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	options.add_child(target_label,1)
 	navigator = OptionButton.new()
 	navigator.custom_minimum_size.x = 210
 	navigator.tooltip_text = "快速选择并定位模块"
@@ -124,9 +118,10 @@ func _ready() -> void:
 			if child is GraphNode:
 				(child as GraphNode).selected = str(child.name) == selected_id)
 	options.add_child(navigator)
-	var hint: Label = Label.new()
-	hint.text = "点击模块，在右侧改参数／选素材。白色执行／绿色布尔／蓝色数字／粉色文字。拖线到空白处可搜索兼容模块。默认素材与声音为原创演示占位，可逐项替换。"
-	root.add_child(hint)
+	empty_hint = Label.new()
+	empty_hint.text = "右键画布或点击「添加模块」开始。若动画要播放，请把事件的执行线连到播放端口。"
+	empty_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(empty_hint)
 	var split: HSplitContainer = HSplitContainer.new()
 	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(split)
@@ -155,6 +150,15 @@ func _ready() -> void:
 	inspector.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(inspector)
 	split.add_child(scroll)
+	runner_action = OptionButton.new()
+	for value: String in ["跑步／走路","跳跃","死亡"]: runner_action.add_item(value)
+	runner_action.item_selected.connect(func(_index: int) -> void: show_inspector())
+	runner_action.hide()
+	root.add_child(runner_action)
+	frame_track = FrameTrack.new()
+	frame_track.hide()
+	root.add_child(frame_track)
+	frame_track.connect("clip_saved", track_saved)
 	message = Label.new()
 	message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(message)
@@ -171,6 +175,27 @@ func _ready() -> void:
 	add_child(debug_timer)
 	debug_timer.start()
 	render()
+
+
+func setup_tools() -> void:
+	var menu: PopupMenu = tools_menu.get_popup()
+	var entries: Array[String] = ["编译检查","执行记录","导入蓝图 JSON…","备份蓝图 JSON…","新建空白函数…","将选中保存为局部函数…","将选中保存为全局函数…","动画／图集工具…","资源预览…","旧模板：横版跑酷…","旧模板：通用2D…"]
+	var actions: Array[Callable] = [check_graph,show_debug,func() -> void: choose("load"),func() -> void: choose("save"),open_function,func() -> void: save_module(false),func() -> void: save_module(true),open_import_wizard,open_resource_browser,func() -> void: choose("runner_template"),func() -> void: choose("2d_template")]
+	for index: int in range(entries.size()):
+		if not function_mode or index in [0,7,8]: menu.add_item(entries[index],index)
+	menu.id_pressed.connect(func(id: int) -> void: actions[id].call())
+
+
+func open_import_wizard() -> void:
+	var wizard: Window = ImportWizard.new()
+	add_child(wizard)
+	wizard.popup_centered()
+
+
+func open_resource_browser() -> void:
+	var browser: Window = Browser.new()
+	add_child(browser)
+	browser.popup_centered()
 
 
 func button(parent: Node, text: String, callback: Callable) -> Button:
@@ -199,13 +224,15 @@ func assign(next: Dictionary, refresh: bool = true) -> void:
 	dirty = true
 	capture_field = ""
 	render(refresh)
-	message.text = "修改已记录；请应用到现有游戏并保存场景，或创建新场景。"
+	message.text = "草稿已更新。"
 
 
 func render(refresh: bool = true) -> void:
 	if graph == null:
 		return
 	graph.clear_connections()
+	empty_hint.visible = data["nodes"].is_empty()
+	navigator.visible = not data["nodes"].is_empty()
 	navigator.clear()
 	for node: Dictionary in data["nodes"]:
 		var index: int = navigator.item_count
@@ -222,7 +249,7 @@ func render(refresh: bool = true) -> void:
 		var id: String = str(node["id"])
 		var kind: String = str(node["kind"])
 		widget.name = id
-		widget.title = str(Model.TITLES[kind]) + (" · " + Model.summary(node) if not Model.summary(node).is_empty() else "")
+		widget.title = str(node.get("title",Model.TITLES[kind])) + (" · " + Model.summary(node) if not Model.summary(node).is_empty() else "")
 		widget.tooltip_text = EditorTools.description(kind)+"\n模块编号："+id
 		widget.custom_minimum_size.x = 260
 		widget.position_offset = Vector2(float(node["position"][0]), float(node["position"][1]))
@@ -232,8 +259,10 @@ func render(refresh: bool = true) -> void:
 		widget.add_theme_stylebox_override("titlebar", style)
 		graph.add_child(widget)
 		widget.set_drag_forwarding(Callable(),
-			func(_point: Vector2, payload: Variant) -> bool: return compatible_fields(id, Drop.from_drag(payload)).size() == 1,
-			func(_point: Vector2, payload: Variant) -> void: bind_dropped_asset(id, Drop.from_drag(payload)))
+			func(_point: Vector2, payload: Variant) -> bool: return TrackIO.acceptable(TrackIO.from_payload(payload)) if kind in ["animation","runner"] else compatible_fields(id, Drop.from_drag(payload)).size() == 1,
+			func(_point: Vector2, payload: Variant) -> void:
+				if kind in ["animation","runner"]: import_track(id, TrackIO.from_payload(payload))
+				else: bind_dropped_asset(id, Drop.from_drag(payload)))
 		widget.node_selected.connect(func() -> void:
 			selected_id = id
 			navigator.select(data["nodes"].find(node))
@@ -271,6 +300,16 @@ func show_inspector() -> void:
 		inspector.remove_child(child)
 		child.queue_free()
 	var node: Dictionary = Model.find(data, selected_id)
+	var runner: bool = node.get("kind") == "runner"
+	var display_track: bool = node.get("kind") == "animation" or runner
+	frame_track.visible = display_track
+	runner_action.visible = runner
+	if display_track:
+		var params: Dictionary = node["params"].duplicate()
+		if runner: params["clip"] = params[runner_clip()]
+		frame_track.call("bind",scene_key + ":" + selected_id + ":" + JSON.stringify(params),str(params.get("frames","")),params)
+	else:
+		frame_track.call("stop")
 	if node.is_empty():
 		return
 	var kind: String = str(node["kind"])
@@ -282,6 +321,8 @@ func show_inspector() -> void:
 	description.text = EditorTools.description(kind)
 	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	inspector.add_child(description)
+	if kind in ["subgraph","module"] and str(node["params"]["path"]).begins_with("res://blueprints/"):
+		button(inspector,"编辑此函数…",func() -> void: open_function(str(node["params"]["path"])))
 	button(inspector,"★ 取消收藏" if kind in favorites else "☆ 收藏此类模块",func() -> void:
 		if kind in favorites: favorites.erase(kind)
 		else: favorites.append(kind)
@@ -523,19 +564,61 @@ func compatible_fields(id: String, path: String) -> Dictionary:
 
 
 func on_files_dropped(paths: PackedStringArray) -> void:
-	if paths.size() != 1:
-		return
 	var id: String = Drop.node_at(graph, Vector2(DisplayServer.mouse_get_position()))
 	if id.is_empty():
 		return
+	if Model.find(data,id).get("kind") in ["animation","runner"]:
+		import_track(id, paths)
+		return
+	if paths.size() != 1: return
 	var path: String = Drop.project_file(paths[0])
 	if path.is_empty():
-		message.text = "请先在 AlI 为当前 Godot 项目准备组件。"
+		message.text = "外部帧文件请拖到「通用动画」模块或动画轴上。"
 		return
 	var drop_target: Node = target
 	message.text = "正在导入素材…"
 	if await Drop.import_files(self) and target == drop_target:
 		bind_dropped_asset(id, path)
+
+
+func import_track(id: String, paths: PackedStringArray) -> void:
+	selected_id = id
+	show_inspector()
+	frame_track.call("import_paths",paths)
+
+
+func selected_object_path() -> String:
+	if not is_instance_valid(target): return ""
+	var objects: Array[Node] = EditorInterface.get_selection().get_selected_nodes()
+	if objects.size() != 1 or not (objects[0] == target or target.is_ancestor_of(objects[0])): return ""
+	return str(target.get_path_to(objects[0]))
+
+
+func track_saved(path: String, clip: String, looped: bool, reversed: bool, speed: float) -> void:
+	var next: Dictionary = data.duplicate(true)
+	var node: Dictionary = Model.find(next,selected_id)
+	if node.get("kind") == "runner":
+		bind_runner_frames(path,runner_clip(),reversed,speed)
+		return
+	if node.get("kind") != "animation": return
+	var p: Dictionary = node["params"]
+	p.merge({"mode":"frames","frames":path,"clip":clip,"loops":0 if looped else maxi(1,int(p["loops"])),"reverse":reversed,"speed":speed},true)
+	if looped: p["wait"] = false
+	var subject: Node = Access.node(target,p["target"]) if is_instance_valid(target) and not str(p["target"]).is_empty() else null
+	if subject == null and is_instance_valid(target):
+		subject = Access.node(target,selected_object_path())
+		if subject == null: subject = target
+	if is_instance_valid(subject) and not subject is AnimatedSprite2D:
+		var sprites: Array[Node] = subject.find_children("*","AnimatedSprite2D",true,false)
+		if sprites.size() == 1: subject = sprites[0]
+		elif sprites.is_empty() and (subject is Node2D or subject is Control) and data.get("template") == "canvas":
+			p["target"] = str(target.get_path_to(subject)).path_join("AlIVisual").trim_prefix("./")
+			subject = null
+	if is_instance_valid(subject): p["target"] = str(target.get_path_to(subject))
+	node["resources"] = node.get("resources",{}).duplicate()
+	node["resources"]["frames"] = Link.descriptor(path)
+	if change("应用动画轴",next):
+		message.text = "动画已绑定。应用到场景后保存。"
 
 
 func bind_dropped_asset(id: String, path: String) -> void:
@@ -550,7 +633,11 @@ func bind_dropped_asset(id: String, path: String) -> void:
 	show_inspector()
 
 
-func bind_runner_frames(path: String) -> void:
+func runner_clip() -> String:
+	return ["walk","jump","death"][maxi(0,runner_action.selected)]
+
+
+func bind_runner_frames(path: String, selected_action: String = "", reversed: bool = false, speed: float = 1.0) -> void:
 	var runner: Dictionary = Model.find(data, selected_id)
 	var params: Dictionary = runner["params"]
 	var source: SpriteFrames = Model.frames_at(path)
@@ -559,7 +646,10 @@ func bind_runner_frames(path: String) -> void:
 		message.text = "组件没有可播放的动画帧。"
 		return
 	var clips: Dictionary = {}
+	if not selected_action.is_empty():
+		clips[selected_action] = names[0]
 	for field: String in ["walk", "jump", "death"]:
+		if not selected_action.is_empty(): break
 		if str(params[field]) in names:
 			clips[field] = str(params[field])
 		else:
@@ -585,6 +675,13 @@ func bind_runner_frames(path: String) -> void:
 			var name: String = str(params[field])
 			if clips.has(field):
 				Drop.copy_clip(merged, name, source, clips[field])
+				if not selected_action.is_empty():
+					var fps: float = merged.get_animation_speed(name)
+					merged.set_animation_speed(name,clampf(fps*speed,0.01,240.0))
+					if reversed:
+						merged.clear(name)
+						for index: int in range(source.get_frame_count(clips[field])-1,-1,-1):
+							merged.add_frame(name,source.get_frame_texture(clips[field],index),source.get_frame_duration(clips[field],index))
 			elif not merged.has_animation(name) or merged.get_frame_count(name) == 0:
 				Drop.copy_clip(merged, name, source, fallback, true)
 		path = "res://generated/ali_assets/runner_frames_%s_%s.res" % [Time.get_ticks_usec(), randi()]
@@ -648,53 +745,82 @@ func delete_modules(ids: Array[StringName]) -> void:
 
 
 func bind_selection() -> void:
+	if function_mode: return
 	var nodes: Array[Node] = EditorInterface.get_selection().get_selected_nodes()
-	if nodes.size() != 1 or not "game_blueprint" in nodes[0]:
-		message.text = "请选中创建的RunnerGame游戏根节点。"
-		return
-	if dirty:
-		if is_instance_valid(target) and target != nodes[0]:
-			message.text = "请先保存或应用当前修改，再更换绑定游戏。"
-			return
-		target = nodes[0]
-		target_label.text = "已绑定：" + str(target.name)
-		message.text = "当前草稿已保留；点击应用到游戏，再保存场景。"
-		return
-	target = nodes[0]
-	var stored: Dictionary = target.get("game_blueprint")
+	var root: Node = EditorInterface.get_edited_scene_root()
+	if root == null and nodes.size() == 1 and "game_blueprint" in nodes[0]: root = nodes[0]
+	bind_scene(root)
+
+
+func bind_scene(root: Node) -> void:
+	if function_mode or (target == root and (is_instance_valid(root) or scene_key.is_empty())): return
+	if dirty and not scene_key.is_empty(): scene_drafts[scene_key] = data.duplicate(true)
+	target = root
+	scene_key = root.scene_file_path if is_instance_valid(root) else ""
+	if is_instance_valid(root) and scene_key.is_empty(): scene_key = "instance:%d" % root.get_instance_id()
+	history.clear_history()
+	selected_id = ""
+	var runtime: Node = Builder.scene_runtime(root)
+	var stored: Dictionary = runtime.get("game_blueprint") if is_instance_valid(runtime) else Model.empty_scene(scene_key)
+	if scene_drafts.has(scene_key): stored = scene_drafts[scene_key]
 	var problem: String = Model.validate(stored)
 	if not problem.is_empty():
 		message.text = problem
 		return
 	data = Link.normalize(stored)
-	history.clear_history()
-	target_label.text = "已绑定：" + str(target.name)
+	if is_instance_valid(root) and str(data.get("scope","")).is_empty(): data["scope"] = scene_key.sha256_text().left(24)
+	dirty = scene_drafts.has(scene_key)
+	target_label.text = "场景  " + str(root.name) if is_instance_valid(root) else "尚未打开场景"
+	if apply_button != null: apply_button.disabled = not is_instance_valid(root)
 	render()
 
 
 func apply_game() -> void:
 	if not is_instance_valid(target):
-		message.text = "请先绑定游戏根节点，或创建新场景。"
+		message.text = "请先打开或创建场景。"
 		return
-	if not "compiled_blueprint" in target or not target.get_script() is GDScript or int(target.get_script().get_script_constant_map().get("API_VERSION", 0)) < 6:
-		message.text = "此场景使用旧运行模块。草稿已保留，请创建新名称的游戏场景升级；旧场景不会覆盖。"
+	var runtime: Node = Builder.scene_runtime(target)
+	if runtime != null and (not "compiled_blueprint" in runtime or not runtime.get_script() is GDScript or int(runtime.get_script().get_script_constant_map().get("API_VERSION", 0)) < 6):
+		message.text = "此场景使用旧版运行模块，请在旧场景中保留现有逻辑。"
 		return
 	var prepared: Dictionary = Library.compile(data)
 	var problem: String = str(prepared.get("error", ""))
 	if not problem.is_empty():
 		message.text = problem
 		return
+	if data.get("template") == "canvas":
+		for node: Dictionary in data["nodes"]:
+			var params: Dictionary = node["params"]
+			if node["kind"] != "animation" or params.get("mode") != "frames" or str(params.get("frames","")).is_empty(): continue
+			var path: String = str(params["target"])
+			if Access.node(target,path) is AnimatedSprite2D: continue
+			var directory: String = path.get_base_dir()
+			var parent: Node = target if directory.is_empty() else Access.node(target,directory)
+			if path.get_file() == "AlIVisual" and parent is CanvasItem and (parent == target or parent.owner == target) and not parent.has_node("AlIVisual"): continue
+			message.text = "请为帧动画选择本场景的 AnimatedSprite2D，或选中一个普通 2D 对象后重新应用动画轴。"
+			return
 	game_applied.emit(target, data.duplicate(true))
 	dirty = false
-	message.text = "已应用；请保存Godot场景，再运行。"
+	scene_drafts.erase(scene_key)
+	message.text = "已应用到当前场景。按 Ctrl+S 保存，F6 运行。"
 
 
 func choose(kind: String) -> void:
 	operation = kind
-	chooser.file_mode = FileDialog.FILE_MODE_SAVE_FILE if kind in ["save", "scene", "new_script", "save_module"] else FileDialog.FILE_MODE_OPEN_FILE
-	chooser.filters = PackedStringArray(["*.tscn ; 游戏场景"]) if kind in ["scene", "scene_asset"] else PackedStringArray(["*.json ; 蓝图／子图"]) if kind in ["save", "load", "module", "save_module"] else PackedStringArray(["*.gd ; 自定义模块"]) if kind in ["script", "new_script"] else PackedStringArray(["*.tscn,*.tres ; 角色动画资源"]) if kind == "frames" else PackedStringArray(["*.wav,*.ogg,*.mp3 ; 音频"]) if kind == "audio" else PackedStringArray(["*.png,*.jpg,*.webp ; 图片"])
-	if kind in ["scene", "save", "new_script", "save_module"]:
-		chooser.current_file = "runner_game.tscn" if kind == "scene" else "runner_blueprint.json" if kind == "save" else "flow_module.json" if kind == "save_module" else "game_module.gd"
+	var scene_file: bool = kind in ["new_canvas","runner_template","2d_template","scene"]
+	var scoped_function: bool = kind in ["local_function","global_function"]
+	chooser.file_mode = FileDialog.FILE_MODE_SAVE_FILE if scene_file or scoped_function or kind in ["save","new_script"] else FileDialog.FILE_MODE_OPEN_FILE
+	chooser.filters = PackedStringArray(["*.tscn ; Godot 场景"]) if scene_file else PackedStringArray(["*.json ; 蓝图／函数"]) if scoped_function or kind in ["save","load"] else PackedStringArray(["*.gd ; 自定义脚本"])
+	if scene_file: chooser.current_file = "new_scene.tscn"
+	elif scoped_function:
+		var folder: String = function_folder(kind == "global_function")
+		if folder.is_empty() or DirAccess.make_dir_recursive_absolute(folder) != OK:
+			message.text = "请先保存当前场景，或将函数保存为全局。"
+			return
+		chooser.current_dir = folder
+		chooser.current_file = "function.json"
+	elif kind == "save": chooser.current_file = "scene_blueprint.json"
+	elif kind == "new_script": chooser.current_file = "game_module.gd"
 	chooser.popup_centered(Vector2i(850, 560))
 
 
@@ -702,42 +828,44 @@ func file_selected(path: String) -> void:
 	if not path.begins_with("res://") or ".." in path:
 		message.text = "请选择当前项目内位置。"
 		return
-	if operation == "scene":
-		var problem: String = Builder.create_scene(data, path)
+	if operation in ["new_canvas","runner_template","2d_template","scene"]:
+		var problem: String = Builder.create_canvas(path) if operation == "new_canvas" else Builder.create_scene(Model.preset() if operation == "runner_template" else Model.scene_preset() if operation == "2d_template" else data,path)
 		if not problem.is_empty():
 			message.text = problem
 			return
-		dirty = false
-		target = null
-		target_label.text = "新场景已创建；请选择RunnerGame并绑定以继续编辑。"
-		if startup.button_pressed:
-			ProjectSettings.set_setting("application/run/main_scene", path)
-			ProjectSettings.save()
 		EditorInterface.get_resource_filesystem().scan()
 		EditorInterface.open_scene_from_path(path)
-		message.text = "已创建完整游戏；选中游戏根节点绑定后继续修改，按F6运行。"
-	elif operation == "save_module":
-		if FileAccess.file_exists(path):
-			message.text = "子图已存在，请使用新名称。"
+		message.text = "场景已创建。"
+	elif operation in ["local_function","global_function"]:
+		var folder: String = function_folder(operation == "global_function")
+		if folder.is_empty() or path.get_base_dir() != folder or path.get_extension().to_lower() != "json":
+			message.text = "请在当前作用域文件夹内保存函数。"
+			return
+		if FileAccess.file_exists(path) and path != function_path:
+			message.text = "函数已存在，请使用新名称。"
+			return
+		var error: String = Library.module_scope_error(module_draft["nodes"],str(data.get("scope","")),operation == "global_function")
+		if not error.is_empty():
+			message.text = error
 			return
 		var file: FileAccess = FileAccess.open(path, FileAccess.WRITE)
 		if file != null:
 			file.store_string(JSON.stringify(module_draft, "\t"))
 			file.close()
-			message.text = "子图已保存；搜索“可复用子图”并选择此文件即可调用。"
+			message.text = "函数已保存，可在「添加模块」中按名称找到。"
 	elif operation == "save":
 		var file: FileAccess = FileAccess.open(path, FileAccess.WRITE)
 		if file != null:
 			file.store_string(JSON.stringify(data, "\t"))
 			file.close()
-			dirty = false
-			message.text = "蓝图已保存；应用到游戏后仍需保存场景。"
+		message.text = "已备份蓝图。应用到场景后保存 Godot 场景。"
 	elif operation == "load":
 		if FileAccess.get_file_as_bytes(path).size() > 1024 * 1024:
 			message.text = "文件超过1MB。"
 			return
 		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
 		if parsed is Dictionary:
+			parsed["scope"] = data.get("scope","")
 			change("打开蓝图", parsed)
 		else:
 			message.text = "不是有效的游戏蓝图。"
@@ -799,6 +927,7 @@ func filter_palette() -> void:
 	results.clear()
 	var term: String = search.text.strip_edges().to_lower()
 	for kind: String in Model.TITLES:
+		if function_mode and (kind in Model.SINGLETONS or kind in ["key_event","event_listener","signal_event","ui_event","event_receive","game_event","input_action","button"]): continue
 		if favorites_only and not kind in favorites: continue
 		var label: String = ("★ " if kind in favorites else "")+Model.category(kind) + " · " + str(Model.TITLES[kind])
 		if not term.is_empty() and not term in label.to_lower() and not term in kind:
@@ -815,13 +944,34 @@ func filter_palette() -> void:
 		var index: int = results.add_item(label)
 		results.set_item_metadata(index, kind)
 		results.set_item_tooltip(index,EditorTools.description(kind))
+	if favorites_only: return
+	for global_scope: bool in [false,true]:
+		var folder: String = function_folder(global_scope)
+		if folder.is_empty() or not DirAccess.dir_exists_absolute(folder): continue
+		for entry: String in DirAccess.get_files_at(folder):
+			if entry.get_extension().to_lower() != "json": continue
+			var label: String = ("全局函数 · " if global_scope else "局部函数 · ") + entry.get_basename()
+			if not term.is_empty() and not term in label.to_lower(): continue
+			var path: String = folder.path_join(entry)
+			var resource: Dictionary = ParameterLibrary.read(path)
+			if resource.has("error"): continue
+			var kind: String = "subgraph" if resource["data"]["type"] == "parameter_module" else "module"
+			if not palette_source.is_empty() and Model.port_type(data,palette_source,palette_port,true) != 0: continue
+			var index: int = results.add_item(label)
+			results.set_item_metadata(index,{"kind":kind,"path":path,"title":label})
 
 
 func add_palette_item(index: int) -> void:
-	var kind: String = str(results.get_item_metadata(index))
+	var item: Variant = results.get_item_metadata(index)
+	var kind: String = str(item["kind"]) if item is Dictionary else str(item)
 	var next: Dictionary = data.duplicate(true)
 	var id: String = "module_" + str(Time.get_ticks_usec())
 	var node: Dictionary = Model.module(id, kind, palette_position.x, palette_position.y)
+	if item is Dictionary:
+		node["params"]["path"] = item["path"]
+		node["title"] = item["title"]
+	elif node["params"].has("target") and not function_mode:
+		node["params"]["target"] = selected_object_path()
 	if kind in ["boolean", "blackboard", "fsm"]:
 		node["params"]["name"] = id
 	next["nodes"].append(node)
@@ -848,7 +998,73 @@ func check_graph() -> void:
 		message.text = "编译通过 · 展开后%d个模块、%d条连线。应用到游戏后保存场景；修改子图文件后需重新应用。" % [prepared["data"]["nodes"].size(), prepared["data"]["edges"].size()]
 
 
-func save_module() -> void:
+func function_folder(project_global: bool) -> String:
+	if project_global: return Library.GLOBAL_FUNCTIONS
+	var scope: String = str(data.get("scope",""))
+	return Library.LOCAL_FUNCTIONS.path_join(scope) if not scope.is_empty() else ""
+
+
+func open_function(path: String = "") -> void:
+	var existing: Dictionary = {}
+	if not path.is_empty():
+		var loaded: Dictionary = ParameterLibrary.read(path)
+		if loaded.has("error"):
+			message.text = str(loaded["error"])
+			return
+		existing = loaded["data"]
+	var editor: Window = get_script().new()
+	editor.set("function_mode",true)
+	editor.set("target",target)
+	editor.set("scene_key",scene_key)
+	var graph_data: Dictionary = Model.empty_scene()
+	graph_data["scope"] = data.get("scope","")
+	if existing.is_empty():
+		for marker: Array in [["function_start","函数入口",80],["function_return","函数返回",720]]:
+			var node: Dictionary = Model.module(str(marker[0]),"log",float(marker[2]),140)
+			node["params"]["text"] = ""
+			node["title"] = marker[1]
+			graph_data["nodes"].append(node)
+	else:
+		graph_data["nodes"] = existing["nodes"]
+		graph_data["edges"] = existing["edges"]
+		editor.set("function_entry",existing["entry"])
+		editor.set("function_exit",existing["exit"])
+		editor.set("function_type",existing["type"])
+		editor.set("function_path",path)
+	editor.set("data",graph_data)
+	add_child(editor)
+	editor.title = "AlI · 编辑函数"
+	editor.close_requested.connect(editor.queue_free)
+	editor.popup_centered(Vector2i(1260,780))
+
+
+func save_function(project_global: bool, replace_current: bool = false) -> void:
+	var entry: Dictionary = Model.find(data,str(function_entry["node"]))
+	var exit: Dictionary = Model.find(data,str(function_exit["node"]))
+	if entry.is_empty() or exit.is_empty():
+		message.text = "函数需要入口与返回模块。"
+		return
+	var connected: Dictionary = {entry["id"]:true}
+	for _step: int in range(data["nodes"].size()):
+		for edge: Dictionary in data["edges"]:
+			if connected.has(edge["from"]) and Model.port_type(data,edge["from"],int(edge.get("from_port",0)),true) == 0:
+				connected[edge["to"]] = true
+	if not connected.has(exit["id"]):
+		message.text = "请把执行线从函数入口连到函数返回。"
+		return
+	var problem: Dictionary = Library.compile(data)
+	if problem.has("error"):
+		message.text = str(problem["error"])
+		return
+	module_draft = {"type":function_type,"version":2 if function_type == "parameter_module" else 1,"nodes":data["nodes"].duplicate(true),"edges":data["edges"].duplicate(true),"entry":function_entry,"exit":function_exit}
+	var save_kind: String = "global_function" if project_global else "local_function"
+	if replace_current:
+		operation = save_kind
+		file_selected(function_path)
+	else: choose(save_kind)
+
+
+func save_module(project_global: bool = false) -> void:
 	var selected: Array[String] = []
 	for child: Node in graph.get_children():
 		if child is GraphNode and (child as GraphNode).selected:
@@ -861,7 +1077,7 @@ func save_module() -> void:
 		message.text = str(result["error"])
 		return
 	module_draft = result["data"]
-	choose("save_module")
+	choose("global_function" if project_global else "local_function")
 
 
 func show_debug() -> void:
@@ -913,8 +1129,10 @@ func focus_node(id: String) -> void:
 
 
 func poll_debug() -> void:
-	if not visible: return
-	var path: String = "user://ali_blueprint_"+str(Model.by_kind(data,"session")["params"]["save_key"])+".json"
+	if not visible or function_mode: return
+	var session: Dictionary = Model.by_kind(data,"session")
+	var debug_key: String = "scene_" + str(data.get("scope","")) if data.get("template") == "canvas" else str(session.get("params",{}).get("save_key",""))
+	var path: String = "user://ali_blueprint_"+debug_key+".json"
 	if not FileAccess.file_exists(path) or FileAccess.get_file_as_bytes(path).size() > 2*1024*1024: return
 	var parser: JSON = JSON.new()
 	if parser.parse(FileAccess.get_file_as_string(path)) != OK: return

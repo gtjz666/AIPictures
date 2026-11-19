@@ -14,6 +14,7 @@ func run() -> void:
 	assert(ali != null)
 	ali.call("open_game_window")
 	var window: Window = ali.get("game_window") as Window
+	window.call("assign",Model.preset())
 	assert(window.visible and window.force_native)
 	var graph: GraphEdit = window.get("graph") as GraphEdit
 	var navigator: OptionButton = window.get("navigator") as OptionButton
@@ -53,10 +54,9 @@ func run() -> void:
 	var json: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://saved_game_blueprint.json"))
 	assert(json == JSON.parse_string(JSON.stringify(data)))
 	window.set("operation", "scene")
-	(window.get("startup") as CheckBox).button_pressed = true
 	window.call("file_selected", "res://kit_from_editor.tscn")
 	assert(FileAccess.file_exists("res://kit_from_editor.tscn"))
-	assert(str(ProjectSettings.get_setting("application/run/main_scene")) == "res://kit_from_editor.tscn")
+	assert(str(ProjectSettings.get_setting("application/run/main_scene","")) != "res://kit_from_editor.tscn")
 	await get_tree().create_timer(0.5).timeout
 	var root: Node = EditorInterface.get_edited_scene_root()
 	assert(root != null and "game_blueprint" in root)
@@ -84,7 +84,7 @@ func run() -> void:
 	assert(packed.pack(root) == OK and ResourceSaver.save(packed, "res://kit_from_editor.tscn") == OK)
 	window.hide()
 	var file: FileAccess = FileAccess.open("res://editor-proof.json", FileAccess.WRITE)
-	file.store_string(JSON.stringify({"native_game_window": true, "key_parameter_undo": true, "wiring_undo": true, "assets_assigned": true, "create_scene_and_main": true, "apply_undo_redo": true, "json_scene_persisted": true}))
+	file.store_string(JSON.stringify({"native_game_window": true, "key_parameter_undo": true, "wiring_undo": true, "assets_assigned": true, "create_scene_preserves_main": true, "apply_undo_redo": true, "json_scene_persisted": true}))
 	file.close()
 	print("ALI_GAME_EDITOR_OK")
 	get_tree().quit.call_deferred(0)

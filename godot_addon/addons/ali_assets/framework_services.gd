@@ -74,7 +74,7 @@ func current_game() -> Node:
 	return game_ref.get_ref() as Node if game_ref != null else null
 
 
-func attach_game(game: Node) -> void:
+func attach_game(game: Node, apply_initial_settings: bool = true) -> void:
 	game_ref = weakref(game)
 	if not settings.has("volumes"): settings["volumes"] = game.get("mixer_values").duplicate(true)
 	if not settings.has("resolution"):
@@ -82,11 +82,13 @@ func attach_game(game: Node) -> void:
 		if resolution.x < 320 or resolution.y < 240: resolution = game.get("base_size")
 		settings["resolution"] = [resolution.x,resolution.y]
 	if not settings.has("window"): settings["window"] = "windowed"
-	var error: String = apply_settings()
-	if not error.is_empty(): last_error = error
+	if apply_initial_settings:
+		var error: String = apply_settings()
+		if not error.is_empty(): last_error = error
 	notify("initialized",{"state":state})
 	var transition: RefCounted = scenes.get("active") as RefCounted
-	if transition == null or transition.get("state") != "running": notify("scene_entered",{"scene":game.scene_file_path})
+	var scene: Node = game.get("binding_root") as Node if "binding_root" in game and game.get("binding_root") != null else game
+	if transition == null or transition.get("state") != "running": notify("scene_entered",{"scene":scene.scene_file_path})
 	if not pending_save.is_empty(): restore_pending.call_deferred()
 	elif manifest.get("auto_start",false): lifecycle.call_deferred("start")
 

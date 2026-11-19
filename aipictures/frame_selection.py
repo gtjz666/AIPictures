@@ -2,8 +2,8 @@
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
-from PySide6.QtCore import Qt,QSize,QTimer
-from PySide6.QtGui import QImage,QPixmap,QIcon
+from PySide6.QtCore import Qt,QSize,QTimer,QUrl
+from PySide6.QtGui import QImage,QPixmap,QIcon,QDesktopServices
 from shiboken6 import isValid
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QSplitter,QWidget,QLabel,
     QListWidget,QListWidgetItem,QPushButton,QSlider,QSpinBox,QCheckBox,QFileDialog,QApplication)
@@ -55,10 +55,12 @@ class FrameSelectionDialog(QDialog):
         self.loop=QCheckBox('循环播放');self.loop.setChecked(True);options.addWidget(self.loop);options.addStretch();layout.addLayout(options)
         self.status=QLabel('预览原始画面。勾选透明背景后，导出时只处理所选帧。')
         self.status.setWordWrap(True);layout.addWidget(self.status)
-        buttons=QHBoxLayout();self.sheet_button=QPushButton('导出精灵图…');self.png_button=QPushButton('导出所选 PNG…')
+        buttons=QHBoxLayout();self.clip_button=QPushButton('导出动画…');self.sheet_button=QPushButton('导出精灵图…');self.png_button=QPushButton('导出所选 PNG…')
+        self.clip_button.clicked.connect(lambda:self.export('clip'));buttons.addWidget(self.clip_button)
         self.sheet_button.clicked.connect(lambda:self.export('sheet'));self.png_button.clicked.connect(lambda:self.export('pngs'))
         buttons.addWidget(self.sheet_button);buttons.addWidget(self.png_button)
-        self.godot_button=QPushButton('拖入 Godot…');self.godot_button.clicked.connect(self.export_godot);buttons.addWidget(self.godot_button)
+        self.output_path=None
+        self.reveal=QPushButton('打开导出位置');self.reveal.setEnabled(False);self.reveal.clicked.connect(self.reveal_export);buttons.addWidget(self.reveal)
         close=QPushButton('关闭');close.clicked.connect(self.close);buttons.addWidget(close);layout.addLayout(buttons)
         self.timer=QTimer(self);self.timer.timeout.connect(self.advance);self.playback=[];self.play_position=0
         self.slider.sliderPressed.connect(self.timer.stop)
@@ -108,13 +110,12 @@ class FrameSelectionDialog(QDialog):
     def selection_changed(self,*_):
         count=len(self.selected())
         self.summary.setText(f'已选 {count} / {self.source.count} 帧')
-        for button in (self.sheet_button,self.png_button,self.godot_button):button.setEnabled(bool(count) and not self.busy)
+        for button in (self.clip_button,self.sheet_button,self.png_button):button.setEnabled(bool(count) and not self.busy)
 
-    def export_godot(self):
-        indices=self.selected()
-        if not self.busy and indices:
-            self.window.godot_controller.frames(indices,self.fps.value(),parent=self,
-                source=self.source,transparent=self.transparent.isChecked(),loop=self.loop.isChecked())
+    def reveal_export(self):
+        if self.output_path:
+            folder=self.output_path if self.output_path.is_dir() else self.output_path.parent
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     def play(self,selected):
         if self.timer.isActive():self.timer.stop();return
@@ -132,7 +133,10 @@ class FrameSelectionDialog(QDialog):
         if w.export_tasks.busy or w.cache_busy:self.status.setText('已有导出或缓存清理正在进行。');return
         indices=self.selected()
         if not indices:self.status.setText('请先选取至少一帧。');return
-        if kind=='sheet':
+        if kind=='clip':
+            path,_=QFileDialog.getSaveFileName(self,'保存动画文件','animation.zip','动画文件 (*.zip)')
+            if path:path=str(Path(path).with_suffix('.zip'))
+        elif kind=='sheet':
             path,_=QFileDialog.getSaveFileName(self,'保存精灵图与JSON说明','sprite_sheet.png','PNG (*.png)')
             if path:path=str(Path(path).with_suffix('.png'))
         else:path=QFileDialog.getExistingDirectory(self,'选择PNG保存目录（将创建独立素材文件夹）')
@@ -152,6 +156,7 @@ class FrameSelectionDialog(QDialog):
             visible=not self.closed and isValid(self)
             if event=='result':
                 self.exported_manifest=Path(data['manifest'])
+                self.output_path=Path(data['output'])
                 self.prepared_key=key
                 self.prepared={index:self.exported_manifest.parent/f'frame_{position:03d}.png' for position,index in enumerate(indices)}
                 w.cache_store.record_save(data['output'],kind,data['manifest']);w.load_gallery()
@@ -160,7 +165,9 @@ class FrameSelectionDialog(QDialog):
                     w.animation_player.load(data['manifest'])
                 message='已导出 '+str(len(indices))+' 帧：'+data['output']
             else:message='导出未完成：'+str(data)
-            if visible:self.status.setText(message);self.selection_changed()
+            if visible:
+                self.reveal.setEnabled(self.output_path is not None)
+                self.status.setText(message);self.selection_changed()
         accepted=w.export_tasks.submit('导出动画帧', [manifest,self.source_manifest,self.source.native,folder,*self.source.paths,*self.source.processed,*prepared.values()],
             lambda cancel,emit:export_selection(manifest,indices,folder,target,kind,fps,columns,matte,loop,cancel,emit,prepared=prepared),
             done,popup=True)

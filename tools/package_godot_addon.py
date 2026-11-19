@@ -13,12 +13,13 @@ def package(output):
             if path.is_file() and path.suffix in ('.gd','.cfg'):
                 archive.write(path,'addons/ali_assets/'+path.name)
         archive.write(ADDON.parent/'docs/GODOT_ASSETS.md','README.md')
-        for name in ('GODOT_ASSETS.md','DINO_AI_ASSETS_TUTORIAL.md','TRANSPARENT_FRAME_EXPORT.md'):
+        for name in ('GODOT_ASSETS.md','DINO_AI_ASSETS_TUTORIAL.md','TRANSPARENT_FRAME_EXPORT.md','GODOT_SCENE_BLUEPRINT_GUIDE.md'):
             archive.write(ADDON.parent/'docs'/name,name)
         archive.write(ADDON.parent/'docs/GODOT_BLUEPRINTS.md','GODOT_BLUEPRINTS.md')
         archive.write(ADDON.parent/'docs/GODOT_RUNNER_GUIDE.md','GODOT_RUNNER_GUIDE.md')
         from .render_game_guide import render_guide
         archive.writestr('使用步骤.html',render_guide(ADDON.parent/'docs/GODOT_RUNNER_GUIDE.md'))
+        archive.writestr('场景蓝图教程.html',render_guide(ADDON.parent/'docs/GODOT_SCENE_BLUEPRINT_GUIDE.md',title='AlI 场景蓝图教程'))
         catalog=ADDON.parent/'docs/GODOT_BLUEPRINT_CATALOG.md'
         technical=ADDON.parent/'docs/GODOT_BLUEPRINT_TECHNICAL.md'
         archive.write(technical,'GODOT_BLUEPRINT_TECHNICAL.md')

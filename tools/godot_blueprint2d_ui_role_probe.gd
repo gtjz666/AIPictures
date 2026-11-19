@@ -61,6 +61,7 @@ func run() -> void:
 	game_actor.add_child(sprite)
 	root.add_child(game)
 	current_scene = game
+	await wait_frames(2)
 	game.call("session_command",0)
 	await wait_frames(2)
 	var role: Dictionary = RoleModel.empty_graph()

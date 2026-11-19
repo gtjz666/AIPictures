@@ -71,6 +71,10 @@ static func scene_preset() -> Dictionary:
 	return result
 
 
+static func empty_scene(path: String = "") -> Dictionary:
+	return {"version":1,"type":"runner_game","template":"canvas","scope":path.sha256_text().left(24) if not path.is_empty() else "","nodes":[],"edges":[]}
+
+
 static func params(kind: String) -> Dictionary:
 	var result: Dictionary = {}
 	for field: Array in fields(kind):
@@ -267,7 +271,9 @@ static func validate(data: Dictionary, resources: bool = false) -> String:
 			return "未选择角色素材时，请保留演示动画名walk_right／jump_right／death_right。"
 		if resources and kind == "custom" and str(p["script"]).is_empty():
 			return "请先选择或编写自定义模块脚本。"
-	for kind: String in (["session", "input", "hud", "mixer", "screen"] if data.get("template", "runner") == "scene2d" else SINGLETONS):
+	var template: String = str(data.get("template", "runner"))
+	var required: Array = [] if template == "canvas" else ["session", "input", "hud", "mixer", "screen"] if template == "scene2d" else SINGLETONS
+	for kind: String in required:
 		if not singles.has(kind):
 			return "请保留核心模块：" + TITLES[kind]
 	if resources:

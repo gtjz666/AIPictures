@@ -1,27 +1,14 @@
-"""Godot connection and explicit, draggable component exports."""
+"""Godot connection and optional component exports."""
 import json,re
 from tempfile import TemporaryDirectory
 from pathlib import Path
-from PySide6.QtCore import Qt,QMimeData,QUrl,QPoint
-from PySide6.QtGui import QDrag,QDesktopServices
+from PySide6.QtCore import Qt,QUrl
+from PySide6.QtGui import QDesktopServices
 from shiboken6 import isValid
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QPushButton,
-    QFileDialog,QComboBox,QSpinBox,QTableWidget,QTableWidgetItem,QApplication,QInputDialog)
+    QFileDialog,QComboBox,QSpinBox,QTableWidget,QTableWidgetItem,QInputDialog)
 from .godot_assets import project_root,install_addon,export_asset,ACTIONS
 from .storage import write_json
-
-
-class DragSceneButton(QPushButton):
-    def __init__(self):
-        super().__init__('拖入 Godot 蓝图或场景');self.scene=None;self.origin=QPoint();self.setEnabled(False)
-
-    def mousePressEvent(self,event):
-        self.origin=event.position().toPoint();super().mousePressEvent(event)
-
-    def mouseMoveEvent(self,event):
-        if self.scene and event.buttons()&Qt.MouseButton.LeftButton and (event.position().toPoint()-self.origin).manhattanLength()>=QApplication.startDragDistance():
-            mime=QMimeData();mime.setUrls([QUrl.fromLocalFile(str(self.scene))]);drag=QDrag(self);drag.setMimeData(mime);drag.exec(Qt.DropAction.CopyAction)
-        else:super().mouseMoveEvent(event)
 
 
 class GodotExportDialog(QDialog):
@@ -57,9 +44,9 @@ class GodotExportDialog(QDialog):
         layout.addWidget(self.range_note);layout.addWidget(self.ranges)
         self.sound_path=QLineEdit();self.sound_path.setPlaceholderText('可选：关联已生成的脚步声WAV／OGG／MP3')
         row=QHBoxLayout();row.addWidget(self.sound_path,1);self.sound_button=QPushButton('关联脚步声…');self.sound_button.clicked.connect(self.choose_audio);row.addWidget(self.sound_button);layout.addLayout(row)
-        self.status=QLabel('准备好后，将组件拖到 Godot 蓝图的模块或素材槽。');self.status.setWordWrap(True);layout.addWidget(self.status)
-        self.export=QPushButton('准备拖入 Godot');self.export.clicked.connect(self.save);layout.addWidget(self.export)
-        row=QHBoxLayout();self.drag=DragSceneButton();row.addWidget(self.drag,1);self.reveal=QPushButton('打开位置');self.reveal.setEnabled(False);self.reveal.clicked.connect(self.reveal_result);row.addWidget(self.reveal);layout.addLayout(row)
+        self.status=QLabel('组件会保存到当前项目。');self.status.setWordWrap(True);layout.addWidget(self.status)
+        self.export=QPushButton('导出组件');self.export.clicked.connect(self.save);layout.addWidget(self.export)
+        self.reveal=QPushButton('打开导出位置');self.reveal.setEnabled(False);self.reveal.clicked.connect(self.reveal_result);layout.addWidget(self.reveal)
         self.preset.currentIndexChanged.connect(self.update_preset);self.update_preset()
 
     def choose_project(self):
@@ -115,7 +102,7 @@ class GodotExportDialog(QDialog):
         try:
             options=self.options();project_root(options['project'])
         except (ValueError,OSError) as exc:self.status.setText(str(exc));return
-        self.busy=True;self.export.setEnabled(False);self.drag.setEnabled(False);self.reveal.setEnabled(False)
+        self.busy=True;self.export.setEnabled(False);self.reveal.setEnabled(False)
         self.status.setText('正在导出Godot组件…')
         source,transparent=self.source,self.transparent
         frame_keys=list(dict.fromkeys(key for frames in options['animations'].values() for key in frames if type(key) is int))
@@ -153,8 +140,8 @@ class GodotExportDialog(QDialog):
             if not isValid(self) or not self.isVisible():return
             self.export.setEnabled(True)
             if kind=='result':
-                self.drag.scene=Path(data['scene']);self.drag.setEnabled(True);self.reveal.setEnabled(True)
-                self.status.setText('已存入当前项目。按住下方按钮，拖到 Godot 蓝图模块或素材槽。')
+                self.reveal.setEnabled(True)
+                self.status.setText('已存入当前项目。可从 Godot 文件系统使用该组件。')
             else:self.status.setText(str(data))
 
         if not w.export_tasks.submit('导出 Godot 组件',source_paths,run,done,popup=True):
@@ -167,7 +154,7 @@ class GodotController:
         try:self.project=project_root(json.loads((window.api_controller.data/'godot-project.json').read_text('utf-8'))['project'])
         except (OSError,ValueError,KeyError):pass
         menu=window.menuBar().addMenu('Godot');menu.addAction('连接项目／安装插件…',self.install)
-        menu.addAction('导出当前图片组件…',self.image);menu.addAction('导出当前动画组件…',self.animation);menu.addAction('导出当前音频组件…',self.audio)
+        menu.addAction('导出当前图片组件…',self.image);menu.addAction('选帧与导出动画…',self.animation);menu.addAction('导出当前音频组件…',self.audio)
 
     def connect_project(self,path):
         self.project=project_root(path);write_json(self.window.api_controller.data/'godot-project.json',dict(project=str(self.project)))

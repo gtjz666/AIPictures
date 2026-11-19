@@ -4,6 +4,22 @@ extends RefCounted
 const Model: GDScript = preload("game_model.gd")
 const Link: GDScript = preload("resource_link.gd")
 const Parameters: GDScript = preload("subgraph_library.gd")
+const GLOBAL_FUNCTIONS: String = "res://blueprints/global"
+const LOCAL_FUNCTIONS: String = "res://blueprints/local"
+
+
+static func scope_error(path: String, scope: String, project_global: bool) -> String:
+	if not path.begins_with(LOCAL_FUNCTIONS + "/"): return ""
+	if not project_global and not scope.is_empty() and path.get_base_dir() == LOCAL_FUNCTIONS.path_join(scope): return ""
+	return "当前作用域无法调用局部函数：" + path.get_file()
+
+
+static func module_scope_error(nodes: Array, scope: String, project_global: bool = false) -> String:
+	for node: Dictionary in nodes:
+		if node.get("kind") in ["module","subgraph"]:
+			var error: String = scope_error(str(node["params"].get("path","")),scope,project_global)
+			if not error.is_empty(): return error
+	return ""
 
 
 static func signature(data: Dictionary) -> String:
@@ -45,6 +61,9 @@ static func compile(data: Dictionary, parameter_stack: Array = [], bake_budget: 
 	if not error.is_empty():
 		return {"error": error}
 	var result: Dictionary = Link.normalize(Model.upgrade(data))
+	var scope: String = str(result.get("scope",""))
+	error = module_scope_error(result["nodes"],scope)
+	if not error.is_empty(): return {"error":error}
 	for node: Dictionary in result["nodes"]:
 		node.erase("_stack")
 		node.erase("_origin")
@@ -56,12 +75,16 @@ static func compile(data: Dictionary, parameter_stack: Array = [], bake_budget: 
 		var invocation: Dictionary = Model.by_kind(result, "module")
 		var path: String = str(invocation["params"]["path"])
 		var stack: Array = invocation.get("_stack", [])
+		error = scope_error(path,scope,stack.any(func(item: String) -> bool: return item.begins_with(GLOBAL_FUNCTIONS + "/")))
+		if not error.is_empty(): return {"error":error}
 		if stack.size() >= 4 or path in stack:
 			return {"error": str(invocation["id"]) + "：子图递归或超过4层。"}
 		var loaded: Dictionary = read_module(path)
 		if loaded.has("error"):
 			return loaded
 		var source: Dictionary = loaded["data"]
+		error = module_scope_error(source["nodes"],scope,path.begins_with(GLOBAL_FUNCTIONS + "/"))
+		if not error.is_empty(): return {"error":error}
 		var prefix: String = str(invocation["id"]) + "__"
 		var names: Dictionary = {}
 		for node: Dictionary in source["nodes"]:
@@ -94,6 +117,8 @@ static func compile(data: Dictionary, parameter_stack: Array = [], bake_budget: 
 	for node: Dictionary in result["nodes"]:
 		if node["kind"] != "subgraph": continue
 		var path: String = str(node["params"]["path"])
+		error = scope_error(path,scope,(parameter_stack + node.get("_stack",[])).any(func(item: String) -> bool: return item.begins_with(GLOBAL_FUNCTIONS + "/")))
+		if not error.is_empty(): return {"error":error}
 		if not FileAccess.file_exists(path) and node.get("_subgraph") is Dictionary: continue
 		if path in parameter_stack or parameter_stack.size() >= 8: return {"error":"参数化子图递归或超过8层："+path}
 		bake_budget["calls"] = int(bake_budget["calls"])+1
@@ -101,6 +126,7 @@ static func compile(data: Dictionary, parameter_stack: Array = [], bake_budget: 
 		var source: Dictionary = Parameters.read(path)
 		if source.has("error"): return source
 		var child: Dictionary = source["graph"]
+		child["scope"] = scope
 		child["nodes"].append(Model.module("__param_entry","log",0,0))
 		child["nodes"].append(Model.module("__param_exit","log",0,0))
 		child["edges"].append({"from":"__param_entry","from_port":0,"to":source["data"]["entry"]["node"],"to_port":source["data"]["entry"]["port"]})

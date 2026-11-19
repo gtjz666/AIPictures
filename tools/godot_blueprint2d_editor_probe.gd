@@ -20,6 +20,8 @@ func run() -> void:
 	assert(ali != null)
 	ali.call("open_game_window")
 	var window: Window = ali.get("game_window") as Window
+	await test_scene_canvas(ali,window)
+	window.call("assign",Model.preset())
 	await test_direct_drop(window)
 	for kind: String in Model.TITLES:
 		if kind in Model.SINGLETONS: continue
@@ -182,3 +184,95 @@ func test_direct_drop(window: Window) -> void:
 		break
 	role_window.queue_free()
 	role.queue_free()
+
+
+func test_scene_canvas(ali: Node, window: Window) -> void:
+	var Builder: GDScript = preload("res://addons/ali_assets/game_builder.gd")
+	var TrackIO: GDScript = preload("res://addons/ali_assets/frame_track_io.gd")
+	var inputs: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://fixtures/drop.json"))
+	window.set("operation","new_canvas")
+	window.call("file_selected","res://SceneOne.tscn")
+	await get_tree().create_timer(0.3).timeout
+	var root: Node = EditorInterface.get_edited_scene_root()
+	assert(root != null and root.scene_file_path == "res://SceneOne.tscn")
+	var runtime: Node = Builder.scene_runtime(root)
+	assert(runtime != null and runtime.get("game_blueprint")["nodes"].is_empty())
+	assert(window.get("data")["nodes"].is_empty() and window.get("data")["edges"].is_empty())
+	var actor: Node2D = Node2D.new()
+	actor.name = "Object"
+	root.add_child(actor)
+	actor.owner = root
+	EditorInterface.get_selection().clear()
+	EditorInterface.get_selection().add_node(actor)
+	var data: Dictionary = window.get("data").duplicate(true)
+	var event: Dictionary = Model.module("on_ready","game_event",60,80)
+	var animation: Dictionary = Model.module("movement","animation",450,80)
+	animation["params"]["target"] = "Object"
+	data["nodes"].append_array([event,animation])
+	data["edges"].append({"from":"on_ready","from_port":0,"to":"movement","to_port":0})
+	window.call("assign",data)
+	var generic: Dictionary = TrackIO.read(PackedStringArray([inputs["frames"]]))
+	assert(not generic.has("error"),str(generic.get("error","")))
+	assert(generic["frames"].get_frame_texture(generic["clip"],0).get_image().get_pixel(0,0).r > 0.5)
+	window.call("import_track","movement",PackedStringArray([inputs["clip"]]))
+	var track: VBoxContainer = window.get("frame_track")
+	assert(track.visible and track.get("fps").value == 8)
+	track.call("move_frame",1)
+	track.get("fps").value = 10
+	track.get("hold").value = 2
+	track.get("loop").button_pressed = true
+	track.call("save_clip")
+	var animation_params: Dictionary = Model.find(window.get("data"),"movement")["params"]
+	assert(animation_params["target"] == "Object/AlIVisual")
+	assert(animation_params["loops"] == 0 and not animation_params["wait"])
+	var resource: SpriteFrames = load(animation_params["frames"])
+	var clip: String = animation_params["clip"]
+	assert(resource.get_animation_speed(clip) == 10 and resource.get_frame_duration(clip,1) == 2)
+	assert(resource.get_frame_texture(clip,0).get_image().get_pixel(0,0).g > 0.6)
+	assert(resource.get_frame_texture(clip,1).get_image().get_pixel(0,0).a < 0.6)
+	window.call("apply_game")
+	assert(actor.has_node("AlIVisual"))
+	assert(actor.get_node("AlIVisual").get("sprite_frames").has_animation(clip))
+	var manager: EditorUndoRedoManager = ali.call("get_undo_redo")
+	var state: UndoRedo = manager.get_history_undo_redo(manager.get_object_history_id(root))
+	state.undo()
+	assert(not actor.has_node("AlIVisual"))
+	state.redo()
+	assert(actor.has_node("AlIVisual"))
+	var saved_scene: PackedScene = PackedScene.new()
+	assert(saved_scene.pack(root) == OK and ResourceSaver.save(saved_scene,root.scene_file_path) == OK)
+	# Publish functions through the same editor save route available to users.
+	window.call("open_function")
+	var function_window: Window = null
+	for child: Node in window.get_children():
+		if child is Window and "function_mode" in child and child.get("function_mode"): function_window = child
+	assert(function_window != null and function_window.get("data")["nodes"].size() == 2)
+	function_window.call("connect_modules",&"function_start",0,&"function_return",0)
+	var local: String = window.call("function_folder",false)
+	assert(DirAccess.make_dir_recursive_absolute(local) == OK)
+	assert(DirAccess.make_dir_recursive_absolute(Library.GLOBAL_FUNCTIONS) == OK)
+	function_window.call("save_function",false)
+	function_window.call("file_selected",local.path_join("LocalWalk.json"))
+	function_window.call("save_function",true)
+	function_window.call("file_selected",Library.GLOBAL_FUNCTIONS.path_join("GlobalWalk.json"))
+	function_window.queue_free()
+	var search: LineEdit = window.get("search")
+	search.text = "Walk"
+	window.call("filter_palette")
+	assert(window.get("results").item_count == 2)
+	window.set("operation","new_canvas")
+	window.call("file_selected","res://SceneTwo.tscn")
+	await get_tree().create_timer(0.3).timeout
+	assert(window.get("data")["nodes"].is_empty())
+	window.call("filter_palette")
+	assert(window.get("results").item_count == 1)
+	assert("GlobalWalk" in window.get("results").get_item_text(0))
+	var outside: Dictionary = window.get("data").duplicate(true)
+	var call_module: Dictionary = Model.module("call_module","subgraph",0,0)
+	call_module["params"]["path"] = local.path_join("LocalWalk.json")
+	outside["nodes"].append(call_module)
+	assert("作用域" in Library.compile(outside).get("error",""))
+	call_module["params"]["path"] = Library.GLOBAL_FUNCTIONS.path_join("GlobalWalk.json")
+	assert(not Library.compile(outside).has("error"))
+	search.text = ""
+	window.call("bind_scene",null)

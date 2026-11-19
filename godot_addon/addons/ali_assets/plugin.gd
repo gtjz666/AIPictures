@@ -5,6 +5,9 @@ const DragAsset: GDScript = preload("asset_drag.gd")
 const BlueprintWindow: GDScript = preload("blueprint_window.gd")
 const GameWindow: GDScript = preload("game_window.gd")
 const FrameworkWizard: GDScript = preload("framework_wizard.gd")
+const Builder: GDScript = preload("game_builder.gd")
+const Model: GDScript = preload("game_model.gd")
+const Access: GDScript = preload("blueprint_access.gd")
 const ASSET_FOLDERS: Array[String] = ["art/dino", "art/world", "art/ui", "audio", "generated/ali_assets"]
 var dock: VBoxContainer
 var application: LineEdit
@@ -26,12 +29,27 @@ func _enter_tree() -> void:
 	dock = VBoxContainer.new()
 	dock.name = "AlI 素材"
 	dock.custom_minimum_size.x = 240
-	var label: Label = Label.new()
-	label.text = "本地游戏素材生成"
-	dock.add_child(label)
+	var edit_scene: Button = Button.new()
+	edit_scene.text = "场景蓝图…"
+	edit_scene.pressed.connect(open_game_window)
+	dock.add_child(edit_scene)
+	var create_scene: Button = Button.new()
+	create_scene.text = "新建蓝图场景…"
+	create_scene.pressed.connect(func() -> void:
+		open_game_window()
+		game_window.call("choose","new_canvas"))
+	dock.add_child(create_scene)
+	scene_changed.connect(sync_scene)
+	var settings: CheckButton = CheckButton.new()
+	settings.text = "生成器设置"
+	dock.add_child(settings)
+	var generator_settings: VBoxContainer = VBoxContainer.new()
+	generator_settings.hide()
+	dock.add_child(generator_settings)
+	settings.toggled.connect(func(shown: bool) -> void: generator_settings.visible = shown)
 	application = LineEdit.new()
 	application.placeholder_text = "AlI 软件文件夹"
-	dock.add_child(application)
+	generator_settings.add_child(application)
 	var config: Variant = JSON.parse_string(FileAccess.get_file_as_string(get_script().resource_path.get_base_dir().path_join("application.json"))) if FileAccess.file_exists(get_script().resource_path.get_base_dir().path_join("application.json")) else null
 	if config is Dictionary:
 		application.text = str(config.get("root", ""))
@@ -40,7 +58,7 @@ func _enter_tree() -> void:
 		application.text = remembered
 	var browse: Button = Button.new()
 	browse.text = "选择软件目录…"
-	dock.add_child(browse)
+	generator_settings.add_child(browse)
 	chooser = FileDialog.new()
 	chooser.access = FileDialog.ACCESS_FILESYSTEM
 	chooser.file_mode = FileDialog.FILE_MODE_OPEN_DIR
@@ -57,24 +75,16 @@ func _enter_tree() -> void:
 	open_button.text = "打开生成窗口"
 	open_button.pressed.connect(open_generator)
 	dock.add_child(open_button)
-	var edit_character: Button = Button.new()
-	edit_character.text = "角色蓝图工作台…"
-	edit_character.pressed.connect(open_blueprint)
-	dock.add_child(edit_character)
-	var edit_game: Button = Button.new()
-	edit_game.text = "游戏蓝图／创建小游戏…"
-	edit_game.pressed.connect(open_game_window)
-	dock.add_child(edit_game)
-	var framework_button: Button = Button.new()
-	framework_button.text = "创建2D游戏框架…"
-	framework_button.pressed.connect(func() -> void:
+	var examples: MenuButton = MenuButton.new()
+	examples.text = "示例模板"
+	examples.get_popup().add_item("创建旧版 2D 游戏框架…",0)
+	examples.get_popup().id_pressed.connect(func(_id: int) -> void:
 		if not is_instance_valid(framework_wizard): framework_wizard = FrameworkWizard.new(); dock.add_child(framework_wizard)
 		framework_wizard.popup_centered())
-	dock.add_child(framework_button)
+	dock.add_child(examples)
 	set_process_input(true)
 	status = Label.new()
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	status.text = "单一提示词输入；在外置窗口生成、预览并导出组件。"
 	dock.add_child(status)
 	var refresh: Button = Button.new()
 	refresh.text = "刷新已导出组件"
@@ -174,6 +184,7 @@ func refresh_assets() -> void:
 
 
 func _exit_tree() -> void:
+	scene_changed.disconnect(sync_scene)
 	if is_instance_valid(framework_wizard): framework_wizard.queue_free()
 	if is_instance_valid(game_window):
 		game_window.queue_free()
@@ -221,7 +232,12 @@ func open_game_window() -> void:
 		game_window = GameWindow.new()
 		dock.add_child(game_window)
 		game_window.connect("game_applied", apply_game)
+	game_window.call("bind_selection")
 	game_window.popup_centered(Vector2i(1500, 900))
+
+
+func sync_scene(root: Node) -> void:
+	if is_instance_valid(game_window): game_window.call("bind_scene",root)
 
 
 func apply_game(target: Node, data: Dictionary) -> void:
@@ -231,12 +247,72 @@ func apply_game(target: Node, data: Dictionary) -> void:
 	if prepared.has("error"):
 		push_warning(str(prepared["error"]))
 		return
+	var runtime: Node = Builder.scene_runtime(target)
 	var undo: EditorUndoRedoManager = get_undo_redo()
-	undo.create_action("AlI应用游戏蓝图", UndoRedo.MERGE_DISABLE, target)
-	undo.add_do_property(target, "game_blueprint", data.duplicate(true))
-	undo.add_undo_property(target, "game_blueprint", target.get("game_blueprint"))
-	if "compiled_blueprint" in target:
-		for property: String in ["compiled_blueprint", "compiled_signature"]:
-			undo.add_do_property(target, property, prepared["data"] if property == "compiled_blueprint" else prepared["signature"])
-			undo.add_undo_property(target, property, target.get(property))
+	undo.create_action("AlI 应用场景蓝图", UndoRedo.MERGE_DISABLE, target)
+	if runtime == null:
+		runtime = Builder.new_runtime()
+		add_scene_child(undo,target,runtime,target)
+	var values: Dictionary = {"game_blueprint":data.duplicate(true),"compiled_blueprint":prepared["data"],"compiled_signature":prepared["signature"]}
+	if "blueprint_resources" in runtime:
+		var dependencies: Dictionary = {}
+		collect_resources(prepared["data"]["nodes"],dependencies)
+		var resources: Array[Resource] = []
+		resources.assign(dependencies.values())
+		values["blueprint_resources"] = resources
+	for property: String in values:
+		undo.add_do_property(runtime,property,values[property])
+		undo.add_undo_property(runtime,property,runtime.get(property))
+	if data.get("template") == "canvas":
+		apply_visuals(undo,target,data)
 	undo.commit_action()
+
+
+func collect_resources(nodes: Array, found: Dictionary) -> void:
+	for node: Dictionary in nodes:
+		for field: Array in Model.fields(str(node["kind"])):
+			if field[2] != "asset": continue
+			var path: String = str(node["params"].get(field[0],""))
+			if not path.is_empty() and not found.has(path) and ResourceLoader.exists(path):
+				found[path] = load(path)
+		if node.get("_subgraph") is Dictionary:
+			collect_resources(node["_subgraph"]["nodes"],found)
+
+
+func add_scene_child(undo: EditorUndoRedoManager, parent: Node, child: Node, scene: Node) -> void:
+	undo.add_do_method(parent, "add_child", child, true)
+	undo.add_do_method(child, "set_owner", scene)
+	undo.add_undo_method(parent, "remove_child", child)
+	undo.add_do_reference(child)
+
+
+func apply_visuals(undo: EditorUndoRedoManager, root: Node, data: Dictionary) -> void:
+	var touched: Dictionary = {}
+	for node: Dictionary in data["nodes"]:
+		var p: Dictionary = node["params"]
+		if node["kind"] != "animation" or p.get("mode") != "frames" or str(p.get("frames","")).is_empty(): continue
+		var path: String = str(p["target"])
+		if touched.has(path): continue
+		var source: SpriteFrames = Model.frames_at(str(p["frames"]))
+		if source == null or not source.has_animation(str(p["clip"])): continue
+		var sprite: AnimatedSprite2D = Access.node(root,path) as AnimatedSprite2D
+		var created: bool = false
+		if sprite == null and path.get_file() == "AlIVisual":
+			var parent: Node = root if path.get_base_dir().is_empty() else Access.node(root,path.get_base_dir())
+			if parent is CanvasItem and parent.get_node_or_null("AlIVisual") == null and (parent == root or parent.owner == root):
+				sprite = AnimatedSprite2D.new()
+				sprite.name = "AlIVisual"
+				add_scene_child(undo,parent,sprite,root)
+				created = true
+		if sprite == null: continue
+		touched[path] = true
+		var frames: SpriteFrames = source
+		if sprite.sprite_frames != null and sprite.sprite_frames != source:
+			frames = sprite.sprite_frames.duplicate() as SpriteFrames
+			preload("asset_drop.gd").copy_clip(frames,str(p["clip"]),source,str(p["clip"]))
+		undo.add_do_property(sprite,"sprite_frames",frames)
+		undo.add_do_property(sprite,"animation",p["clip"])
+		if not created:
+			undo.add_undo_property(sprite,"sprite_frames",sprite.sprite_frames)
+			if sprite.sprite_frames != null and sprite.sprite_frames.has_animation(sprite.animation):
+				undo.add_undo_property(sprite,"animation",sprite.animation)

@@ -1,6 +1,7 @@
 extends Node2D
 ## A self-contained game assembled from editable modules, with no autoloads.
 const API_VERSION: int = 6
+const SCENE_BLUEPRINT: bool = true
 const Animations: GDScript = preload("game_animations.gd")
 const Tasks: GDScript = preload("game_tasks.gd")
 const Features: GDScript = preload("game_features.gd")
@@ -22,6 +23,9 @@ const Hud: GDScript = preload("game_hud.gd")
 @export var compiled_blueprint: Dictionary = {}
 @export var compiled_signature: String = ""
 @export var framework: Dictionary = {}
+@export var blueprint_resources: Array[Resource] = []
+var binding_root: Node
+var canvas_mode: bool = false
 var program: RefCounted
 var debug_path: String = ""
 var state: String = "waiting"
@@ -67,7 +71,12 @@ var debug_source_signature: String = ""
 
 
 func settings(kind: String) -> Dictionary:
-	return Model.by_kind(game_blueprint, kind)["params"]
+	var node: Dictionary = Model.by_kind(game_blueprint, kind)
+	return Model.params(kind) if node.is_empty() else node["params"]
+
+
+func blueprint_key() -> String:
+	return "scene_" + str(game_blueprint.get("scope","")) if canvas_mode else str(settings("session")["save_key"])
 
 
 func _ready() -> void:
@@ -88,22 +97,25 @@ func initialize_game() -> void:
 		push_error("游戏蓝图：" + problem)
 		set_process(false)
 		return
+	canvas_mode = game_blueprint.get("template") == "canvas"
+	binding_root = get_parent() if canvas_mode else self
 	var screen: Dictionary = settings("screen")
 	base_size = Vector2i(int(screen["width"]), int(screen["height"]))
 	var window: Window = get_window()
 	previous_scale = window.content_scale_size
 	previous_mode = window.content_scale_mode
 	previous_aspect = window.content_scale_aspect
-	window.content_scale_size = base_size
-	window.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
-	window.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP if screen["aspect"] == "keep" else Window.CONTENT_SCALE_ASPECT_EXPAND
-	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if screen["pixel"] else CanvasItem.TEXTURE_FILTER_LINEAR
-	profile_path = "user://ali_game_" + str(settings("session")["save_key"]) + ".cfg"
+	if not canvas_mode or not Model.by_kind(game_blueprint,"screen").is_empty():
+		window.content_scale_size = base_size
+		window.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+		window.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP if screen["aspect"] == "keep" else Window.CONTENT_SCALE_ASPECT_EXPAND
+		texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if screen["pixel"] else CanvasItem.TEXTURE_FILTER_LINEAR
+	profile_path = "user://ali_game_" + blueprint_key() + ".cfg"
 	if FileAccess.file_exists(profile_path):
 		profile.load(profile_path)
 	best = maxi(0, int(profile.get_value("score", "best", 0)))
 	setup_buses()
-	services = Services.obtain(get_tree(),framework,str(settings("session")["save_key"]),Services)
+	services = Services.obtain(get_tree(),framework,"scene_blueprints" if canvas_mode else str(settings("session")["save_key"]),Services)
 	if not Model.by_kind(game_blueprint, "runner").is_empty() and not Model.by_kind(game_blueprint, "world").is_empty():
 		world = World.new()
 		world.name = "World"
@@ -139,7 +151,7 @@ func initialize_game() -> void:
 	hud.name = "GameUI"
 	add_child(hud)
 	hud.call("setup", self, settings("hud"))
-	if framework.get("native_menus",false): hud.hide()
+	if framework.get("native_menus",false) or (canvas_mode and Model.by_kind(game_blueprint,"hud").is_empty()): hud.hide()
 	program = Program.new()
 	program.call("setup", self)
 	animations = Animations.new()
@@ -166,10 +178,11 @@ func initialize_game() -> void:
 	widgets.name = "BlueprintWidgets"
 	add_child(widgets)
 	widgets.call("setup", self)
-	debug_path = "user://ali_blueprint_" + str(settings("session")["save_key"]) + ".json"
+	debug_path = "user://ali_blueprint_" + blueprint_key() + ".json"
 	hud.call("refresh_health")
 	initialized = true
-	services.call("attach_game",self)
+	if canvas_mode and Model.by_kind(game_blueprint,"session").is_empty(): state = "running"
+	services.call("attach_game",self,not canvas_mode)
 	queue_redraw()
 	set_process_unhandled_key_input(true)
 
@@ -221,6 +234,9 @@ func _unhandled_key_input(event_input: InputEvent) -> void:
 	if not event_input.pressed:
 		if handled:
 			get_viewport().set_input_as_handled()
+		return
+	if canvas_mode and Model.by_kind(game_blueprint,"input").is_empty():
+		if handled: get_viewport().set_input_as_handled()
 		return
 	var input: Dictionary = settings("input")
 	if key == int(input["pause"]):
@@ -471,14 +487,14 @@ func _exit_tree() -> void:
 		if index > 0:
 			AudioServer.remove_bus(index)
 	var window: Window = get_window()
-	if window != null and window.content_scale_size == base_size:
+	if window != null and window.content_scale_size == base_size and (not canvas_mode or not Model.by_kind(game_blueprint,"screen").is_empty()):
 		window.content_scale_size = previous_scale
 		window.content_scale_mode = previous_mode
 		window.content_scale_aspect = previous_aspect
 
 
 func _draw() -> void:
-	if initialized and not is_instance_valid(world):
+	if initialized and not canvas_mode and not is_instance_valid(world):
 		draw_rect(Rect2(Vector2.ZERO, Vector2(base_size)), Color("dceef0"))
 
 

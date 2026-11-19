@@ -58,7 +58,8 @@ func setup(owner_game: Node) -> void:
 			button.position = Vector2(float(p["x"]), float(p["y"]))
 			button.size = Vector2(float(p["width"]), float(p["height"]))
 		else:
-			button = game.get_node_or_null(NodePath(str(p["target"]))) as BaseButton
+			var root: Node = game.get("binding_root") as Node if "binding_root" in game and game.get("binding_root") != null else game
+			button = root.get_node_or_null(NodePath(str(p["target"]))) as BaseButton
 			if button == null:
 				game.get("program").call("fault", id, "目标不是现有Button／TextureButton：" + str(p["target"]))
 				continue

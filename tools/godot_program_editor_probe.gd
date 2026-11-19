@@ -16,7 +16,7 @@ func run() -> void:
 	window.call("change", "通用模板", Model.scene_preset())
 	var history: UndoRedo = window.get("history") as UndoRedo
 	history.undo()
-	assert(not Model.by_kind(window.get("data"), "runner").is_empty())
+	assert(window.get("data")["nodes"].is_empty())
 	history.redo()
 	window.call("open_palette")
 	var search: LineEdit = window.get("search") as LineEdit
@@ -61,9 +61,11 @@ func run() -> void:
 	var extracted: Dictionary = Library.extract(draft, selected)
 	assert(extracted.has("data"))
 	window.set("module_draft", extracted["data"])
-	window.set("operation", "save_module")
-	window.call("file_selected", "res://fixtures/editor_task.json")
-	assert(Library.read_module("res://fixtures/editor_task.json").has("data"))
+	assert(DirAccess.make_dir_recursive_absolute(Library.GLOBAL_FUNCTIONS) == OK)
+	window.set("operation", "global_function")
+	var function_path: String = Library.GLOBAL_FUNCTIONS.path_join("editor_task.json")
+	window.call("file_selected", function_path)
+	assert(Library.read_module(function_path).has("data"))
 	window.set("operation", "scene")
 	window.call("file_selected", "res://generic_from_editor.tscn")
 	await get_tree().create_timer(0.5).timeout
