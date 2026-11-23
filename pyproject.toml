@@ -17,3 +17,7 @@ sprite_pipeline = "sprite_pipeline.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["sprite_pipeline*"]
+
+[tool.pytest.ini_options]
+# Acceptance evidence and old worktree snapshots under data/ are not test suites.
+norecursedirs = [".venv", "data", "build", "dist", "comfy_nodes"]

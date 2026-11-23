@@ -90,10 +90,19 @@ def test_new_segment_is_one_backend_call_and_preserves_all_delivered_previous_pi
 
 def test_task_progress_always_displays_a_percentage():
     from aipictures.task_display import TaskDisplay
+    from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QWidget,QApplication
     app=QApplication.instance() or QApplication([])
-    parent=QWidget();progress=TaskDisplay(parent);progress.start();progress.progress.setRange(0,0)
+    parent=QWidget();progress=TaskDisplay(parent);parent.show();app.processEvents()
+    assert not progress.spinner.isVisible()
+    progress.start();progress.progress.setRange(0,0)
     assert progress.percent.text()=='0%' and progress.progress.maximum()==100
-    progress.finish('completed')
-    assert progress.percent.text()=='100%' and progress.started is None
+    assert progress.spinner.isVisible()
+    before=progress.spinner.grab().toImage()
+    QTest.qWait(140)
+    assert progress.spinner.grab().toImage()!=before
+    for status,percent in [('completed','100%'),('failed','0%'),('cancelled','0%')]:
+        progress.start();progress.finish(status)
+        assert progress.percent.text()==percent and progress.started is None
+        assert not progress.spinner.isVisible()
     parent.close()

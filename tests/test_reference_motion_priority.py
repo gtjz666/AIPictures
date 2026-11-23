@@ -72,7 +72,8 @@ def test_actual_backend_encodes_video_and_selected_image_role(tmp_path,monkeypat
             sessions.append(self);self.input.mkdir(parents=True);self.output_dir.mkdir();return self
         def __exit__(self,*_):self.closed=True
         def check(self):pass
-        def generate(self,graph,folder,emit,cancel,**kwargs):
+        def run(self,graph,emit,*,latent=False):
+            folder=self.folder/'native_result'
             folder.mkdir(parents=True)
             if self.folder.name=='native_encode':
                 refs=graph['references']['inputs'];encoded=refs['prompt']

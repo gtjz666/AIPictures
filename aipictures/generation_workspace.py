@@ -21,7 +21,12 @@ def install(b):
     b.prompts.setMaximumHeight(16777215);w.positive.setMaximumHeight(16777215);w.positive.setMinimumHeight(220)
     w.positive.setPlaceholderText('直接填写内容、风格和修改要求；多图参考请明确各图用途，例如：让图2的人物采用图1的姿势与表情，保留图2的外貌和画风。')
     b.prompt_output=w.positive  # Historical callers share the single manual editor.
-    b.manual_hint=QLabel('提示词原文直接发送给生成引擎。');b.manual_hint.setObjectName('muted');layout.addWidget(b.manual_hint)
+    b.manual_hint=QLabel('提示词原文直接发送给生成引擎。');b.manual_hint.setObjectName('muted')
+    b.manual_hint.setWordWrap(True)
+    hint_row=QHBoxLayout();hint_row.addWidget(b.manual_hint,1)
+    b.reference_prompt_preview=QPushButton('查看参考分工')
+    b.reference_prompt_preview.clicked.connect(lambda:w.h3_image_controller.preview_request())
+    hint_row.addWidget(b.reference_prompt_preview);layout.addLayout(hint_row)
     b.structure_row=QWidget();structure_layout=QHBoxLayout(b.structure_row);structure_layout.setContentsMargins(0,0,0,0)
     structure_layout.addWidget(QLabel('姿势／结构来源'));b.structure_choice=QComboBox()
     b.structure_choice.addItem('自动按需求选择','auto')
@@ -69,10 +74,13 @@ def install(b):
         long=b.category=='long_video';sound=b.category=='audio';walking=w.generation_type.currentData()=='walk'
         from .image_family import effective_family
         h3=effective_family(w)=='h3_image'
+        guided=h3 and not walking and not sound and not long and len(w.reference_chat.references())>1
         b.right_tabs.setTabText(0,'参考');b.right_tabs.setTabText(1,'生成')
         b.image_requirements.hide();b.timeline_region.hide();b.animation_header.hide()
         b.requirement_title.setText('提示词');b.requirement_title.setVisible(sound);c.input.hide();c.organize.hide()
         b.positive_title.setText('提示词');w.negative.parentWidget().hide();b.extra_constraints.hide();c.role.hide();c.role_note.hide()
+        b.reference_prompt_preview.setVisible(guided)
+        b.manual_hint.setText('说明改哪张图、借用什么。软件会整理参考图分工。' if guided else '提示词原文直接发送给生成引擎。')
         b.prompts.setVisible(not long and not sound)
         b.structure_row.setVisible(not walking and not sound and not long and not h3)
         b.subject_only.setVisible(not walking and not sound and not long and not h3)
@@ -86,6 +94,7 @@ def install(b):
         w.short_video.music.hide();w.short_video.import_music.hide();w.short_video.audio_note.hide()
         w.short_video.setVisible(long and not sound);b.generation_parameters.setVisible(walking and not sound)
         b.motion_selection.setVisible(walking and bool(motion.path));b.duration_title.setText('本段时长 / 秒' if long else '时长 / 秒')
+        motion.refresh_appearance_option()
         layout.addWidget(b.generation_actions)
         b.duration_note.setVisible(bool(motion.path) and walking)
         if motion.path:

@@ -33,6 +33,9 @@ def main():
         assert w.preview_role is None and not w.workbench.motion_item._pixmap.isNull();w.workbench.reference_player.toggle()
         image=root/'character.png';Image.new('RGBA',(64,96),(20,100,220,255)).save(image)
         w.set_reference(str(image));w.positive.setPlainText('保持蓝色衣服，跟随动作参考');w.seed.setText('1234')
+        w.workbench.right_tabs.setCurrentIndex(1)
+        assert panel.reduce_appearance.isVisible() and not panel.reduce_appearance.isChecked()
+        panel.reduce_appearance.setChecked(True)
         w.workbench.prompt_output.setPlainText('保持蓝色衣服，跟随动作参考')
         with patch.object(w,'start_next'):
             QTest.mouseClick(w.generate_button,Qt.MouseButton.LeftButton)
@@ -40,6 +43,8 @@ def main():
         assert len(w.pending)==1,w.chat.toPlainText()
         params=w.pending[0][1]
         assert params['prompt']=='保持蓝色衣服，跟随动作参考' and params['seed']==1234
+        assert params['motion_reduce_appearance'] and not panel.reduce_appearance.isChecked()
+        assert params['motion_native_settings']['width'] % 32 == 0
         assert Path(params['motion_reference']).is_file() and Path(params['reference']).is_file()
         assert Path(params['motion_reference']).read_bytes()==before and source.read_bytes()==before
         w.clear_pending()

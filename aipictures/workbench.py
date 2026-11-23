@@ -226,7 +226,8 @@ class Workbench:
         for button in (panel.add,panel.add_frames,panel.play,panel.remove):button.setParent(self.hidden)
         panel.range_button.setParent(self.hidden)
         left=QWidget();self.motion_selection=left;selection=QVBoxLayout(left);selection.setContentsMargins(0,0,0,0)
-        selection.addWidget(panel.repeat);selection.addWidget(panel.start_note);selection.addWidget(panel.range_slider)
+        selection.addWidget(panel.repeat);selection.addWidget(panel.reduce_appearance)
+        selection.addWidget(panel.start_note);selection.addWidget(panel.range_slider)
         header.addWidget(left)
         panel.setParent(self.hidden)
         self.reference_player.loop.hide();self.reference_player.loop.setChecked(panel.repeat.isChecked())
@@ -372,7 +373,7 @@ class Workbench:
         if hasattr(self,'reference_cards'):
             refs=w.reference_chat.references()
             limit=w.reference_chat.limit();shown=min(limit,max(4,((max(refs,default=0)//4)+1)*4))
-            self.gallery_title.setText(f'参考图 · 最多{limit}张'+(' · 首图为编辑基础' if limit==16 else ''))
+            self.gallery_title.setText(f'参考图 · 最多{limit}张')
             multi=bool(w.reference_chat.extra)
             w.intent_controller.role.setVisible(not multi)
             w.intent_controller.role_note.setVisible(not multi and w.intent_controller.role.currentData()=='custom')
@@ -381,6 +382,7 @@ class Workbench:
                 card.set_source(str(refs[n]) if n in refs else '')
                 card.setToolTip(f'图{n}'+(' · '+refs[n].name if n in refs else ' · 拖入图片或点击添加'))
         self.reference_note.set_hint((w.reference_display_name or Path(w.reference_path).name) if present else '')
+        w.video_controller.motion.refresh_appearance_option()
         self.refresh_motion_asset();self.refresh_asset_selection()
 
     def refresh_motion_asset(self):

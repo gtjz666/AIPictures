@@ -4,8 +4,8 @@ import json
 import shutil
 import threading
 from pathlib import Path
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QListWidgetItem
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QListWidgetItem, QPlainTextEdit, QVBoxLayout
 from . import h3_image as h3
 from .storage import new_job,write_json
 from .workflow_library import digest
@@ -27,6 +27,37 @@ class H3ImageController:
         from .image_family import effective_family
         return not w.api_controller.cloud and w.generation_type.currentData()!='walk' and effective_family(w)=='h3_image'
 
+    def prepare_request(self, positive, refs):
+        w = self.window
+        prompt, order, edit = h3.reference_edit(positive, refs)
+        size = h3.reference_edit_canvas(refs, edit, w.width.value(), w.height.value())
+        return prompt, {slot: refs[slot] for slot in order}, edit, size
+
+    def preview_request(self):
+        w = self.window
+        from .prompt_language import texts
+        try:
+            prompt, refs, _, (width, height) = self.prepare_request(texts(w)[0], w.reference_chat.references())
+        except (OSError, ValueError) as exc:
+            w.intent_controller.notify(str(exc))
+            return
+        dialog = QDialog(w)
+        dialog.setWindowTitle('参考图分工')
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.resize(620, 420)
+        layout = QVBoxLayout(dialog)
+        order = '、'.join(f'Picture {i} 对应图{slot}' for i, slot in enumerate(refs, 1))
+        details = QLabel(f'{width} × {height}\n{order}')
+        details.setWordWrap(True)
+        layout.addWidget(details)
+        output = QPlainTextEdit(prompt)
+        output.setReadOnly(True)
+        layout.addWidget(output, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.open()
+
     def intercept(self):
         if not self.active():return False
         w=self.window;c=h3.settings(w.api_controller.data)
@@ -37,14 +68,21 @@ class H3ImageController:
         if negative.strip():raise ValueError('H3图片没有独立反向条件，请将排除要求写入提示词。')
         refs=w.reference_chat.references();seed=int(w.seed.text())
         if seed==-1:seed=secrets.randbelow(2**53)
-        width,height=w.width.value(),w.height.value();h3.validate(width,height,seed,refs)
-        prompt=h3.instruction(positive,refs)
+        prompt,refs,edit,(width,height)=self.prepare_request(positive,refs)
+        h3.validate(width,height,seed,refs)
         params=dict(mode='h3_image',backend='standalone',model_family='h3_image',template='MiniMax H3 Image',positive=prompt,negative='',
             seed=seed,width=width,height=height,steps=6,cfg=1.,sampler='euler',scheduler='simple',denoise=1.,
             protocol=h3.PROTOCOL,h3_image_settings=c,url=w.client.url if w.connected else None,
             display_prompt=w.generation_intent.prompts()[0],user_prompt=w.positive.toPlainText(),references={},
             output_background=w.output_background.currentData(),reference_policy='native_picture_conditions',prompt_expander=False)
         if hasattr(w,'generation_intent'):w.generation_intent.record(params)
+        if edit:
+            params.update(reference_edit=edit,prompt_policy=edit['policy'])
+            if 'source_slot' in edit:
+                from .h3_reference_guide import settings as guide_settings
+                guide = guide_settings(w.api_controller.data)
+                if guide:
+                    params['h3_reference_guide_settings'] = guide
         # Snapshot graph and files before queueing, so later GUI edits cannot change
         # a running job. The exact three executed graphs are saved by the runtime.
         graph=h3.encode_graph(c,prompt,width,height,[f'reference_{i}.png' for i in range(1,len(refs)+1)])

@@ -14,7 +14,7 @@ def bind_labels(text,references):
     return re.sub(r'(?<![A-Za-z])Image\s+(\d+)(?!\d)',lambda m:f'<Picture {m[1]}>',bound)
 
 
-def compile_prompt(text,references,*,reference_role='appearance',reference_usage=''):
+def compile_prompt(text,references,*,reference_role='appearance',reference_usage='',reduce_appearance=False):
     ids=[row['number'] for row in references]
     bound=bind_labels(text,references) if ids else text
     labels='\n'.join(f'<Picture {i+1}>: User reference image labelled 图{number}; use only the properties assigned by the user.' for i,number in enumerate(ids))
@@ -22,7 +22,10 @@ def compile_prompt(text,references,*,reference_role='appearance',reference_usage
         if reference_role=='style':labels+='\nDefault for this picture: visual style only; preserve source performer identity unless the user requests replacement.'
         elif reference_role=='custom':labels+='\nDefault picture usage: '+reference_usage
         else:labels+='\nDefault for this picture: target identity/appearance, excluding its still pose. Explicit user assignments override this default.'
+    guide_note = ('\nThe source video is a softened grayscale motion guide. Preserve its motion and framing; use the assigned pictures for the replacement subject’s colors and visual details.'
+                  if reduce_appearance else '')
     return ('subject_definitions:\n<Video 1>: The source video being edited.\n'+labels+
+        guide_note+
         '\nsummary:\n[video editing] Edit the actual source video according to the requested replacements and visual style. '
         'The video is the highest-priority reference for action sequence, timing, body orientation, expressions, camera movement and shot changes. '
         'Reference pictures supply only their assigned identity, appearance, clothing, style, composition or background properties. '

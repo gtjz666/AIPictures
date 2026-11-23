@@ -81,7 +81,7 @@ def apply_ui(window):
     window.workflow_selector.setEnabled(window.connected and not window.preparing)
     if h3:
         window.context_label.setText('H3 · 原生参考编辑' if referenced else 'H3 · 文字生图')
-        window.reference_note.setText('编号最小的参考图作为编辑基础；请在提示词中用图号明确要保留的主体，以及姿势、表情、画风等来源。')
+        window.reference_note.setText('请用图号说明要编辑哪张，以及其他图提供的动作、表情、画风或构图。')
         window.model_note.setText('MiniMax H3 Image · 6步 · 最多16图。约400万像素起，保留基础图比例；手指、遮挡与身份细节仍需检查。')
     elif flux:
         window.context_label.setText('FLUX · 参考编辑' if referenced else 'FLUX · 图片创作')

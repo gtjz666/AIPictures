@@ -150,3 +150,18 @@ def test_native_graph_separates_dynamic_reference_slots_and_base_sampler():
     assert g['sample']['inputs']['latent_image']==['references',1]
     assert g['sigmas']['inputs']['steps']==20
     assert not any('Lora' in n['class_type'] or 'Guide' in n['class_type'] and n['class_type']!='BasicGuider' for n in g.values())
+
+
+def test_reduced_appearance_uses_soft_grayscale_guide_and_keeps_source(tmp_path):
+    source=gif(tmp_path/'motion.gif');before=source.read_bytes()
+    width,height=motion.appearance_reduced_size(300,225)
+    assert (width,height)==(640,480) and width%32==0 and height%32==0
+    report=motion.prepare(source,tmp_path/'soft',1.2,0.,threading.Event(),reduce_appearance=True,
+                          encode_video=False,save_frames=True)
+    assert report['appearance_reduced'] is True
+    frame=Image.open(tmp_path/'soft'/'frames'/'frame_0000.png').convert('RGB')
+    red,green,blue=frame.getpixel((min(8,frame.width-1),min(8,frame.height-1)))
+    assert red==green==blue and red<=210
+    assert source.read_bytes()==before
+    normal=motion.prepare(source,tmp_path/'normal-soft',1.2,0.,threading.Event(),encode_video=False,save_frames=True)
+    assert normal['appearance_reduced'] is False

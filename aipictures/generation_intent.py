@@ -43,6 +43,7 @@ class GenerationIntent:
             motion=str(motion.path) if kind in ('animation','video') and motion.path else None,
             motion_stamp=(motion.path.stat().st_size,motion.path.stat().st_mtime_ns) if kind in ('animation','video') and motion.path else None,
             motion_start=motion.start.value(),motion_repeat=motion.repeat.isChecked(),
+            motion_reduce_appearance=bool(kind in ('animation','video') and motion.path and refs and motion.reduce_appearance.isChecked()),
             role='appearance',usage='',
             audio_kind=w.audio_controller.effective_kind() if kind=='audio' else None,
             continuation=str(getattr(w.short_video,'continuation_source','') or '') if kind=='video' else None)

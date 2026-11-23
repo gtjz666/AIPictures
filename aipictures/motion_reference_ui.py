@@ -54,6 +54,9 @@ class MotionReferencePanel(QWidget):
         self.detail.setToolTip('只改变动作参考的编码尺寸，人物参考和输出分辨率不变。高值需要更多资源，可能无法在当前设备运行。')
         timeline.addWidget(self.detail)
         self.repeat=QCheckBox('循环参考动作');self.repeat.toggled.connect(self.update_range);timeline.addWidget(self.repeat)
+        self.reduce_appearance=QCheckBox('弱化原角色外观')
+        self.reduce_appearance.setToolTip('用于替换角色。用柔化的灰度画面引导动作与镜头，颜色和细节从指定参考图获取，也会弱化原片的背景色。')
+        timeline.addWidget(self.reduce_appearance)
         self.start.valueChanged.connect(self.update_range);seconds.valueChanged.connect(self.update_range)
         self.clear()
 
@@ -76,6 +79,11 @@ class MotionReferencePanel(QWidget):
 
     def is_frames(self):
         return bool(self.path and self.path.suffix.lower()=='.json')
+
+    def refresh_appearance_option(self):
+        w=self.window
+        self.reduce_appearance.setVisible(bool(self.path and
+            w.generation_type.currentData()=='walk' and w.reference_chat.references()))
 
     def cancel_preview(self):
         self.seek_timer.stop();self.seek_cancel.set();self.seek_token+=1
@@ -188,6 +196,7 @@ class MotionReferencePanel(QWidget):
         self.preview_fps=24.;self.preview_offset=0.
         self.poster.hide()
         self.repeat.setChecked(False)
+        self.reduce_appearance.setChecked(False)
         self.summary.clear();self.summary.hide()
         self.play.setEnabled(False);self.remove.setEnabled(False);self.start.setMaximum(0);self.start.setValue(0)
         self.update_range();self.changed.emit()

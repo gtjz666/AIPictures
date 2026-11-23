@@ -229,6 +229,11 @@ class VideoController:
         params['motion_timeline_clock']=w.workbench.timeline.clock if hasattr(w,'workbench') else 'output'
         if self.motion.path:
             params['motion_native_settings']=self.motion_settings.copy()
+            if editing and refs and self.motion.reduce_appearance.isChecked():
+                from .motion_guide import appearance_reduced_size
+                width,height=appearance_reduced_size(self.motion.meta['width'],self.motion.meta['height'])
+                params['motion_native_settings'].update(width=width,height=height)
+                params['motion_reduce_appearance']=True
             params['motion_prompt_policy']='reference_first_manual_v2'
             params['reference_role']=reference_role
             params['reference_usage']=reference_usage

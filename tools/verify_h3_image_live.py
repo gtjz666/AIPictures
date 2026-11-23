@@ -21,11 +21,15 @@ def wait(condition,seconds):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--proof',type=Path,required=True);p.add_argument('--machine',type=Path,required=True)
-    p.add_argument('--data',type=Path,required=True);p.add_argument('--plan',type=Path,required=True);a=p.parse_args()
+    p.add_argument('--data',type=Path,required=True);p.add_argument('--plan',type=Path,required=True);p.add_argument('--reference-guide',type=Path);a=p.parse_args()
     root=a.proof.resolve();root.mkdir(parents=True,exist_ok=False);data=root/'isolated';data.mkdir()
     c=json.loads(a.machine.read_text('utf-8'));c.update(validated=True,validation_scope='isolated production acceptance, not installed')
     c['encoder']['sha256']='35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6'
     write_json(data/'h3-image-settings.json',c)
+    if a.reference_guide:
+        from aipictures.h3_reference_guide import SETTINGS
+        guide = json.loads(a.reference_guide.read_text('utf-8'))
+        write_json(data/SETTINGS,dict(guide,validated=True))
     cases=json.loads(a.plan.read_text('utf-8'));write_json(root/'plan.json',cases)
     app=create_application([])
     with ExitStack() as cleanup,patch('aipictures.app.DATA',data),patch('aipictures.storage.DATA',data), \
@@ -52,11 +56,21 @@ def main():
             write_json(root/(case['id']+'-prepared.json'),prepared);w.grab().save(str(root/(case['id']+'-prompt-ui.png')))
             print('GENERATING',case['id'],flush=True)
             before=set((data/'jobs').glob('*/job.json')) if (data/'jobs').exists() else set()
-            w.generate_button.click();QTest.qWait(80);wait(lambda:not w.preparing and w.current is None and not w.pending,1800)
+            w.generate_button.click();QTest.qWait(80)
+            assert w.task_display.spinner.isVisible()
+            wait(lambda:not w.preparing and w.current is None and not w.pending,1800)
             created=set((data/'jobs').glob('*/job.json'))-before;assert len(created)==1,w.status.text()
             path=created.pop();job=json.loads(path.read_text('utf-8'));assert job['status']=='completed',job
-            from aipictures.h3_image import instruction
-            assert job['params']['positive']==instruction(case['requirement'],{i+1:p for i,p in enumerate(case['references'])})
+            from aipictures.h3_image import reference_edit
+            expected, order, edit = reference_edit(case['requirement'],{i+1:p for i,p in enumerate(case['references'])})
+            assert job['params']['positive']==expected and job['params'].get('reference_edit')==edit
+            assert list(map(int, job['params']['references']))==order
+            guided = bool(a.reference_guide and edit and 'source_slot' in edit)
+            if guided:
+                report = json.loads((path.parent/'reference-guide/result.json').read_text('utf-8'))
+                encode = json.loads((path.parent/'encode/workflow.json').read_text('utf-8'))
+                assert report['guide_released'] and report['preserved_visual_details'] and report['source_visual_details']
+                assert encode['condition']['inputs']['prompt']==report['effective_positive']==job['params']['effective_positive']
             assert not (data/'intent').exists()
             result=json.loads((path.parent/'result.json').read_text('utf-8'))
             for n in ('encode','sample','decode'):
@@ -64,9 +78,10 @@ def main():
                 assert process['returncode'] is not None
             assert all(digest(Path(p))==sha for p,sha in originals.items())
             assert w.task_display.started is None and w.progress.maximum()==100 and w.progress.value()==100
+            assert not w.task_display.spinner.isVisible()
             assert w.output==result['images'][0]
             shutil.copyfile(w.output,root/(case['id']+'-output.png'));w.grab().save(str(root/(case['id']+'-result-ui.png')))
-            rows.append(dict(id=case['id'],job=str(path),result=result,original_hashes=originals,actual_qt=True,actual_models=True,manual_prompt=True,assistant_used=False,shared_engine_required=False))
+            rows.append(dict(id=case['id'],job=str(path),result=result,original_hashes=originals,actual_qt=True,actual_models=True,manual_prompt=True,assistant_used=guided,shared_engine_required=False))
             write_json(root/'acceptance.json',rows);print('COMPLETED',case['id'],flush=True)
 
 

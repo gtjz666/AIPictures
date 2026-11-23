@@ -1,11 +1,32 @@
 """Official MiniMax H3 Image contract; independent of the shared video backend."""
 import json
 import math
+import re
 from pathlib import Path
-from .multi_reference import bind_text
+from .multi_reference import bind_text, image_ids
 
 MAX_IMAGES = 16
 PROTOCOL = 'h3_image_native_v1'
+EDIT_PROMPT_POLICY = 'native_reference_edit_v2'
+UNSPECIFIED_REFERENCE = re.compile(r'另一(?:张|幅)(?:参考图|图片|图)?(?:的|里|中)|参考图(?:中|里|的)')
+EDIT_PHRASE = r'(?:(?!图\d)[^，,。；;！!？?\n])'
+TRANSFER_PATTERNS = (
+    re.compile(rf'(?:请\s*)?(?:将|把|让|给)?\s*图(?P<base>\d+)(?P<before>{EDIT_PHRASE}{{0,80}}?)'
+               r'(?:调整为|修改成|修改为|更换成|更换为|改成|改为|换成|换为|替换成|替换为|做出|作出|摆出|采用|模仿|复刻|使用|按照|照着)\s*'
+               rf'图(?P<source>\d+)(?P<after>{EDIT_PHRASE}{{0,80}})'),
+    re.compile(rf'(?:请\s*)?(?:保留|保持)\s*图(?P<base>\d+)(?P<before>{EDIT_PHRASE}{{1,80}})[，,；;]\s*'
+               rf'(?:只|仅)?(?:采用|使用|模仿|复刻|参考|借用|换成)\s*图(?P<source>\d+)(?P<after>{EDIT_PHRASE}{{1,80}})'),
+)
+TRANSFER_ATTRIBUTES = {
+    '动作姿势': r'动作|姿势|姿态|手势|站姿|坐姿|肢体',
+    '面部表情': r'表情|神情|神态|视线',
+    '面部外观': r'五官|脸型|面容|面貌|长相',
+    '发型与发色': r'发型|发色|头发',
+    '美术风格': r'美术风格|画风|风格|渲染风格',
+    '服装配饰': r'衣服|服装|服饰|穿搭|配饰',
+    '构图': r'构图|取景|机位|视角',
+    '背景': r'背景|场景',
+}
 
 
 def settings(data):
@@ -39,6 +60,90 @@ def instruction(text, references):
     if not text.strip() or len(text)>32000:raise ValueError('请填写32000字符以内的图片提示词。')
     # Slot numbers remain stable after deletion; compact exactly once for the model.
     return bind_text(text,list(references),label='Picture')
+
+
+def simple_transfer(text):
+    """Recognize clear source/target phrases. Leave compound edits to the model."""
+    from .professional_prompt import labels
+    text = labels(text).strip().rstrip('。.!！')
+    for index, pattern in enumerate(TRANSFER_PATTERNS):
+        match = pattern.fullmatch(text)
+        if not match:
+            continue
+        base, source = int(match['base']), int(match['source'])
+        before, after = match['before'], match['after']
+        if base == source or re.search(r'不要|不改|排除|也要|保留|还要|同时|但是|并且', after):
+            return None
+        changed = after if index else before + ' ' + after
+        attributes = [name for name, words in TRANSFER_ATTRIBUTES.items() if re.search(words, changed)]
+        if not attributes and re.search(r'人物|角色|主体', before) and re.search(r'人物|角色|主体', after):
+            attributes = ['指定主体的外观']
+        if attributes:
+            return base, source, attributes
+    return None
+
+
+def reference_edit(text, references):
+    """Compile a numbered, native image edit from the user's own requirement."""
+    manual = instruction(text, references)
+    order = list(references)
+    if len(order) < 2:
+        return manual, order, None
+    transfer = simple_transfer(text)
+    if transfer:
+        base, source, attributes = transfer
+        order.remove(base)
+        order.insert(0, base)
+        fields = '、'.join(attributes)
+        guide = (
+            f'编辑图{base}并生成一张完整图片。图{base}是编辑底图；图{source}仅提供{fields}。\n'
+            f'修改：仅将指定对象的{fields}改为图{source}中可见的对应特征。\n'
+            f'保留：图{base}中未指定修改的属性、主体与画面关系。'
+            f'成图中保留底图的主体数量，图{source}中的参考主体只用于借取指定属性。'
+        )
+        if '动作姿势' in attributes:
+            guide += '按参考图迁移身体朝向、关节弯曲、手脚的位置及与身体或物体接触的位置。'
+        if '面部表情' in attributes:
+            guide += '按参考图迁移眼睛、眉毛和嘴部的状态。'
+            if '面部外观' not in attributes:
+                guide += '保留编辑对象的面部身份特征。'
+        roles = dict(base_slot=base, source_slot=source, attributes=attributes)
+    else:
+        if len(image_ids(text)) < 2 and UNSPECIFIED_REFERENCE.search(text):
+            raise ValueError('请说明改哪张图、另一张图用来做什么。例如：让图2的人物采用图1的动作和表情。')
+        from .professional_prompt import labels
+        base = re.match(r'(?:请\s*)?(?:编辑\s*图(\d+)|(?:编辑)?底图\s*[:：]\s*图(\d+)|以\s*图(\d+)\s*为(?:基底|底图|编辑基础))', labels(text).strip())
+        roles = {}
+        guide = ''
+        if base:
+            slot = int(next(number for number in base.groups() if number))
+            order.remove(slot)
+            order.insert(0, slot)
+            roles['base_slot'] = slot
+            guide = f'以图{slot}为编辑底图。'
+        guide += (
+            '根据用户要求生成一张完成图。分别确定要编辑的对象、各参考图提供的属性，以及应保留的部分。'
+            '按图号从原图读取相关特征，每张图只用于用户指定的用途。'
+            '保留编辑对象未要求改变的属性，按要求安排主体数量和画面关系。'
+        )
+    prompt = bind_text(f'{guide}\n用户要求（优先）：{text.strip()}', order, label='Picture')
+    return prompt, order, dict(policy=EDIT_PROMPT_POLICY, model_order=order, **roles)
+
+
+def reference_edit_canvas(references, roles, width, height):
+    """Move an automatically fitted canvas with the identified editing image."""
+    if not roles or 'base_slot' not in roles:
+        return width, height
+    first = next(iter(references))
+    base = roles['base_slot']
+    if first == base:
+        return width, height
+    from PIL import Image, ImageOps
+    with Image.open(references[first]) as image:
+        if (width, height) != canvas(*ImageOps.exif_transpose(image).size):
+            return width, height
+    with Image.open(references[base]) as image:
+        return canvas(*ImageOps.exif_transpose(image).size)
 
 
 def encode_graph(config,prompt,width,height,names,info=None):

@@ -114,10 +114,11 @@ def test_encoding_process_exits_before_sampling_and_cancel_boundary(tmp_path,mon
             sessions.append(self);self.input.mkdir(parents=True);self.output_dir.mkdir();return self
         def __exit__(self,*args):self.closed=True
         def check(self):pass
-        def generate(self,graph,folder,emit,cancel,**kw):
+        def run(self,graph,emit,*,latent=False):
+            folder=self.folder/'native_result'
             folder.mkdir(parents=True)
             if self.folder.name=='native_encode':
-                assert kw['allow_latent_only']
+                assert latent
                 packet=self.output_dir/'conditioning';packet.mkdir()
                 (packet/'conditioning.json').write_text('{}');(packet/'conditioning.safetensors').write_bytes(b'exact conditioning')
                 return {}

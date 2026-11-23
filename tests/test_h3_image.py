@@ -12,6 +12,29 @@ def config():
     return dict(encoder=dict(path='encoder.safetensors'),models=[dict(path='image.safetensors'),dict(path='vae.safetensors')])
 
 
+def test_decode_uses_cpu_only_on_the_validated_twelve_gib_cards():
+    from aipictures.comfy_vram import GIB
+    from aipictures.h3_image_runtime import decode_on_cpu
+    assert decode_on_cpu(12*GIB) is True
+    assert decode_on_cpu(12282*1024**2) is True
+    assert decode_on_cpu(16*GIB) is False
+    assert decode_on_cpu(24*GIB) is False
+    assert decode_on_cpu(None) is True
+
+
+def test_cpu_decode_session_never_starts_a_gpu_backend(tmp_path):
+    from aipictures.h3_image_runtime import Session
+    config=dict(python='python',model_paths='models.yaml',source=str(tmp_path))
+    cpu=Session(config,tmp_path/'cpu',threading.Event(),lambda *_:None,cpu=True)
+    cpu.input=tmp_path/'input';cpu.output=tmp_path/'output'
+    command=cpu.command(1234)
+    assert '--cpu' in command and '--reserve-vram' not in command
+    gpu=Session(config,tmp_path/'gpu',threading.Event(),lambda *_:None,cpu=False)
+    gpu.input=tmp_path/'input';gpu.output=tmp_path/'output'
+    command=gpu.command(1234)
+    assert '--cpu' not in command and command[-2:]==['--reserve-vram','3.0']
+
+
 def test_picture_binding_compacts_gallery_gaps_once_and_supports_sixteen():
     raw='保留图十二的角色，使用图十六的画风；<Picture 12> and Image 16'
     assert image_ids(raw)=={12,16}
@@ -42,6 +65,65 @@ def test_canvas_preserves_aspect_and_invalid_requests_fail_before_model():
     h3.validate(w,h,4,{i:None for i in range(1,17)})
     for values in [(513,2048,0,{}),(4096,8192,0,{}),(2048,2048,-1,{}),(2048,2048,1,{17:None})]:
         with pytest.raises(ValueError):h3.validate(*values)
+
+
+def test_short_reference_edit_fixes_the_base_order_without_renumbering_the_gallery(tmp_path):
+    pose = tmp_path / 'pose.png'; subject = tmp_path / 'subject.png'
+    Image.new('RGB', (1200, 1300)).save(pose)
+    Image.new('RGB', (800, 1200)).save(subject)
+    refs = {1:pose, 3:subject}
+    text, order, edit = h3.reference_edit('将图三的人物动作和面部表情改成图一的', refs)
+    assert order == [3,1] and list(refs) == [1,3]
+    assert edit['base_slot'] == 3 and edit['source_slot'] == 1
+    assert '将<Picture 1>的人物动作和面部表情改成<Picture 2>的' in text
+    assert '<Picture 2>仅提供动作姿势、面部表情' in text
+    assert h3.reference_edit_canvas(refs,edit,*h3.canvas(1200,1300)) == h3.canvas(800,1200)
+    assert h3.reference_edit_canvas(refs,edit,832,1280) == (832,1280)
+
+
+def test_reference_edit_keeps_appearance_and_style_roles_distinct():
+    refs = {1:None, 2:None, 7:None}
+    _, order, edit = h3.reference_edit('保留图2的人物和服装，采用图7的画风', refs)
+    assert order == [2,1,7] and edit['attributes'] == ['美术风格']
+    _, order, edit = h3.reference_edit('将图2人物的动作、表情、镜头构图和背景改成图1的', refs)
+    assert order == [2,1,7] and edit['attributes'] == ['动作姿势','面部表情','构图','背景']
+    text, order, edit = h3.reference_edit('底图：图2。融合图1的服装和图7的画风。', refs)
+    assert order == [2,1,7] and edit['base_slot'] == 2
+    assert '融合<Picture 2>的服装和<Picture 3>的画风' in text
+    with pytest.raises(ValueError, match='说明改哪张图'):
+        h3.reference_edit('把图2的动作改成另一张图里的', refs)
+    assert h3.reference_edit('给图2的人物画上帽子', {2:None}) == ('给<Picture 1>的人物画上帽子',[2],None)
+
+
+def test_reference_guide_reads_each_role_separately_and_preserves_the_request(tmp_path):
+    from aipictures.h3_reference_guide import prepare
+    from aipictures.workflow_library import digest
+    refs = {}
+    for slot, color in [(1,'yellow'), (2,'red')]:
+        path = tmp_path / f'{slot}.png'
+        Image.new('RGB', (32,32), color).save(path)
+        refs[slot] = path
+    text, order, edit = h3.reference_edit('把图2的动作改成图1的', refs)
+    frozen = {slot:dict(path=refs[slot],sha256=digest(refs[slot]),model_input=i)
+              for i,slot in enumerate(order,1)}
+    folder = tmp_path/'guide'
+    calls = []
+    class GuideSession:
+        def __init__(self,*args): pass
+        def __enter__(self): return self
+        def __exit__(self,*args): calls.append('released')
+        def complete(self, messages, **kwargs):
+            material = messages[-1]['content']
+            calls.append(material)
+            return json.dumps(dict(description='red outfit' if len(calls)==1 else 'right hand raised')), {}
+    effective = prepare({},edit,frozen,text,folder,threading.Event(),lambda *_:None,session_factory=GuideSession)
+    assert calls[-1]=='released' and len(calls)==3
+    assert calls[0][1]['image_url']['url']!=calls[1][1]['image_url']['url']
+    assert 'distinguishing features to keep' in calls[0][0]['text']
+    assert 'Describe only these features' in calls[1][0]['text']
+    assert 'red outfit' in effective and 'right hand raised' in effective
+    assert effective.endswith('把<Picture 1>的动作改成<Picture 2>的')
+    assert json.loads((folder/'result.json').read_text('utf-8'))['guide_released']
 
 
 def test_reference_preparation_is_text_only_and_keeps_user_operation(tmp_path):

@@ -9,6 +9,7 @@ import threading
 import time
 from pathlib import Path
 
+from .comfy_vram import SYSTEM_HEADROOM_GIB, VramSnapshots
 from .engine import Cancelled, ComfyClient, EngineUnavailable
 from .owned_process import OwnedProcessJob, gated_module_command
 from .storage import write_json
@@ -38,7 +39,8 @@ class NativeSession:
     """Private job ownership makes cancellation independent of a busy CUDA node."""
     def __init__(self,config:dict,folder:Path,cancel:threading.Event,emit):
         self.config=config;self.folder=Path(folder);self.cancel=cancel;self.emit=emit
-        self.process=None;self.owner=None;self.output=None;self.stop=threading.Event()
+        self.process=None;self.owner=None;self.output=None;self.watcher=None;self.stop=threading.Event()
+        self.vram=VramSnapshots(self.folder)
         self.input=self.folder/'native_input';self.output_dir=self.folder/'native_output'
 
     def __enter__(self):
@@ -51,7 +53,7 @@ class NativeSession:
                  '--extra-model-paths-config',self.config['model_paths'],'--input-directory',str(self.input.resolve()),
                  '--output-directory',str(self.output_dir.resolve()),'--disable-all-custom-nodes',
                  '--whitelist-custom-nodes','aipictures_motion','--offline','--disable-dynamic-vram',
-                 '--cache-none','--disable-smart-memory','--reserve-vram','3.0']
+                 '--cache-none','--disable-smart-memory','--reserve-vram',str(SYSTEM_HEADROOM_GIB)]
         if os.name=='nt':command+=['--disable-async-offload','--disable-pinned-memory']
         write_json(self.folder/'native-command.json',dict(command=command,cwd=self.config['source'],
             environment={'AIPICTURES_STREAM_WEIGHTS':'1'},weights_loader='stream'),durable=True)
@@ -101,13 +103,30 @@ class NativeSession:
 
     def __exit__(self,*_):
         self.stop.set()
-        if self.owner:self.owner.close()
-        if self.process:
-            if self.process.poll() is None:
-                if os.name!='nt' or self.owner is None:self.process.terminate()
-                self.process.wait(timeout=15)
-            write_json(self.folder/'native-process.json',dict(pid=self.process.pid,status='stopped',returncode=self.process.returncode),durable=True)
-        if self.output:self.output.close()
+        try:
+            if self.owner:self.owner.close()
+            if self.watcher:self.watcher.join(timeout=1)
+            if self.process:
+                if self.process.stdin and not self.process.stdin.closed:
+                    self.process.stdin.close()
+                if self.process.poll() is None:
+                    if os.name!='nt' or self.owner is None:self.process.terminate()
+                    try:
+                        self.process.wait(timeout=15)
+                    except subprocess.TimeoutExpired:
+                        self.process.kill()
+                        self.process.wait(timeout=5)
+                write_json(self.folder/'native-process.json',dict(pid=self.process.pid,status='stopped',returncode=self.process.returncode),durable=True)
+        finally:
+            if self.output:self.output.close()
+
+    def run(self,graph,event,*,latent=False):
+        self.check()
+        self.vram.capture(self.client,'before_graph')
+        self.check()
+        result=self.client.generate(graph,self.folder/'native_result',event,self.cancel,allow_latent_only=latent)
+        self.vram.capture(self.client,'after_graph')
+        return result
 
 
 def release_shared(params:dict, *, folder:Path|None=None, cancel:threading.Event|None=None)->list[dict]:
@@ -166,6 +185,9 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
     if prompt_format not in ('reference_roles_v1',FORMAT,EDIT_FORMAT):raise ValueError('未知动作提示词格式，未提交生成。')
     folder=Path(folder);config=params.get('motion_native_settings',{})
     length=output_frames(params['seconds'])
+    reduce_appearance = bool(params.get('motion_reduce_appearance'))
+    if reduce_appearance and (prompt_format != EDIT_FORMAT or not params.get('video_edit_refs')):
+        raise ValueError('弱化原角色外观需要参考动画和替换用参考图。')
     if not config.get('validated') and not params.get('_native_probe'):
         raise ValueError('动作参考专用模型尚未通过本机验证；普通提示词动画不受影响。')
     if any((folder/p).exists() for p in ('native-command.json','native_encode','native_sample')):
@@ -177,7 +199,8 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
         motion=prepare(Path(params['motion_reference']),server.input/'motion',math.ceil(params['seconds']*24)/24,
             params.get('motion_start',0.),cancel,emit,max_side=params.get('motion_max_side',512),
             align_h3=True,repeat=params.get('motion_repeat',False),encode_video=False,save_frames=True,
-            allow_tail_hold=bool(params.get('continuation_frame') or params.get('motion_allow_tail_hold')))
+            allow_tail_hold=bool(params.get('continuation_frame') or params.get('motion_allow_tail_hold')),
+            reduce_appearance=reduce_appearance)
         expected=params.get('motion_source',{}).get('sha256')
         if expected and expected!=motion['source']['sha256']:raise ValueError('动作参考与入队记录不一致。')
         image='';images=[]
@@ -194,7 +217,8 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
         compiler=compile_prompt if prompt_format==FORMAT else prompt
         if prompt_format==EDIT_FORMAT:
             from .video_edit import compile_prompt as compile_edit
-            text=compile_edit(params['prompt'],input_refs,reference_role=params.get('reference_role','appearance'),reference_usage=params.get('reference_usage',''))
+            text=compile_edit(params['prompt'],input_refs,reference_role=params.get('reference_role','appearance'),
+                              reference_usage=params.get('reference_usage',''),reduce_appearance=reduce_appearance)
         else:text=compiler(params['prompt'],bool(image),reference_role=params.get('reference_role','appearance'),reference_usage=params.get('reference_usage',''))
         if params.get('negative','').strip():
             negative=params['negative'].strip()
@@ -204,7 +228,8 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
             text+='\nAvoid: '+negative
         (folder/'prompt.txt').write_text(text,'utf-8')
         write_json(folder/'prompt-policy.json',dict(format=prompt_format,motion_timeline_clock='output',
-            reference_role=params.get('reference_role','appearance'),references=input_refs,source_video_is_editing_source=prompt_format in (FORMAT,EDIT_FORMAT)))
+            reference_role=params.get('reference_role','appearance'),references=input_refs,source_video_is_editing_source=prompt_format in (FORMAT,EDIT_FORMAT),
+            source_appearance_reduced=reduce_appearance))
         graph=encoding(server.info,text,params['seed'],config.get('width',768),config.get('height',1024),
                     length,'motion/frames.json',image)
         if params.get('continuation_frame'):
@@ -225,7 +250,7 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
                        'UNETLoader':'正在加载专用动作参考模型…','VAEDecode':'正在解码完整动画…'}.get(node)
                 if stage:emit('video_stage',dict(message=stage))
             emit(kind,data)
-        try:server.client.generate(graph,server.folder/'native_result',event,cancel,allow_latent_only=True)
+        try:server.run(graph,event,latent=True)
         except EngineUnavailable:
             if cancel.is_set():raise Cancelled('动作参考任务已取消；专用后端已停止。')
             raise
@@ -243,7 +268,7 @@ def generate(folder:Path,params:dict,cancel:threading.Event,emit)->dict:
             if 'AIPicturesSaveAudioLatent' not in server.info:raise ValueError('私有后端缺少本项目的原生音轨保存节点。')
             graph['save_audio']={'class_type':'AIPicturesSaveAudioLatent','inputs':{'latent':['sample',0]}}
         write_json(server.folder/'workflow.json',graph)
-        try:result=server.client.generate(graph,server.folder/'native_result',event,cancel)
+        try:result=server.run(graph,event)
         except EngineUnavailable:
             if cancel.is_set():raise Cancelled('动作参考任务已取消；专用后端已停止。')
             raise

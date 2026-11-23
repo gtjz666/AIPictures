@@ -2,8 +2,8 @@
 import time
 import re
 from PySide6.QtWidgets import QWidget,QHBoxLayout,QLabel,QProgressBar,QSizePolicy,QMessageBox
-from PySide6.QtCore import Qt
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QRectF, QTimer, Qt, Signal
+from PySide6.QtGui import QPainter, QPalette, QPen
 
 
 def task_name(params):
@@ -86,6 +86,48 @@ class TaskProgress(QProgressBar):
         super().setValue(value)
 
 
+class TaskSpinner(QWidget):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setFixedSize(16, 16)
+        policy = QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        policy.setRetainSizeWhenHidden(True)
+        self.setSizePolicy(policy)
+        self.setAccessibleName('正在处理')
+        self.setToolTip('正在处理')
+        self._angle = 0
+        self._timer = QTimer(self)
+        self._timer.setInterval(50)
+        self._timer.timeout.connect(self._rotate)
+        self.hide()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._timer.start()
+
+    def hideEvent(self, event):
+        self._timer.stop()
+        super().hideEvent(event)
+
+    def _rotate(self):
+        self._angle = (self._angle + 20) % 360
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        ring = QRectF(2, 2, 12, 12)
+        color = self.palette().color(QPalette.ColorRole.Highlight)
+        track = self.palette().color(QPalette.ColorRole.Mid)
+        track.setAlpha(80)
+        painter.setPen(QPen(track, 2))
+        painter.drawEllipse(ring)
+        pen = QPen(color, 2)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.drawArc(ring, -self._angle * 16, -115 * 16)
+
+
 class TaskDisplay(QWidget):
     def __init__(self,owner,*,export=False):
         super().__init__(owner); self.setObjectName('taskDisplay')
@@ -93,7 +135,15 @@ class TaskDisplay(QWidget):
         self.status=QLabel('等待导出') if export else TaskLabel(owner); self.percent=QLabel('0%')
         self.status.setSizePolicy(QSizePolicy.Policy.Preferred,QSizePolicy.Policy.Preferred)
         self.percent.setFixedWidth(45); self.percent.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
-        self.status.setFixedWidth(156);layout.addWidget(self.status)
+        self.status.setFixedWidth(156)
+        title = QWidget(self)
+        title_layout = QHBoxLayout(title)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(6)
+        self.spinner = TaskSpinner(title)
+        title_layout.addWidget(self.spinner, alignment=Qt.AlignmentFlag.AlignVCenter)
+        title_layout.addWidget(self.status)
+        layout.addWidget(title)
         self.progress=TaskProgress(determinate=True); self.progress.setRange(0,100); self.progress.setValue(0)
         self.progress.setMinimumWidth(0)
         self.progress.setTextVisible(False); self.progress.setMaximumHeight(5); layout.addWidget(self.progress,1);layout.addWidget(self.percent)
@@ -105,6 +155,7 @@ class TaskDisplay(QWidget):
     def start(self):
         self.progress.begin()
         self.started=time.monotonic(); self.finished_seconds=0.; self.stage='准备'
+        self.spinner.show()
 
     def seconds(self):
         return max(0.,time.monotonic()-self.started) if self.started is not None else self.finished_seconds
@@ -113,6 +164,7 @@ class TaskDisplay(QWidget):
         self.finished_seconds=self.seconds(); self.started=None
         self.progress.end(100 if status=='completed' else 0)
         self.stage={'completed':'完成','failed':'失败','cancelled':'已取消'}.get(status,status)
+        self.spinner.hide()
 
     def record_stage(self,text):
         self.detail.setText(text[:220])

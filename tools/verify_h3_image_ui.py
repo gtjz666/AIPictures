@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 from PIL import Image
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QDialog, QPlainTextEdit
 from aipictures.app import Window,create_application
 from aipictures.storage import write_json
 from aipictures.workflow_library import digest
@@ -33,6 +34,12 @@ def main():
             w.positive.setPlainText('Edit Image 1 using the art style of Image 16, preserving the pose of Image 1.')
             w.workbench.right_tabs.setCurrentIndex(1)
             assert not hasattr(w.workbench,'prepare_prompt') and w.positive.isVisible() and w.generate_button.isVisible()
+            assert w.workbench.reference_prompt_preview.isVisible()
+            w.workbench.reference_prompt_preview.click()
+            QTest.qWait(35)
+            preview=next(d for d in w.findChildren(QDialog) if d.isVisible() and d.windowTitle()=='参考图分工')
+            assert '<Picture 15>' in preview.findChild(QPlainTextEdit).toPlainText()
+            preview.close()
             w.workbench.prompt_output.setPlainText(w.positive.toPlainText())
             w.negative.setPlainText('OLD HIDDEN NEGATIVE MUST NOT LEAK')
             assert w.generation_intent.current()
@@ -49,7 +56,7 @@ def main():
             assert w.generation_intent.current()['positive']=='Changed source requirement'
             assert not w.workbench.structure_row.isVisible()
         finally:w.close();QTest.qWait(40)
-    print('Qt sixteen references / offline engine / exact binding / hidden-negative isolation / frozen job / stale draft: PASS')
+    print('Qt sixteen references / reference preview / offline engine / exact binding / frozen job: PASS')
 
 
 if __name__=='__main__':main()

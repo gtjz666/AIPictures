@@ -7,13 +7,20 @@ from pathlib import Path
 
 import av
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image, ImageFilter, ImageOps
 
 from .engine import Cancelled
 from .storage import write_json
 from .workflow_library import digest
 
 EXTENSIONS = {'.mp4', '.mkv', '.mov', '.webm', '.avi', '.gif'}
+_SOFT_GUIDE_LUMA = [min(210, round(value * .95)) for value in range(256)]
+
+
+def appearance_reduced_size(width: int, height: int) -> tuple[int, int]:
+    """Keep the source aspect ratio in the tested short-clip pixel budget."""
+    scale = min(640 / max(width, height), math.sqrt(640 * 480 / (width * height)))
+    return tuple(max(64, math.floor(side * scale / 32 + 1e-6) * 32) for side in (width, height))
 
 
 def sequence(path: Path) -> tuple[dict,list[Path]]:
@@ -115,7 +122,8 @@ def frames(path: Path, cancel: threading.Event):
 
 def prepare(path: Path, folder: Path, seconds: float, start: float,
             cancel: threading.Event, emit=lambda *_: None, *, max_side: int=1024, align_h3: bool=False, repeat: bool=False,
-            encode_video: bool=True, save_frames: bool=False, allow_tail_hold: bool=False) -> dict:
+            encode_video: bool=True, save_frames: bool=False, allow_tail_hold: bool=False,
+            reduce_appearance: bool=False) -> dict:
     """Stream a bounded, silent 24fps nearest-time guide; no optical flow or frame mixing."""
     meta = inspect(path,cancel)
     if not all(math.isfinite(v) for v in (start, seconds)) or start < 0 or not .08 <= seconds <= 15:
@@ -175,6 +183,11 @@ def prepare(path: Path, folder: Path, seconds: float, start: float,
                 # A presentation timestamp marks the START of a held frame,
                 # particularly for GIFs with different delays on every frame.
                 while written < count and times[written] < t - 1e-9:save(previous)
+            if reduce_appearance:
+                if im.size != (width, height):
+                    im = im.resize((width, height), Image.Resampling.LANCZOS)
+                radius = max(.6, min(5., min(width, height) * 2.2 / 225))
+                im = ImageOps.grayscale(im).filter(ImageFilter.GaussianBlur(radius)).point(_SOFT_GUIDE_LUMA).convert('RGB')
             previous, previous_time = im, t
             if written == count:break
         if previous is None:raise ValueError('动作参考没有可解码的画面。')
@@ -191,7 +204,8 @@ def prepare(path: Path, folder: Path, seconds: float, start: float,
                   start_seconds=start, used_seconds=source_count/24., encoded_seconds=count/24., requested_seconds=seconds,
                   last_frame_padding=0 if repeat else count-source_count,alignment_extension=count-source_count,max_side=max_side,
                   frames=count, fps=24, width=width, height=height, preview_frames=thumbs,
-                  audio=False, temporal_blending=False, role='motion_only',repeat=repeat)
+                  audio=False, temporal_blending=False, role='motion_only',repeat=repeat,
+                  appearance_reduced=reduce_appearance)
     write_json(folder/'motion.json', report)
     return report
 

@@ -9,6 +9,7 @@ from http.client import HTTPException
 from pathlib import Path
 from urllib.error import URLError
 from PIL import Image,ImageOps
+from .comfy_vram import GIB, SYSTEM_HEADROOM_GIB, VramSnapshots
 from .engine import ComfyClient,EngineUnavailable,Cancelled
 from .owned_process import OwnedProcessJob,gated_module_command
 from .storage import write_json
@@ -39,14 +40,31 @@ def check(cancel):
     if cancel.is_set():raise Cancelled('H3图片生成已取消，原素材和已完成阶段保留。')
 
 
+def decode_on_cpu(device_total):
+    """A second full-VAE peak is unsafe on 12 GiB cards or an unknown budget."""
+    return device_total is None or device_total <= 12 * GIB
+
+
 class Session:
     node_package='aipictures_image_probe'
     required_nodes={'MiniMaxH3ImageConditioning','AIPicturesSaveConditioning','AIPicturesLoadConditioning'}
     event_prefix='h3_image'
     label='H3图片'
-    def __init__(self,config,folder,cancel,emit):
+    def __init__(self,config,folder,cancel,emit,*,cpu=False):
         self.config=config;self.folder=Path(folder).resolve();self.cancel=cancel;self.emit=emit
+        self.cpu=cpu
+        self.vram=VramSnapshots(self.folder,cpu=cpu)
         self.owner=self.child=self.log=None;self.stop=threading.Event();self.watcher=None
+
+    def command(self,port):
+        c=self.config
+        command=[c['python'],'-u','-m','main','--listen','127.0.0.1','--port',str(port),
+            '--extra-model-paths-config',c['model_paths'],'--input-directory',str(self.input),'--output-directory',str(self.output),
+            '--user-directory',str(self.folder/'user'),'--database-url','sqlite:///'+(self.folder/'user/comfyui.db').as_posix(),
+            '--disable-all-custom-nodes','--whitelist-custom-nodes',self.node_package,'--disable-api-nodes','--disable-auto-launch',
+            '--disable-dynamic-vram','--disable-async-offload','--disable-pinned-memory','--disable-smart-memory','--cache-none']
+        command += ['--cpu'] if self.cpu else ['--reserve-vram',str(SYSTEM_HEADROOM_GIB)]
+        return command
 
     def __enter__(self):
         check(self.cancel);self.folder.mkdir(parents=True,exist_ok=False)
@@ -54,11 +72,7 @@ class Session:
         self.input=self.folder/'input';self.output=self.folder/'output'
         with socket.socket() as s:s.bind(('127.0.0.1',0));port=s.getsockname()[1]
         self.client=ComfyClient(f'http://127.0.0.1:{port}');c=self.config
-        command=[c['python'],'-u','-m','main','--listen','127.0.0.1','--port',str(port),
-            '--extra-model-paths-config',c['model_paths'],'--input-directory',str(self.input),'--output-directory',str(self.output),
-            '--user-directory',str(self.folder/'user'),'--database-url','sqlite:///'+(self.folder/'user/comfyui.db').as_posix(),
-            '--disable-all-custom-nodes','--whitelist-custom-nodes',self.node_package,'--disable-api-nodes','--disable-auto-launch',
-            '--disable-dynamic-vram','--disable-async-offload','--disable-pinned-memory','--disable-smart-memory','--cache-none','--reserve-vram','3.0']
+        command=self.command(port)
         write_json(self.folder/'command.json',dict(command=command,cwd=c['source'],stream_weights=True),durable=True)
         self.log=(self.folder/'backend.log').open('w',encoding='utf-8')
         try:
@@ -109,7 +123,11 @@ class Session:
 
     def run(self,graph,*,latent=False):
         check(self.cancel);write_json(self.folder/'workflow.json',graph,durable=True)
-        return self.client.generate(graph,self.folder/'result',self.emit,self.cancel,allow_latent_only=latent)
+        self.vram.capture(self.client,'before_graph')
+        check(self.cancel)
+        result=self.client.generate(graph,self.folder/'result',self.emit,self.cancel,allow_latent_only=latent)
+        self.vram.capture(self.client,'after_graph')
+        return result
 
 
 def generate(folder,params,cancel,emit):
@@ -127,24 +145,36 @@ def generate(folder,params,cancel,emit):
             if digest(Path(row['path']))!=row['sha256']:raise ValueError('本次参考图已变化，未开始推理。')
         from .motion_native_backend import release_shared
         release_shared(params,folder=folder,cancel=cancel)
+        positive = params['positive']
+        if params.get('h3_reference_guide_settings'):
+            from .h3_reference_guide import prepare
+            emit('h3_image_stage',dict(message='正在准备读取参考图…',phase='setup'))
+            positive = prepare(params['h3_reference_guide_settings'],params['reference_edit'],params['references'],
+                               positive,folder/'reference-guide',cancel,emit)
+            params['effective_positive'] = positive
         emit('h3_image_stage',dict(message='正在编码提示词与参考图…', phase='encode'))
         with Session(c,folder/'encode',cancel,emit) as s:
+            from .reference_input import opaque_reference
             names=[];assets=[]
             for number,row in params['references'].items():
                 check(cancel);path=Path(row['path']);name=f'reference_{len(names)+1}.png';target=s.input/name
                 with Image.open(path) as im:
-                    rgba=ImageOps.exif_transpose(im).convert('RGBA')
-                    Image.alpha_composite(Image.new('RGBA',rgba.size,'white'),rgba).convert('RGB').save(target)
+                    opaque_reference(ImageOps.exif_transpose(im),'white').save(target)
                 names.append(name);assets.append(dict(slot=int(number),model_input=len(names),path=str(target),sha256=digest(target),source_sha256=row['sha256']))
             write_json(folder/'inputs.json',assets,durable=True)
-            s.run(h3.encode_graph(c,params['positive'],params['width'],params['height'],names,s.info),latent=True)
+            s.run(h3.encode_graph(c,positive,params['width'],params['height'],names,s.info),latent=True)
             packet=s.output/'conditioning'
         emit('h3_image_stage',dict(message='参考编码已释放，正在生成图片 · 6步…', phase='sample'))
         with Session(c,folder/'sample',cancel,emit) as s:
             shutil.copytree(packet,s.input/'conditioning')
             s.run(h3.sample_graph(c,params['seed'],s.info),latent=True);sampled=s.output/'conditioning'
-        emit('h3_image_stage',dict(message='采样已释放，正在解码图片…', phase='decode'))
-        with Session(c,folder/'decode',cancel,emit) as s:
+            device_total = s.vram.records['before_graph'].get('device_total_bytes')
+        # On 12 GiB cards the full-image VAE can hit a second VRAM peak even
+        # after the sampler process has exited. Decode the saved latent on CPU.
+        cpu_decode = decode_on_cpu(device_total)
+        message = '采样已释放，正在用 CPU 解码图片…' if cpu_decode else '采样已释放，正在解码图片…'
+        emit('h3_image_stage',dict(message=message, phase='decode'))
+        with Session(c,folder/'decode',cancel,emit,cpu=cpu_decode) as s:
             shutil.copytree(sampled,s.input/'conditioning');result=s.run(h3.decode_graph(c,s.info))
         check(cancel)
         for row in params['references'].values():
