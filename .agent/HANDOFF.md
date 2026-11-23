@@ -1,5 +1,13 @@
 # 当前开发交接
 
+## 修复动画页参考视频不可拖入（2026-11-23 下午）
+
+`generation_workspace` 把参考动画页从生成页移到了参考分栏，并隐藏了原 `animation_header`；结果是“动画帧”生成页只剩提示词和参数，用户看不到参考视频卡片，也没有可拖入的目标。参考视频拖入后，`motion_changed` 又切回参考页，进一步隐藏了卡片。
+
+现在把参考视频卡片和播放器放回生成页顶部：新增「＋ 参考动画」「＋ 动作帧」按钮，卡片仍可直接拖入视频/GIF；拖入或选择后自动切到生成页。单张图片模式隐藏该区域。参考分栏只保留图片参考，避免两处重复。`motion.choose` 的文件对话框改用主窗口作父对象。`live_motion_reference` 增加生成页祖先/按钮可见检查，`verify_game_workspace` 同步新位置。
+
+验证：`tests/test_animation_editor.py`、`tests/test_dock_workspace.py`、`tests/live_motion_reference` 通过；全量 `665 passed + 11 subtests`（301.22秒）。没有改生成参数、模型或动作逻辑。
+
 ## 显存记录、H3 解码与弱化原角色外观（2026-11-23 下午续）
 
 接续上一轮未提交工作，完成并补齐验证。新增 `comfy_vram.py`：每个编码/采样阶段在任务目录写 `vram.json`，把真正空闲显存（已从 Comfy 的 `vram_free` 扣除可回收缓存）、`torch_active_bytes`（实际分配）、`torch_reserved_bytes`（分配器保留）和 `torch_reusable_cache_bytes`（可回收缓存）分开记录；`native` 与 `cudaMallocAsync` 都按同一公式记录，不再把异步分配器的保留量漏记或当成已用。快照是阶段图前后数据，不是峰值。

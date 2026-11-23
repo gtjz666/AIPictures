@@ -25,6 +25,8 @@ def main():
                 assert time.monotonic()<deadline
         assert not panel.isVisible() and not panel.path
         w.generation_type.setCurrentIndex(1);w.workbench.right_tabs.setCurrentIndex(1);assert not w.workbench.motion_selection.isVisible()
+        assert w.workbench.generation_page.isAncestorOf(w.workbench.motion_reference_page)
+        assert w.workbench.motion_add.isVisible() and w.workbench.motion_frames.isVisible()
         source=gif(root/'walk.gif');before=source.read_bytes();panel.set_file(source);wait()
         assert panel.path and panel.meta['name']=='walk.gif' and w.animation_action.currentData()=='custom'
         assert 'walk.gif' in panel.summary.text()

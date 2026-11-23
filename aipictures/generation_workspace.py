@@ -8,12 +8,19 @@ def install(b):
     # Keep the old table object for reading historical files, outside normal UX.
     b.timeline_region.setParent(b.hidden);b.timeline_region.hide();b.reference_skinning=True
     b.image_requirements.setParent(b.hidden);b.image_requirements.hide()
-    b.motion_reference_page.setParent(b.reference_splitter);b.reference_splitter.addWidget(b.motion_reference_page)
-    b.motion_reference_page.setMaximumHeight(16777215);b.motion_reference_page.show()
     content=QWidget();layout=QVBoxLayout(content);layout.setContentsMargins(8,6,8,6);layout.setSpacing(7)
     b.requirement_title=QLabel('创作要求');layout.addWidget(b.requirement_title)
     c.input.setMinimumHeight(75);c.input.setMaximumHeight(170);layout.addWidget(c.input,1)
     c.input.setPlaceholderText('描述需要保留和修改的内容，例如：保留图1的主体、外形与姿势，仅改为图2的美术风格。')
+    # The animation/reference source belongs on the same page as the generation
+    # controls, so it is visible and accepts video/GIF drops in animation mode.
+    b.motion_import_row=QWidget();motion_row=QHBoxLayout(b.motion_import_row);motion_row.setContentsMargins(0,0,0,0)
+    b.motion_add=QPushButton('＋ 参考动画');b.motion_add.clicked.connect(motion.choose);motion_row.addWidget(b.motion_add)
+    b.motion_frames=QPushButton('＋ 动作帧');b.motion_frames.clicked.connect(motion.choose_frames);motion_row.addWidget(b.motion_frames)
+    motion_row.addWidget(QLabel('也可直接拖入视频/GIF'),1)
+    layout.addWidget(b.motion_import_row)
+    b.motion_reference_page.setParent(content);b.motion_reference_page.setMaximumHeight(16777215)
+    layout.addWidget(b.motion_reference_page)
     w.short_video.setParent(content);layout.addWidget(w.short_video)
     b.prompts_dialog.layout().removeWidget(b.prompt_page)
     b.prompt_page.setParent(b.hidden);b.prompt_page.hide()
@@ -77,6 +84,9 @@ def install(b):
         guided=h3 and not walking and not sound and not long and len(w.reference_chat.references())>1
         b.right_tabs.setTabText(0,'参考');b.right_tabs.setTabText(1,'生成')
         b.image_requirements.hide();b.timeline_region.hide();b.animation_header.hide()
+        animation_source=walking or long
+        b.motion_import_row.setVisible(animation_source)
+        b.motion_reference_page.setVisible(animation_source)
         b.requirement_title.setText('提示词');b.requirement_title.setVisible(sound);c.input.hide();c.organize.hide()
         b.positive_title.setText('提示词');w.negative.parentWidget().hide();b.extra_constraints.hide();c.role.hide();c.role_note.hide()
         b.reference_prompt_preview.setVisible(guided)

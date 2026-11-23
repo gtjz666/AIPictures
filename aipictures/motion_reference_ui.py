@@ -61,7 +61,7 @@ class MotionReferencePanel(QWidget):
         self.clear()
 
     def choose(self):
-        path,_=QFileDialog.getOpenFileName(self,'添加动作参考','','动画 (*.mp4 *.gif *.mkv *.mov *.webm *.avi)')
+        path,_=QFileDialog.getOpenFileName(self.window,'添加动作参考','','动画 (*.mp4 *.gif *.mkv *.mov *.webm *.avi)')
         if path:self.set_file(Path(path))
 
     def choose_frames(self):

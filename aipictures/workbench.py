@@ -223,7 +223,8 @@ class Workbench:
         w.video_controller.motion.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
         w.video_controller.motion.asset_header.setParent(self.hidden)
         panel=w.video_controller.motion
-        for button in (panel.add,panel.add_frames,panel.play,panel.remove):button.setParent(self.hidden)
+        for button in (panel.play,panel.remove):button.setParent(self.hidden)
+        panel.add.setText('＋ 参考动画');panel.add_frames.setText('＋ 动作帧')
         panel.range_button.setParent(self.hidden)
         left=QWidget();self.motion_selection=left;selection=QVBoxLayout(left);selection.setContentsMargins(0,0,0,0)
         selection.addWidget(panel.repeat);selection.addWidget(panel.reduce_appearance)
@@ -406,7 +407,7 @@ class Workbench:
     def show_motion_reference(self,*,play=False,position=0):
         panel=self.window.video_controller.motion
         if not panel.path or not panel.preview_paths:return
-        self.right_tabs.setCurrentWidget(self.reference_items)
+        self.right_tabs.setCurrentWidget(self.animation)
         self.reference_player.load(panel.preview_paths,panel.preview_fps)
         self.reference_player.slider.setValue(min(position,len(panel.preview_paths)-1))
         if play:self.reference_player.toggle()
@@ -432,7 +433,7 @@ class Workbench:
         panel=self.window.video_controller.motion
         self.refresh_motion_asset()
         if panel.path and panel.preview_paths:
-            self.right_tabs.setCurrentWidget(self.reference_items)
+            self.right_tabs.setCurrentWidget(self.animation)
             self.show_motion_reference()
         else:
             self.reference_player.clear()

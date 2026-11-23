@@ -41,7 +41,9 @@ def verify(area='layout'):
                 drop(app,w.preview,[image]);drop(app,w.preview,[gif]);wait_until(lambda:not w.preparing)
             panel=vc.motion;assert panel.path and w.reference_path and not w.current and not w.pending
             assert abs(vc.seconds.value()-.96)<.002 and not panel.repeat.isChecked()
-            assert b.reference_items.isAncestorOf(b.motion_item) and b.reference_items.isAncestorOf(b.reference_item)
+            assert b.reference_items.isAncestorOf(b.reference_item)
+            assert b.generation_page.isAncestorOf(b.motion_item) and b.motion_reference_page.isVisible()
+            assert b.motion_add.isVisible() and b.motion_frames.isVisible()
             assert not b.timeline_region.isVisible() and not b.reference_skinning is False
             w.show_image(str(image));before=w.output,w.preview_path,w.preview_role,w.pixmap.cacheKey()
             b.right_tabs.setCurrentIndex(0);QTest.qWait(20)
