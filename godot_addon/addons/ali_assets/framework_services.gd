@@ -26,6 +26,8 @@ var restore_task: RefCounted
 var last_error: String = ""
 var owns_pause: bool = false
 var subgraph_jobs: Array[Dictionary] = []
+var interface_voice: AudioStreamPlayer
+var interface_gain: float = 0.0
 
 
 static func obtain(tree: SceneTree, config: Dictionary, fallback: String, script: GDScript) -> Node:
@@ -121,7 +123,10 @@ func execute(game: Node, node: Dictionary, port: int, context: Dictionary) -> Re
 	var kind: String = str(node["kind"])
 	match kind:
 		"subgraph": return run_subgraph(game,node,context)
-		"audio_fx": return game.get("audio_tools").call("execute",id,p,port) as RefCounted
+		"audio_fx":
+			if port == 0 and p.get("persist_ui",false):
+				return done(play_interface_sound(p))
+			return game.get("audio_tools").call("execute",id,p,port) as RefCounted
 		"input_bind":
 			var error: String = ""
 			match str(p["operation"]):
@@ -145,7 +150,9 @@ func execute(game: Node, node: Dictionary, port: int, context: Dictionary) -> Re
 			elif p["operation"] == "menu": path = str(manifest.get("menu_scene",""))
 			return scenes.call("request",path,float(p["fade"]),p["operation"] == "preload") as RefCounted
 		"settings_service":
-			var error: String = settings_operation(p,float(game.get("program").call("input_value",id,1,p["number"])))
+			var error: String = ""
+			if p["operation"] != "read":
+				error = settings_operation(p,float(game.get("program").call("input_value",id,1,p["number"])))
 			publish(game,id,settings.duplicate(true),context)
 			return done(error)
 		"data_register":
@@ -280,6 +287,7 @@ func apply_settings() -> String:
 	var mode: String = str(settings.get("window","windowed"))
 	if not mode in ["windowed","fullscreen","borderless"]: return "窗口模式无效"
 	apply_audio_settings(current_game(), volumes)
+	update_interface_gain(volumes)
 	var window: Window = get_window()
 	window.mode = Window.MODE_FULLSCREEN if mode == "fullscreen" else Window.MODE_WINDOWED
 	window.borderless = mode == "borderless"
@@ -294,6 +302,39 @@ func apply_audio_settings(game: Node, volumes: Variant) -> void:
 			game.call("set_volume", channel, clampf(float(volumes[channel]), -60, 6), false)
 
 
+func play_interface_sound(p: Dictionary) -> String:
+	if p["channel"] != "UI" or p["loop"] or p["wait"] or p["spatial"]:
+		return "跨场景播放只适用于不等待结束的非位置界面音效"
+	var path: String = str(p["path"])
+	if path.is_empty() or not ResourceLoader.exists(path, "AudioStream"): return "请选择界面音效"
+	var stream: AudioStream = load(path) as AudioStream
+	if stream == null: return "资源不是可播放音频"
+	if interface_voice == null:
+		interface_voice = AudioStreamPlayer.new()
+		interface_voice.name = "InterfaceSound"
+		add_child(interface_voice)
+	interface_voice.stop()
+	interface_voice.stream = stream.duplicate() as AudioStream
+	if interface_voice.stream is AudioStreamWAV:
+		(interface_voice.stream as AudioStreamWAV).loop_mode = AudioStreamWAV.LOOP_DISABLED
+	elif interface_voice.stream is AudioStreamOggVorbis or interface_voice.stream is AudioStreamMP3:
+		interface_voice.stream.set("loop",false)
+	interface_gain = float(p["volume"])
+	if update_interface_gain(settings.get("volumes",{})): interface_voice.play()
+	return ""
+
+
+func update_interface_gain(volumes: Dictionary) -> bool:
+	if interface_voice == null: return false
+	var master: float = float(volumes.get("Master",0.0))
+	var ui: float = float(volumes.get("UI",-8.0))
+	if master <= -60.0 or ui <= -60.0:
+		interface_voice.stop()
+		return false
+	interface_voice.volume_db = master + ui + interface_gain
+	return true
+
+
 func save_settings() -> String:
 	settings["bindings"] = inputs.call("snapshot")
 	var error: String = str(storage.call("save_settings",settings))
@@ -306,6 +347,8 @@ func settings_operation(p: Dictionary, number: float) -> String:
 		"volume":
 			if not settings.has("volumes"): settings["volumes"] = {}
 			settings["volumes"][p["channel"]] = clampf(number,-60,6)
+		"reset_audio":
+			settings["volumes"] = Model.params("mixer")
 		"resolution": settings["resolution"] = [p["width"],p["height"]]
 		"window": settings["window"] = str(p["window"])
 		"reset":

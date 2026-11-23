@@ -82,6 +82,10 @@ func start(node: Dictionary, port: int, execution_context: Dictionary) -> RefCou
 			if kind == "ui_control":
 				if not subject is Control: return result("UI目标需要Control")
 				if p["operation"] in ["show","hide","focus"]: return result(Access.invoke(subject, "grab_focus" if p["operation"] == "focus" else str(p["operation"]), []))
+				if p["operation"] == "value_quiet":
+					if not subject is Range or not Types.matches(parameter_value,"number"): return result("无通知数值需要 Range 控件和数值")
+					(subject as Range).set_value_no_signal(float(parameter_value))
+					return result()
 				var property: String = str({"color":"modulate","alpha":"modulate:a"}.get(p["operation"], p["operation"]))
 				return result(Access.write(subject, property, parameter_value))
 			return result(Access.write(subject, str(p["property"]), parameter_value))

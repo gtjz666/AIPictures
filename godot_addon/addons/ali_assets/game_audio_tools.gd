@@ -25,8 +25,18 @@ func execute(id: String, p: Dictionary, port: int) -> RefCounted:
 		var stream: AudioStream = load(str(p["path"])) as AudioStream
 		if stream == null: return result("资源不是可播放音频")
 		stream = stream.duplicate(true) as AudioStream
-		if stream is AudioStreamWAV: stream.loop_mode = AudioStreamWAV.LOOP_DISABLED
-		elif stream is AudioStreamMP3 or stream is AudioStreamOggVorbis: stream.set("loop",false)
+		var native_loop: bool = false
+		if stream is AudioStreamWAV:
+			stream.loop_mode = AudioStreamWAV.LOOP_DISABLED
+			if p["loop"]:
+				if stream.loop_end <= stream.loop_begin:
+					stream.loop_begin = 0
+					stream.loop_end = roundi(stream.get_length() * stream.mix_rate)
+				stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+				native_loop = true
+		elif stream is AudioStreamMP3 or stream is AudioStreamOggVorbis:
+			stream.set("loop",p["loop"])
+			native_loop = bool(p["loop"])
 		if p["spatial"]:
 			voice = AudioStreamPlayer2D.new()
 			(voice as AudioStreamPlayer2D).position = Vector2(float(p["x"]),float(p["y"]))
@@ -40,7 +50,7 @@ func execute(id: String, p: Dictionary, port: int) -> RefCounted:
 		add_child(voice)
 		voices[id] = voice
 		voice.connect("finished",func() -> void:
-			if p["loop"] and is_instance_valid(voice): voice.call("play"))
+			if p["loop"] and not native_loop and is_instance_valid(voice): voice.call("play"))
 	if voice == null: return result("此音频尚未播放")
 	match port:
 		0:
