@@ -6,7 +6,7 @@
 
 现在把参考视频卡片和播放器放回生成页顶部：新增「＋ 参考动画」「＋ 动作帧」按钮，卡片仍可直接拖入视频/GIF；拖入或选择后自动切到生成页。单张图片模式隐藏该区域。参考分栏只保留图片参考，避免两处重复。`motion.choose` 的文件对话框改用主窗口作父对象。`live_motion_reference` 增加生成页祖先/按钮可见检查，`verify_game_workspace` 同步新位置。
 
-验证：`tests/test_animation_editor.py`、`tests/test_dock_workspace.py`、`tests/live_motion_reference` 通过；全量 `665 passed + 11 subtests`（301.22秒）。没有改生成参数、模型或动作逻辑。
+验证：`tests/test_animation_editor.py`、`tests/test_dock_workspace.py`、`tests/live_motion_reference` 通过；全量 `665 passed + 11 subtests`（301.22秒）。没有改生成参数、模型或动作逻辑。已提交 `ecf9c30` 并推送 `origin/main`（经本机 127.0.0.1:7897 代理）。
 
 ## 显存记录、H3 解码与弱化原角色外观（2026-11-23 下午续）
 
