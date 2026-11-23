@@ -278,12 +278,14 @@ func key(game: Node, code: int) -> void:
 
 
 func until_scene(path: String) -> void:
-	for i: int in range(300):
+	var deadline: int = Time.get_ticks_msec() + 12000
+	while Time.get_ticks_msec() < deadline:
 		if current_scene != null and current_scene.scene_file_path == path:
 			await frames(6)
 			return
 		await process_frame
-	assert(false,"未切换到 "+path)
+	push_error("未切换到 "+path)
+	quit(1)
 
 
 func verify() -> void:
