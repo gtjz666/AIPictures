@@ -10,7 +10,7 @@ H3 图片在 12 GiB 设备上采样进程退出后改用 `--cpu` 私有会话解
 
 驱动与系统事件：`nvidia-smi`、设备管理器和驱动文件均为 621.24（Win32 32.0.16.2124）；621.24 是当前 Game Ready 分支，621.35 热修复针对SSD写入而非TDR。系统在 14:07:40 记录 PCIe Root Port 已更正硬件错误（WHEA），14:21 以 bugcheck 0x113（参数 0x19、0x1、0x10de、0x27a0）重启。本轮不能把这次 TDR 归因于软件显存记录或普通OOM，也不能宣称驱动/硬件根因已解决；重启后GPU可见（12282MiB，约10.7GiB空闲），没有新的TDR/WHEA记录。软件改动的目标是少一次可避免的VAE峰值，不是保证不再发生硬件级GPU丢失。
 
-测试与仓库：`pyproject.toml` 增加 pytest `norecursedirs`，避免把 `data/acceptance` 里的旧快照测试当成本项目测试。最终全量 `665 passed + 11 subtests`，213.28秒（日志 `data/acceptance/pytest-h3-vram-final2.log`）。新增 `tests/test_comfy_vram.py`，并补充 H3解码、弱化外观灰度引导和 `live_motion_reference` Qt 检查。没有删除模型、旧工作流或用户素材；没有并行运行其他生成。
+测试与仓库：`pyproject.toml` 增加 pytest `norecursedirs`，避免把 `data/acceptance` 里的旧快照测试当成本项目测试。最终全量 `665 passed + 11 subtests`，213.28秒（日志 `data/acceptance/pytest-h3-vram-final2.log`）。新增 `tests/test_comfy_vram.py`，并补充 H3解码、弱化外观灰度引导和 `live_motion_reference` Qt 检查。已提交 `cd8a999` 并推送 `origin/main`（本机直连 GitHub 443 失败，使用已有 `127.0.0.1:7897` 代理完成，未改全局代理）。没有删除模型、旧工作流或用户素材；没有并行运行其他生成。
 
 ## 参考图分工与处理提示（2026-11-23）
 
