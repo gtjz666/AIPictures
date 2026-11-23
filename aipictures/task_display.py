@@ -3,7 +3,7 @@ import time
 import re
 from PySide6.QtWidgets import QWidget,QHBoxLayout,QLabel,QProgressBar,QSizePolicy,QMessageBox
 from PySide6.QtCore import QRectF, QTimer, Qt, Signal
-from PySide6.QtGui import QPainter, QPalette, QPen
+from PySide6.QtGui import QBrush, QColor, QConicalGradient, QPainter, QPalette, QPen
 
 
 def task_name(params):
@@ -87,9 +87,10 @@ class TaskProgress(QProgressBar):
 
 
 class TaskSpinner(QWidget):
+    """The familiar rotating loading ring: one fading arc, no progress track."""
     def __init__(self, parent):
         super().__init__(parent)
-        self.setFixedSize(16, 16)
+        self.setFixedSize(18, 18)
         policy = QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         policy.setRetainSizeWhenHidden(True)
         self.setSizePolicy(policy)
@@ -97,7 +98,7 @@ class TaskSpinner(QWidget):
         self.setToolTip('正在处理')
         self._angle = 0
         self._timer = QTimer(self)
-        self._timer.setInterval(50)
+        self._timer.setInterval(40)
         self._timer.timeout.connect(self._rotate)
         self.hide()
 
@@ -110,22 +111,27 @@ class TaskSpinner(QWidget):
         super().hideEvent(event)
 
     def _rotate(self):
-        self._angle = (self._angle + 20) % 360
+        self._angle = (self._angle + 24) % 360
         self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        ring = QRectF(2, 2, 12, 12)
+        center = QRectF(1.5, 1.5, 15, 15)
         color = self.palette().color(QPalette.ColorRole.Highlight)
-        track = self.palette().color(QPalette.ColorRole.Mid)
-        track.setAlpha(80)
-        painter.setPen(QPen(track, 2))
-        painter.drawEllipse(ring)
-        pen = QPen(color, 2)
+        gradient = QConicalGradient(center.center(), -self._angle)
+        head = QColor(color); head.setAlpha(255)
+        body = QColor(color); body.setAlpha(190)
+        tail = QColor(color); tail.setAlpha(0)
+        gradient.setColorAt(0.00, head)
+        gradient.setColorAt(0.20, body)
+        gradient.setColorAt(0.55, QColor(color.red(), color.green(), color.blue(), 35))
+        gradient.setColorAt(0.75, tail)
+        gradient.setColorAt(1.00, tail)
+        pen = QPen(QBrush(gradient), 2.2)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
-        painter.drawArc(ring, -self._angle * 16, -115 * 16)
+        painter.drawEllipse(center.adjusted(1.1, 1.1, -1.1, -1.1))
 
 
 class TaskDisplay(QWidget):
