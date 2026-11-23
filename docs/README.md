@@ -12,7 +12,7 @@
 2. [完整技术文档：数据格式、执行语义与兼容策略](GODOT_BLUEPRINT_TECHNICAL.md)
 3. [全部模块与参数：71类游戏／13类角色](GODOT_BLUEPRINT_CATALOG.md)
 4. [角色蓝图操作](GODOT_BLUEPRINTS.md)
-5. [跑酷小游戏制作步骤](GODOT_RUNNER_GUIDE.md)
+5. [小恐龙跑酷完整制作教程](DINO_AI_ASSETS_TUTORIAL.md)
 6. [素材导出与Godot插件安装](GODOT_ASSETS.md)
 7. [画面设计使用说明](MOSS_IMAGE.md)
 8. [原始0.5完整需求及最新范围修订](BLUEPRINT_05_REQUIREMENTS.md)

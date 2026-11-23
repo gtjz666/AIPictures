@@ -19,7 +19,9 @@ const DESCRIPTIONS: Dictionary = {
 	"input_action":"读取Godot InputMap，输出按下、释放、按住与强度。输入框聚焦时默认屏蔽游戏输入。",
 	"input_bind":"为动作绑定多个键或鼠标、捕获新键、处理冲突、恢复默认并写入独立设置文件。",
 	"save_service":"多槽存取；先恢复场景，再恢复注册变量、角色属性与地图差量。槽0为快速存档，设置单独保存。",
-	"scene_service":"原生后台预加载与切换，转场淡入淡出复用动画；跨场景仅保留服务，场景节点引用需重新获取。",
+	"frame_event":"每个普通帧或物理帧触发一次，输出本次更新经过的秒数。",
+	"body_contact":"读取 CharacterBody2D 最近一次移动后的地面、墙壁或天花板接触状态。",
+	"scene_service":"切换或预加载场景。叠加界面可以独立编辑，打开时可暂停当前游戏，关闭后继续原局。",
 	"settings_service":"分辨率、窗口模式、四路音量和输入绑定独立持久化，不随存档回退。",
 	"game_service":"初始化、开始、暂停、继续、结束、重开、返回菜单与退出。框架暂停冻结世界，UI任务可继续。",
 	"event_send":"发送带类型参数的命名事件；本游戏、指定角色或框架跨场景作用域。",
@@ -61,6 +63,10 @@ static func visible_field(node: Dictionary, field: String) -> bool:
 		if field == "frames": return mode == "frames"
 		if field in ["clip","speed"]: return mode in ["animation","frames"]
 	if kind == "button" and field in ["hover_scale","pressed_scale","effect_seconds","click_animation"]: return p.get("effects_enabled",false)
+	if kind == "scene_service":
+		if field == "scene": return p["operation"] in ["change", "preload", "open_overlay"]
+		if field == "fade": return p["operation"] in ["change", "reload", "menu"]
+		if field == "pause_world": return p["operation"] == "open_overlay"
 	if kind == "ui_control" and field in ["name","parent","x","y","width","height"]: return p["create_type"] != "none"
 	if kind == "camera2d":
 		if field == "follow": return p["operation"] == "follow"

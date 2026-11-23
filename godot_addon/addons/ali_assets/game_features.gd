@@ -23,8 +23,18 @@ func setup(controller: Node) -> void:
 		var id: String = str(node["id"])
 		var scope: String = event_scope(p) if node["kind"] == "event_receive" else project_scope()
 		var event_name: String = str(p.get("name", p.get("event", "")))
+		if node["kind"] == "game_event" and game.get("overlay_mode") == true and event_name in ["initialized", "scene_entered"]: continue
 		bus.call("subscribe", self, scope, event_name, func(payload: Variant) -> void:
 			if Types.matches(payload, str(p["value_type"])): game.call("queue_event", id, payload))
+
+
+func initialize_overlay() -> void:
+	for node: Dictionary in game.get("game_blueprint")["nodes"]:
+		if node["kind"] != "game_event": continue
+		var p: Dictionary = node["params"]
+		var payload: Dictionary = {"scene":game.get("binding_root").scene_file_path, "state":game.get("state")}
+		if p["event"] in ["initialized", "scene_entered"] and Types.matches(payload, str(p["value_type"])):
+			game.call("queue_event", str(node["id"]), payload)
 
 
 func has_kind(kind: String) -> bool:
@@ -98,6 +108,14 @@ func value(node: Dictionary, _port: int) -> Variant:
 	var id: String = str(node["id"])
 	match str(node["kind"]):
 		"node_ref": return Access.node(game, p["target"])
+		"frame_event": return game.get("program").get("messages").get(id, 0.0)
+		"body_contact":
+			var body: CharacterBody2D = target(p, id, 0) as CharacterBody2D
+			if body == null: return false
+			match p["surface"]:
+				"wall": return body.is_on_wall()
+				"ceiling": return body.is_on_ceiling()
+				_: return body.is_on_floor()
 		"resource_ref": return load(str(p["resource"])) if not str(p["resource"]).is_empty() else null
 		"property_get": return Access.read(target(p, id, 0), str(p["property"]))
 		"typed_value": return Types.initial(p, game)

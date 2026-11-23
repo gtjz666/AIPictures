@@ -2,7 +2,7 @@ extends RefCounted
 ## Narrow native property/method adapter. No arbitrary script or engine calls.
 const Types: GDScript = preload("blueprint_types.gd")
 const PROPERTIES: Array[String] = ["hp", "health", "facing", "dead", "visible", "position", "global_position", "scale", "rotation", "rotation_degrees", "modulate", "self_modulate", "z_index", "size", "custom_minimum_size", "pivot_offset", "text", "bbcode_enabled", "texture", "mouse_filter", "disabled", "editable", "button_pressed", "value", "min_value", "max_value", "step", "tooltip_text", "zoom", "offset", "enabled", "limit_left", "limit_top", "limit_right", "limit_bottom", "position_smoothing_enabled", "position_smoothing_speed", "scroll_offset", "autoscroll", "repeat_size", "repeat_times", "volume_db", "pitch_scale", "speed_scale", "velocity", "collision_layer", "collision_mask", "tile_set", "sprite_frames", "animation", "frame"]
-const METHODS: Dictionary = {"show":0,"hide":0,"grab_focus":0,"release_focus":0,"make_current":0,"force_update_scroll":0,"reset_smoothing":0,"clear":0,"select_all":0,"set_pressed_no_signal":1,"set_value_no_signal":1}
+const METHODS: Dictionary = {"show":0,"hide":0,"grab_focus":0,"release_focus":0,"make_current":0,"force_update_scroll":0,"reset_smoothing":0,"clear":0,"select_all":0,"set_pressed_no_signal":1,"set_value_no_signal":1,"move_and_slide":0}
 
 
 static func node(root: Node, object_ref: Variant) -> Node:
@@ -67,6 +67,7 @@ static func motion_proxy(target: Object, property: String) -> Object:
 
 static func invoke(target: Node, method: String, args: Array) -> String:
 	if not is_instance_valid(target) or not METHODS.has(method) or not target.has_method(method): return "不支持此方法：" + method
+	if method == "move_and_slide" and not target is CharacterBody2D: return "移动并滑动需要 CharacterBody2D"
 	if args.size() != int(METHODS[method]): return "方法参数数量不符"
 	if method == "set_pressed_no_signal" and not args[0] is bool: return "需要布尔值"
 	if method == "set_value_no_signal" and not Types.matches(args[0], "number"): return "需要数字"

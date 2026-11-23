@@ -10,7 +10,7 @@ func _initialize() -> void:
 
 
 func run() -> void:
-	assert(Model.TITLES.size() == 71)
+	assert(Model.TITLES.size() == 73)
 	assert(Model.validate(Model.preset(), true).is_empty())
 	assert(Model.validate(Model.scene_preset(), true).is_empty())
 	assert(not Link.problem("res://fixtures/button.png", "frames").is_empty())

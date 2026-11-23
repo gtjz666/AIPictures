@@ -15,7 +15,7 @@ def render_guide(source,*,title='AlI 小恐龙式游戏制作指南',navigation_
                   'GODOT_BLUEPRINT_TECHNICAL.md':'蓝图技术文档.html',
                   'BLUEPRINT_05_PLAN.md':'蓝图0.5阶段文档.html',
                   'GODOT_SCENE_BLUEPRINT_GUIDE.md':'场景蓝图教程.html',
-                  'DINO_AI_ASSETS_TUTORIAL.md':'小恐龙实际生图测试步骤.html',
+                  'DINO_AI_ASSETS_TUTORIAL.md':'小恐龙跑酷制作教程.html',
                   'GODOT_ASSETS.md':'素材导出指南.html'}
         for filename,label in guides.items():
             text=re.sub(r'\[([^]\n]+)\]\('+re.escape(filename)+r'\)',lambda match:'<a href="'+label+'">'+match[1]+'</a>',text)
@@ -56,11 +56,12 @@ def render_guide(source,*,title='AlI 小恐龙式游戏制作指南',navigation_
                 items.append(match[1]);index+=1
             blocks.append(f'<{tag}>'+''.join('<li>'+inline(item)+'</li>' for item in items)+f'</{tag}>');continue
         blocks.append('<p>'+inline(line)+'</p>')
-    navigation='<nav><strong>'+html.escape(navigation_title)+'</strong><ol>'+''.join(f'<li><a href="#{a}">{html.escape(t)}</a></li>' for a,t in toc)+'</ol></nav>'
-    style='''body{margin:0;background:#eff4f3;color:#183c43;font:16px/1.8 "Microsoft YaHei",system-ui,sans-serif}main{max-width:1000px;margin:28px auto;padding:42px;background:white;border-radius:12px}h1{font-size:30px}h2{margin-top:42px;border-bottom:2px solid #d6e9e3;padding-bottom:8px}h3{margin-top:28px}nav{padding:20px 28px;background:#edf6f2;border-radius:8px}li{margin:9px 0}a{color:#236c69}code{background:#edf2f2;border-radius:3px;padding:2px 5px;overflow-wrap:anywhere}pre{overflow:auto;background:#edf2f2;padding:18px}table{border-collapse:collapse;width:100%;font-size:15px}th,td{border:1px solid #cbdad7;padding:10px;text-align:left}th{background:#edf6f2}img{width:100%;height:auto;border:1px solid #dbe6e2}figure{margin:24px 0}figcaption{font-size:14px;color:#5c7776} @media print{body{background:white;font-size:11px}main{margin:0;padding:0}nav{display:none}h2{break-after:avoid}table,figure,pre{break-inside:avoid}}'''
-    return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+html.escape(title)+'</title><style>'+style+'</style><main>'+blocks[0]+navigation+''.join(blocks[1:])+'</main></html>'
+    navigation='<nav><strong>'+html.escape(navigation_title)+'</strong><ul>'+''.join(f'<li><a href="#{a}">{html.escape(t)}</a></li>' for a,t in toc)+'</ul></nav>'
+    style='''body{margin:0;background:#eff4f3;color:#183c43;font:16px/1.8 "Microsoft YaHei",system-ui,sans-serif}main{max-width:1000px;margin:28px auto;padding:42px;background:white;border-radius:12px}h1{font-size:30px}h2{margin-top:42px;border-bottom:2px solid #d6e9e3;padding-bottom:8px}h3{margin-top:28px}nav{padding:20px 28px;background:#edf6f2;border-radius:8px}li{margin:9px 0}nav ul{list-style:none;padding:0;columns:2;column-gap:32px}nav li{break-inside:avoid;margin:0 0 9px}@media(max-width:680px){main{margin:0;padding:20px}nav ul{columns:1}}a{color:#236c69}code{background:#edf2f2;border-radius:3px;padding:2px 5px;overflow-wrap:anywhere}pre{overflow:auto;background:#edf2f2;padding:18px}table{border-collapse:collapse;width:100%;font-size:15px}th,td{border:1px solid #cbdad7;padding:10px;text-align:left}th{background:#edf6f2}img{width:100%;height:auto;border:1px solid #dbe6e2}figure{margin:24px 0}figcaption{font-size:14px;color:#5c7776} @media print{body{background:white;font-size:11px}main{margin:0;padding:0}nav{display:none}h2{break-after:avoid}table,figure,pre{break-inside:avoid}}'''
+    first_section=next((i for i,block in enumerate(blocks) if block.startswith('<h2 ')),1)
+    return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+html.escape(title)+'</title><style>'+style+'</style><main>'+''.join(blocks[:first_section])+navigation+''.join(blocks[first_section:])+'</main></html>'
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--source',type=Path,default=Path('docs/GODOT_RUNNER_GUIDE.md'));parser.add_argument('--output',type=Path,required=True);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--source',type=Path,default=Path('docs/DINO_AI_ASSETS_TUTORIAL.md'));parser.add_argument('--output',type=Path,required=True);args=parser.parse_args()
     args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(render_guide(args.source),'utf-8');print(args.output.resolve())

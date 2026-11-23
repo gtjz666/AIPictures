@@ -2,7 +2,7 @@
 
 2026年11月18日 · Godot 4.6 · API 6 · 2D版。
 
-原生注册表只读提取：71类游戏模块、13类角色模块、346项游戏字段。19项角色动作是动作模块内的选项。
+原生注册表只读提取：73类游戏模块、13类角色模块、350项游戏字段。19项角色动作是动作模块内的选项。
 
 先读[使用步骤](BLUEPRINT_05_PLAN.md)与[技术文档](GODOT_BLUEPRINT_TECHNICAL.md)。白色执行、橙色事件；绿色布尔、蓝色数字、粉色文字，其余类型使用不同数据色。事件口仍沿用执行端口编号，不破坏旧图。
 
@@ -76,11 +76,13 @@
 | 运行时改键（input_bind） | 事件与输入 | 为动作绑定多个键或鼠标、捕获新键、处理冲突、恢复默认并写入独立设置文件。 |
 | 音频渐变／位置声音（audio_fx） | 游戏服务 | 音频渐变／位置声音：从执行口触发，在右侧配置参数与资源；数据口按类型连接。 |
 | 游戏生命周期（game_service） | 游戏服务 | 初始化、开始、暂停、继续、结束、重开、返回菜单与退出。框架暂停冻结世界，UI任务可继续。 |
-| 场景切换／转场（scene_service） | 游戏服务 | 原生后台预加载与切换，转场淡入淡出复用动画；跨场景仅保留服务，场景节点引用需重新获取。 |
+| 场景切换／转场（scene_service） | 游戏服务 | 切换或预加载场景。叠加界面可以独立编辑，打开时可暂停当前游戏，关闭后继续原局。 |
 | 设置管理（settings_service） | 游戏服务 | 分辨率、窗口模式、四路音量和输入绑定独立持久化，不随存档回退。 |
 | 存档管理（save_service） | 游戏服务 | 多槽存取；先恢复场景，再恢复注册变量、角色属性与地图差量。槽0为快速存档，设置单独保存。 |
 | 注册存档数据（data_register） | 游戏服务 | 注册存档数据：从执行口触发，在右侧配置参数与资源；数据口按类型连接。 |
 | 游戏／场景事件（game_event） | 事件与输入 | 游戏／场景事件：从执行口触发，在右侧配置参数与资源；数据口按类型连接。 |
+| 帧更新事件（frame_event） | 事件与输入 | 每个普通帧或物理帧触发一次，输出本次更新经过的秒数。 |
+| 2D接触状态（body_contact） | 变量与数据 | 读取 CharacterBody2D 最近一次移动后的地面、墙壁或天花板接触状态。 |
 
 ## 全部游戏模块字段
 
@@ -869,7 +871,7 @@
 | 字段／参数 | 类型 | 默认 | 范围／选项 |
 | --- | --- | --- | --- |
 | target／目标节点 | node |  |  |
-| method／受支持方法 | choice | show | clear：clear；grab_focus：grab_focus；hide：hide；make_current：make_current；release_focus：release_focus；reset_smoothing：reset_smoothing；select_all：select_all；set_pressed_no_signal：set_pressed_no_signal；set_value_no_signal：set_value_no_signal；show：show |
+| method／受支持方法 | choice | show | clear：clear；grab_focus：grab_focus；hide：hide；make_current：make_current；move_and_slide：move_and_slide（角色移动并滑动）；release_focus：release_focus；reset_smoothing：reset_smoothing；select_all：select_all；set_pressed_no_signal：set_pressed_no_signal；set_value_no_signal：set_value_no_signal；show：show |
 | arguments／参数JSON数组 | json | [] |  |
 
 ### 获取资源引用（resource_ref）
@@ -1155,7 +1157,7 @@
 
 ### 场景切换／转场（scene_service）
 
-原生后台预加载与切换，转场淡入淡出复用动画；跨场景仅保留服务，场景节点引用需重新获取。
+切换或预加载场景。叠加界面可以独立编辑，打开时可暂停当前游戏，关闭后继续原局。
 
 输入：0 执行（执行）；1 取消（执行）
 
@@ -1163,9 +1165,10 @@
 
 | 字段／参数 | 类型 | 默认 | 范围／选项 |
 | --- | --- | --- | --- |
-| operation／场景操作 | choice | change | change：切换；menu：返回主菜单；preload：预加载；reload：重载 |
+| operation／场景操作 | choice | change | change：切换；close_overlay：关闭当前叠加界面；menu：返回主菜单；open_overlay：打开叠加界面；preload：预加载；reload：重载 |
 | scene／目标场景 | asset |  | scene |
 | fade／转场淡出／淡入秒数 | number | 0.3 | 0～10 |
+| pause_world／界面打开时暂停游戏 | bool | 关 |  |
 
 ### 设置管理（settings_service）
 
@@ -1227,6 +1230,31 @@
 | event／生命周期事件 | choice | initialized | ended：结束；initialized：初始化完成；loaded：存档恢复完成；paused：暂停；restarted：重开；resumed：恢复；scene_entered：场景进入；scene_exiting：场景退出；settings_changed：设置改变；started：开始 |
 | value_type／参数类型 | choice | dictionary | array：数组；bool：布尔；color：颜色RGBA；dictionary：字典；node：节点引用；number：数字；resource：资源引用；text：文字；vector2：Vector2；vector3：Vector3（数据） |
 
+### 帧更新事件（frame_event）
+
+每个普通帧或物理帧触发一次，输出本次更新经过的秒数。
+
+输入：无。
+
+输出：0 更新（执行）；1 帧间隔（数字）
+
+| 字段／参数 | 类型 | 默认 | 范围／选项 |
+| --- | --- | --- | --- |
+| clock／更新时机 | choice | physics | physics：物理帧；render：普通帧 |
+
+### 2D接触状态（body_contact）
+
+读取 CharacterBody2D 最近一次移动后的地面、墙壁或天花板接触状态。
+
+输入：0 物体（节点引用）
+
+输出：0 是否接触（布尔）
+
+| 字段／参数 | 类型 | 默认 | 范围／选项 |
+| --- | --- | --- | --- |
+| target／目标节点 | node |  |  |
+| surface／接触方向 | choice | floor | ceiling：天花板；floor：地面；wall：墙壁 |
+
 ## 角色模块（13类）
 
 角色工作台负责单个角色，异步服务、地图、菜单、相机在游戏工作台编排。
@@ -1251,9 +1279,9 @@
 
 角色默认运动参数：速度180、奔跑倍率1.8、重力980、起跳速度-380。角色动作包括移动、待机、行走、奔跑、跳跃、攻击、受击、死亡、冲刺、翻滚、防御、施法、交互、攀爬、下落、落地。特殊技能仍需玩法模块或自定义代码；动作槽不自动提供命中判定、背包或AI。
 
-## 基础场景与边界
+## 模板与边界
 
-「新建基础场景」创建一个空白 2D 场景，打开该场景时会自动加载它的蓝图。可从模块库手动添加菜单、移动、碰撞、设置及存档等逻辑。
+新建游戏框架提供空白2D、基础2D、平台跳跃、跑酷；生成六类可编辑原生场景。菜单、保存与设置接线和动画均有效。只创建新目录，只有用户勾选才修改启动场景。
 
 旧自含游戏API低于6时只读绑定，创建新名称场景升级。原Sequence保持立即双输出，等待请用task_group。旧v1子图仍可加载，参数子图保存为version2。
 

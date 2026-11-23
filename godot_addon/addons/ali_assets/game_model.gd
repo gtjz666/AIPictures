@@ -379,6 +379,7 @@ static func upgrade(data: Dictionary) -> Dictionary:
 		if kind in ["blackboard", "set_variable"] and not raw["params"].has("json"): raw["params"]["json"] = "null"
 		if kind in ["blackboard", "set_variable"] and not raw["params"].has("scope"): raw["params"]["scope"] = "game"
 		if kind == "blackboard" and not raw["params"].has("reset_global"): raw["params"]["reset_global"] = false
+		if kind == "scene_service" and not raw["params"].has("pause_world"): raw["params"]["pause_world"] = false
 		if kind == "button":
 			for addition: Array in Registry.BUTTON_EFFECTS:
 				if not raw["params"].has(addition[0]): raw["params"][addition[0]] = addition[3]

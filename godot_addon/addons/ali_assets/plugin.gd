@@ -288,6 +288,8 @@ func collect_resources(nodes: Array, found: Dictionary) -> void:
 	for node: Dictionary in nodes:
 		for field: Array in Model.fields(str(node["kind"])):
 			if field[2] != "asset": continue
+			# Navigation targets can point back to this scene. Load them by path at runtime.
+			if node["kind"] == "scene_service" and field[0] == "scene": continue
 			var path: String = str(node["params"].get(field[0],""))
 			if not path.is_empty() and not found.has(path) and ResourceLoader.exists(path):
 				found[path] = load(path)

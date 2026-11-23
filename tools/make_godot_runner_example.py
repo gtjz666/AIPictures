@@ -15,7 +15,7 @@ def make(project,application,godot):
     run=subprocess.run([str(godot),'--headless','--path',str(project),'--script',str(script)],capture_output=True,timeout=45)
     output=(run.stdout+run.stderr).decode('utf-8','replace')
     if run.returncode or 'ERROR:' in output or 'ALI_RUNNER_EXAMPLE_CREATED' not in output:raise RuntimeError(output)
-    (project/'README.md').write_text('打开project.godot后按F5运行。Space开始／跳跃，Esc暂停，R重开。默认图形与声音为原创演示占位。\n\n在右侧AlI素材打开“游戏蓝图／创建小游戏”，选中RunnerGame根节点后“绑定当前游戏”，修改后应用并保存。\n完整教程位于AlI软件docs/GODOT_RUNNER_GUIDE.md。\n','utf-8')
+    (project/'README.md').write_text('打开project.godot后按F5运行。Space开始／跳跃，Esc暂停，R重开。默认图形与声音为原创演示占位。\n\n在右侧AlI素材打开“游戏蓝图／创建小游戏”，选中RunnerGame根节点后“绑定当前游戏”，修改后应用并保存。\n完整教程位于AlI软件docs/DINO_AI_ASSETS_TUTORIAL.md。\n','utf-8')
     return project
 
 

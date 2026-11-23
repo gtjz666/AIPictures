@@ -20,6 +20,10 @@ func run() -> void:
 	assert(ali != null)
 	if FileAccess.file_exists("res://editor2d-proof.json"):
 		var reopened: Window = ali.get("game_window") as Window
+		var deadline: int = Time.get_ticks_msec() + 5000
+		while (reopened == null or not reopened.visible) and Time.get_ticks_msec() < deadline:
+			await get_tree().process_frame
+			reopened = ali.get("game_window") as Window
 		assert(reopened != null and reopened.visible)
 		var root: Node = EditorInterface.get_edited_scene_root()
 		assert(root != null and root.scene_file_path == "res://SceneOne.tscn" and reopened.get("target") == root)
@@ -304,6 +308,11 @@ func test_scene_canvas(ali: Node, window: Window) -> void:
 	assert(not Library.compile(outside).has("error"))
 	search.text = ""
 	await test_scene_switching(window)
+	var route: Dictionary = Model.module("route","scene_service",0.0,0.0)
+	route["params"]["scene"] = "res://SceneOne.tscn"
+	var dependencies: Dictionary = {}
+	ali.call("collect_resources",[route],dependencies)
+	assert(dependencies.is_empty(),"Navigation must not make PackedScene a hard dependency")
 	window.call("bind_scene",null)
 
 
@@ -338,6 +347,9 @@ func test_canvas_layout(window: Window) -> void:
 	var module_id: String = window.get("selected_id")
 	var widget: GraphNode = graph.get_node(NodePath(module_id))
 	assert(widget.selected and Model.find(window.get("data"),module_id)["kind"] == "number")
+	assert(widget.get_output_port_count() == 1 and widget.get_output_port_type(0) == 7)
+	assert(widget.get_child(0).get_child(1).text == "输出")
+	assert("◇" in widget.get_child(1).get_child(1).text)
 	window.call("open_palette", module_id, 0, Vector2(310,160))
 	assert(palette.visible and not inspector_scroll.visible)
 	var esc: InputEventKey = InputEventKey.new()

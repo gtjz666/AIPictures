@@ -21,6 +21,7 @@ const ParameterLibrary: GDScript = preload("subgraph_library.gd")
 const TilePicker: GDScript = preload("tile_picker.gd")
 const FrameTrack: GDScript = preload("frame_track.gd")
 const TrackIO: GDScript = preload("frame_track_io.gd")
+const LEGACY_RUNNER_MODULES: Array[String] = ["session", "input", "runner", "world", "spawner", "hud"]
 var data: Dictionary = Model.empty_scene()
 var graph: GraphEdit
 var frame_track: VBoxContainer
@@ -261,7 +262,7 @@ func render(refresh: bool = true) -> void:
 	navigator.clear()
 	for node: Dictionary in data["nodes"]:
 		var index: int = navigator.item_count
-		navigator.add_item(str(Model.TITLES[node["kind"]]) + (" · " + Model.summary(node) if not Model.summary(node).is_empty() else ""))
+		navigator.add_item(module_caption(node))
 		navigator.set_item_metadata(index, str(node["id"]))
 		if str(node["id"]) == selected_id:
 			navigator.select(index)
@@ -274,7 +275,7 @@ func render(refresh: bool = true) -> void:
 		var id: String = str(node["id"])
 		var kind: String = str(node["kind"])
 		widget.name = id
-		widget.title = str(node.get("title",Model.TITLES[kind])) + (" · " + Model.summary(node) if not Model.summary(node).is_empty() else "")
+		widget.title = module_caption(node)
 		widget.tooltip_text = EditorTools.description(kind)+"\n模块编号："+id
 		widget.custom_minimum_size.x = 260
 		widget.position_offset = Vector2(float(node["position"][0]), float(node["position"][1]))
@@ -300,21 +301,30 @@ func render(refresh: bool = true) -> void:
 			change("移动模块", next))
 		var ins: Array = Model.INPUTS[kind]
 		var outs: Array = Model.OUTPUTS[kind]
-		for index: int in range(maxi(1, maxi(ins.size(), outs.size()))):
+		if ins.is_empty() and outs.is_empty():
+			var hint: Label = Label.new()
+			hint.text = "选择此模块配置参数"
+			widget.add_child(hint)
+			continue
+		var headings: HBoxContainer = HBoxContainer.new()
+		for caption: String in ["输入", "输出"]:
+			var heading: Label = Label.new()
+			var left: bool = caption == "输入"
+			heading.text = caption if (not ins.is_empty() if left else not outs.is_empty()) else ""
+			heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if left else HORIZONTAL_ALIGNMENT_RIGHT
+			heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			heading.add_theme_color_override("font_color", Color("a7b7cb"))
+			headings.add_child(heading)
+		widget.add_child(headings)
+		for index: int in range(maxi(ins.size(), outs.size())):
 			var row: HBoxContainer = HBoxContainer.new()
-			var left: Label = Label.new()
-			left.text = str(ins[index]) if index < ins.size() else ""
-			left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			row.add_child(left)
-			var right: Label = Label.new()
-			right.text = str(outs[index]) if index < outs.size() else ""
-			row.add_child(right)
-			widget.add_child(row)
+			row.add_theme_constant_override("separation", 20)
 			var left_type: int = Model.port_type(data, id, index, false)
 			var right_type: int = Model.port_type(data, id, index, true)
-			widget.set_slot(index, index < ins.size(), left_type, Model.color_for(left_type), index < outs.size(), right_type, Color.ORANGE if EditorTools.event_output(kind,index) else Model.color_for(right_type))
-		if ins.is_empty() and outs.is_empty():
-			(widget.get_child(0).get_child(0) as Label).text = "选择此模块配置参数"
+			row.add_child(port_label(str(ins[index]) if index < ins.size() else "", left_type, false))
+			row.add_child(port_label(str(outs[index]) if index < outs.size() else "", right_type, true))
+			widget.add_child(row)
+			widget.set_slot(index + 1, index < ins.size(), left_type, Model.color_for(left_type), index < outs.size(), right_type, Color.ORANGE if EditorTools.event_output(kind,index) else Model.color_for(right_type))
 	for edge: Dictionary in data["edges"]:
 		graph.connect_node(str(edge["from"]), int(edge.get("from_port", 0)), str(edge["to"]), int(edge.get("to_port", 0)))
 	if palette.visible:
@@ -324,6 +334,23 @@ func render(refresh: bool = true) -> void:
 			filter_palette()
 	if refresh:
 		show_inspector()
+
+
+func module_caption(node: Dictionary) -> String:
+	if node.has("title"): return str(node["title"])
+	var caption: String = str(Model.TITLES[node["kind"]])
+	var summary: String = Model.summary(node)
+	return caption if summary.is_empty() else caption + " · " + summary
+
+
+func port_label(caption: String, type: int, output: bool) -> Label:
+	var label: Label = Label.new()
+	var mark: String = "▶" if type == 0 else "◇"
+	if not caption.is_empty(): label.text = caption + " " + mark if output else mark + " " + caption
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT if output else HORIZONTAL_ALIGNMENT_LEFT
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.add_theme_color_override("font_color", Model.color_for(type).lerp(Color.WHITE, 0.18))
+	return label
 
 
 func clear_deselected_module(id: String) -> void:
@@ -369,6 +396,24 @@ func show_inspector() -> void:
 	title.text = str(Model.TITLES[kind])
 	title.add_theme_font_size_override("font_size", 20)
 	inspector.add_child(title)
+	var name_caption: Label = Label.new()
+	name_caption.text = "模块名称"
+	inspector.add_child(name_caption)
+	var name_edit: LineEdit = LineEdit.new()
+	name_edit.max_length = 64
+	name_edit.placeholder_text = str(Model.TITLES[kind])
+	name_edit.text = str(node.get("title", ""))
+	name_edit.tooltip_text = "输入名称后按回车"
+	var module_id: String = selected_id
+	name_edit.text_submitted.connect(func(value: String) -> void:
+		var next: Dictionary = data.duplicate(true)
+		var module_data: Dictionary = Model.find(next, module_id)
+		var trimmed: String = value.strip_edges()
+		if module_data.is_empty() or module_data.get("title", "") == trimmed: return
+		if trimmed.is_empty(): module_data.erase("title")
+		else: module_data["title"] = trimmed
+		if change("修改模块名称", next, false): name_edit.text = trimmed)
+	inspector.add_child(name_edit)
 	var description: Label = Label.new()
 	description.text = EditorTools.description(kind)
 	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -416,7 +461,13 @@ func show_inspector() -> void:
 				var bound: Node = Access.node(target,str(node["params"].get("target",""))) if is_instance_valid(target) else null
 				var names: Array[String] = []
 				for property: String in Access.PROPERTIES:
-					if bound == null or Access.has_property(bound,property): names.append(property)
+					if bound != null and not Access.has_property(bound,property): continue
+					names.append(property)
+					if bound == null: continue
+					var current: Variant = Access.read(bound,property)
+					if current is Vector2: names.append_array([property + ":x", property + ":y"])
+					elif current is Vector3: names.append_array([property + ":x", property + ":y", property + ":z"])
+					elif current is Color: names.append_array([property + ":r", property + ":g", property + ":b", property + ":a"])
 				if not str(value) in names: names.append(str(value))
 				for property: String in names: properties.add_item(property)
 				properties.select(names.find(str(value)))
@@ -1047,6 +1098,7 @@ func filter_palette() -> void:
 	results.clear()
 	var term: String = search.text.strip_edges().to_lower()
 	for kind: String in Model.TITLES:
+		if kind in LEGACY_RUNNER_MODULES: continue
 		if function_mode and (kind in Model.SINGLETONS or kind in ["key_event","event_listener","signal_event","ui_event","event_receive","game_event","input_action","button"]): continue
 		if favorites_only and not kind in favorites: continue
 		var label: String = ("★ " if kind in favorites else "")+Model.category(kind) + " · " + str(Model.TITLES[kind])

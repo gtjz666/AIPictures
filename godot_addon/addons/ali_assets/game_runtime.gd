@@ -26,6 +26,7 @@ const Hud: GDScript = preload("game_hud.gd")
 @export var blueprint_resources: Array[Resource] = []
 var binding_root: Node
 var canvas_mode: bool = false
+var overlay_mode: bool = false
 var program: RefCounted
 var debug_path: String = ""
 var state: String = "waiting"
@@ -56,6 +57,7 @@ var previous_scale: Vector2i
 var previous_mode: Window.ContentScaleMode = Window.CONTENT_SCALE_MODE_DISABLED
 var previous_aspect: Window.ContentScaleAspect = Window.CONTENT_SCALE_ASPECT_KEEP
 var initialized: bool = false
+var frame_events: Dictionary = {"physics": [], "render": []}
 var animations: Node
 var tasks: Node
 var features: Node
@@ -99,13 +101,14 @@ func initialize_game() -> void:
 		return
 	canvas_mode = game_blueprint.get("template") == "canvas"
 	binding_root = get_parent() if canvas_mode else self
+	overlay_mode = canvas_mode and binding_root.has_meta(&"ali_blueprint_overlay")
 	var screen: Dictionary = settings("screen")
 	base_size = Vector2i(int(screen["width"]), int(screen["height"]))
 	var window: Window = get_window()
 	previous_scale = window.content_scale_size
 	previous_mode = window.content_scale_mode
 	previous_aspect = window.content_scale_aspect
-	if not canvas_mode or not Model.by_kind(game_blueprint,"screen").is_empty():
+	if not overlay_mode and (not canvas_mode or not Model.by_kind(game_blueprint,"screen").is_empty()):
 		window.content_scale_size = base_size
 		window.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
 		window.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP if screen["aspect"] == "keep" else Window.CONTENT_SCALE_ASPECT_EXPAND
@@ -147,6 +150,8 @@ func initialize_game() -> void:
 			modules[id] = (load(str(p["script"])) as GDScript).new()
 		elif kind == "timer":
 			timers[id] = {"active": false, "elapsed": 0.0}
+		elif kind == "frame_event":
+			frame_events[p["clock"]].append(id)
 	hud = Hud.new()
 	hud.name = "GameUI"
 	add_child(hud)
@@ -182,9 +187,13 @@ func initialize_game() -> void:
 	hud.call("refresh_health")
 	initialized = true
 	if canvas_mode and Model.by_kind(game_blueprint,"session").is_empty(): state = "running"
-	services.call("attach_game",self,not canvas_mode)
+	if overlay_mode:
+		features.call("initialize_overlay")
+	else:
+		services.call("attach_game",self,not canvas_mode)
 	queue_redraw()
 	set_process_unhandled_key_input(true)
+	set_physics_process(not frame_events["physics"].is_empty())
 
 
 func setup_buses() -> void:
@@ -251,6 +260,14 @@ func _unhandled_key_input(event_input: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 
 
+func _physics_process(delta: float) -> void:
+	if initialized and state != "paused": emit_frame_events("physics", delta)
+
+
+func emit_frame_events(clock: String, delta: float) -> void:
+	for id: String in frame_events[clock]: queue_event(id, delta)
+
+
 func _process(delta: float) -> void:
 	if not initialized:
 		return
@@ -264,6 +281,7 @@ func _process(delta: float) -> void:
 			profile.save(profile_path)
 	if state == "paused":
 		return
+	emit_frame_events("render", delta)
 	program.call("tick", delta)
 	var due: Array[Dictionary] = delayed
 	delayed = []
@@ -470,7 +488,7 @@ func write_debug() -> void:
 func _exit_tree() -> void:
 	if not initialized:
 		return
-	if services != null: services.call("detach_game",self)
+	if services != null and not overlay_mode: services.call("detach_game",self)
 	if tasks != null: tasks.call("cancel_all")
 	if animations != null: animations.call("cancel_all")
 	write_debug()
@@ -487,7 +505,7 @@ func _exit_tree() -> void:
 		if index > 0:
 			AudioServer.remove_bus(index)
 	var window: Window = get_window()
-	if window != null and window.content_scale_size == base_size and (not canvas_mode or not Model.by_kind(game_blueprint,"screen").is_empty()):
+	if window != null and window.content_scale_size == base_size and not overlay_mode and (not canvas_mode or not Model.by_kind(game_blueprint,"screen").is_empty()):
 		window.content_scale_size = previous_scale
 		window.content_scale_mode = previous_mode
 		window.content_scale_aspect = previous_aspect

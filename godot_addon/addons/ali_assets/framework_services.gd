@@ -18,6 +18,7 @@ var scenes: Node
 var storage: RefCounted
 var bus: Node
 var settings: Dictionary = {}
+var settings_saved: bool = false
 var globals: Dictionary = {}
 var registered: Dictionary = {}
 var pending_save: Dictionary = {}
@@ -58,7 +59,9 @@ func configure() -> void:
 	bus = Events.obtain(get_tree(),Events)
 	var loaded: Dictionary = storage.call("read_settings")
 	if loaded.has("error"): last_error = str(loaded["error"])
-	else: settings = loaded
+	else:
+		settings = loaded
+		settings_saved = not loaded.is_empty()
 	if settings.get("bindings") is Dictionary:
 		var error: String = inputs.call("restore",settings["bindings"])
 		if not error.is_empty(): last_error = error
@@ -85,6 +88,8 @@ func attach_game(game: Node, apply_initial_settings: bool = true) -> void:
 	if apply_initial_settings:
 		var error: String = apply_settings()
 		if not error.is_empty(): last_error = error
+	elif settings_saved:
+		apply_audio_settings(game, settings["volumes"])
 	notify("initialized",{"state":state})
 	var transition: RefCounted = scenes.get("active") as RefCounted
 	var scene: Node = game.get("binding_root") as Node if "binding_root" in game and game.get("binding_root") != null else game
@@ -132,6 +137,10 @@ func execute(game: Node, node: Dictionary, port: int, context: Dictionary) -> Re
 		"scene_service":
 			if port == 1: scenes.call("cancel"); return done()
 			var path: String = str(p["scene"])
+			if p["operation"] == "open_overlay":
+				return scenes.call("request_overlay", path, bool(p.get("pause_world", false))) as RefCounted
+			if p["operation"] == "close_overlay":
+				return done(str(scenes.call("close_overlay", game.get("binding_root"))))
 			if p["operation"] == "reload": path = get_tree().current_scene.scene_file_path if get_tree().current_scene != null else game.scene_file_path
 			elif p["operation"] == "menu": path = str(manifest.get("menu_scene",""))
 			return scenes.call("request",path,float(p["fade"]),p["operation"] == "preload") as RefCounted
@@ -270,10 +279,7 @@ func apply_settings() -> String:
 	if not Types.numeric_array(resolution,2) or float(resolution[0]) < 320 or float(resolution[1]) < 240 or float(resolution[0]) > 7680 or float(resolution[1]) > 4320: return "分辨率设置无效"
 	var mode: String = str(settings.get("window","windowed"))
 	if not mode in ["windowed","fullscreen","borderless"]: return "窗口模式无效"
-	var game: Node = current_game()
-	if game != null:
-		for channel: String in volumes:
-			if channel in ["Master","BGM","SFX","UI"]: game.call("set_volume",channel,clampf(float(volumes[channel]),-60,6),false)
+	apply_audio_settings(current_game(), volumes)
 	var window: Window = get_window()
 	window.mode = Window.MODE_FULLSCREEN if mode == "fullscreen" else Window.MODE_WINDOWED
 	window.borderless = mode == "borderless"
@@ -281,9 +287,18 @@ func apply_settings() -> String:
 	return ""
 
 
+func apply_audio_settings(game: Node, volumes: Variant) -> void:
+	if game == null or not volumes is Dictionary: return
+	for channel: String in ["Master","BGM","SFX","UI"]:
+		if Types.matches(volumes.get(channel), "number"):
+			game.call("set_volume", channel, clampf(float(volumes[channel]), -60, 6), false)
+
+
 func save_settings() -> String:
 	settings["bindings"] = inputs.call("snapshot")
-	return str(storage.call("save_settings",settings))
+	var error: String = str(storage.call("save_settings",settings))
+	if error.is_empty(): settings_saved = true
+	return error
 
 
 func settings_operation(p: Dictionary, number: float) -> String:
